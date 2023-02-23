@@ -1,0 +1,204 @@
+# Conveniently placed copy-pastable alias command:
+# alias valgrindsupp='valgrind --suppressions=valgrind.supp'
+#
+# Also conveniently placed copy-pastable variable command (bash/zsh specific):
+# valgrindsupp=(valgrind --suppressions=valgrind.supp)
+#
+# Also also conveniently placed function command:
+# function valgrindsupp { valgrind --suppressions=valgrind.supp "$@"; }
+#
+# To generate suppressions, use '--gen-suppressions=all'.
+
+
+
+# #
+# Memory leaks
+# #
+
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+   fun:GetModuleInfo
+   fun:GetMagickInfo
+   fun:SetImageInfo
+   fun:BlobToImage
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:memalign
+   ...
+   fun:GetImageInfo
+   fun:_ZN6Magick7OptionsC1Ev
+   fun:_ZN6Magick8ImageRefC1Ev
+   fun:_ZN6Magick5ImageC1Ev
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:memalign
+   ...
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+   ...
+   fun:GetConfigurePaths
+   fun:GetConfigureOptions
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:memalign
+   ...
+   fun:SetImageInfo
+   fun:BlobToImage
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+   obj:/usr/lib/ImageMagick-7.1.0/modules-Q16HDRI/coders/png.so
+   ...
+   fun:BlobToImage
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:GetConfigureOptions
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+   fun:GetLogEventMask
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:/usr/lib/ImageMagick-7.1.0/modules-Q16HDRI/coders/png.so
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   fun:SetImageInfo
+   fun:BlobToImage
+   fun:_ZN6Magick5Image4readERKNS_4BlobE
+   ...
+}
+{
+   <ImageMagick>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   ...
+   obj:/usr/lib/libMagickCore-7.Q16HDRI.so.10.0.0
+   ...
+   fun:GetLogEventMask
+   fun:GetImageInfo
+   fun:_ZN6Magick7OptionsC1Ev
+   fun:_ZN6Magick8ImageRefC1Ev
+   fun:_ZN6Magick5ImageC1Ev
+   ...
+}
+
+
+
+{
+   <SDL2>
+   Memcheck:Leak
+   fun:*alloc
+   ...
+   obj:/usr/lib/libSDL2*
+   ...
+}
+{
+   <XimOpenIM>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:*alloc
+   fun:_XimOpenIM
+   ...
+}
+{
+   <DlInit>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:_dl_init
+   ...
+}
+{
+   <DlOpen>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:_dl_open
+   ...
+}
+{
+   <DlClose>
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:_dl_close
+   ...
+}
+
+
+
+# #
+# Memory access violations
+# #
+
+{
+   <VkConfig_Addr8>
+   Memcheck:Addr8
+   fun:memmove
+   ...
+   fun:_Z26DispatchCreateSwapchainKHRP10VkDevice_TPK24VkSwapchainCreateInfoKHRPK21VkAllocationCallbacksPP16VkSwapchainKHR_T
+   fun:_ZN20vulkan_layer_chassis18CreateSwapchainKHREP10VkDevice_TPK24VkSwapchainCreateInfoKHRPK21VkAllocationCallbacksPP16VkSwapchainKHR_T
+   ...
+}
+{
+   <AmdgpuPro_bcmp>
+   Memcheck:Cond
+   fun:bcmp
+   obj:/usr/lib/amdvlk64.so.1.0
+   obj:/usr/lib/amdvlk64.so.1.0
+   obj:/usr/lib/amdvlk64.so.1.0
+   ...
+}
+{
+   <VkConfig_Cond>
+   Memcheck:Cond
+   ...
+   fun:UtilPostCallRecordCreateDevice<GpuAssisted>
+   fun:_ZN11GpuAssisted26PostCallRecordCreateDeviceEP18VkPhysicalDevice_TPK18VkDeviceCreateInfoPK21VkAllocationCallbacksPP10VkDevice_T8VkResult
+   fun:_ZN20vulkan_layer_chassis12CreateDeviceEP18VkPhysicalDevice_TPK18VkDeviceCreateInfoPK21VkAllocationCallbacksPP10VkDevice_T
+   ...
+}
