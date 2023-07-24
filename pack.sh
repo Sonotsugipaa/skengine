@@ -9,63 +9,86 @@ generator="${generator:-"Unix Makefiles"}"
 
 dstpath="${dstpath:-/tmp/game-engine-sketch}"
 pkgpath=$dstpath/${config}-pack
-assetpath="${assetpath:-"$(realpath ./assets)"}"
-binpath="$dstpath/$config/main"
+srcassetpath="${srcassetpath:-"$(realpath ./assets)"}"
+binpath="$dstpath/$config"
 
-if [[ ! -d $dstpath/$config ]]; then
-	echo 'Build directory '$dstpath/${config}' does not exist' 1>&2
+if [[ ! -d $binpath ]]; then
+	echo 'Build directory '$binpath' does not exist' 1>&2
 	exit 1
 fi
 
 mkdir -m755 -p $pkgpath
-cd $dstpath/${config}
+cd $binpath
 
 
-function copy-assets {
-	if [[ -e "$binpath/assets" ]]; then
-		if [[ ! -d "$binpath/assets" ]]; then
-			echo \""$binpath/assets"\"' exists, but is not a directory' >&2
+function create_pkgpath {
+	if [[ -e "$pkgpath" ]]; then
+		if [[ ! -d "$pkgpath" ]]; then
+			echo \""$pkgpath"\"' exists, but is not a directory' >&2
 			exit 1
 		fi
 	else
-		mkdir "$binpath/assets" || {
-			echo 'Failed to create '\""$binpath/assets/"\" >&2
+		mkdir "$pkgpath" || {
+			echo 'Failed to create '\""$pkgpath/"\" >&2
 			exit 1
 		}
 	fi
-	while read file; do
-		cp -ut "$binpath/assets" "$file"
-	done < <(
-		find $assetpath \
-			-name '*.gap' \
-			-mindepth 1 -maxdepth 1
-	)
 }
-copy-assets
+create_pkgpath
 
 
-# These files are relative to the destination directory, not the source
-movefiles=(
-	main/assets/
-	main/*.spv
-	main/sketch-sim
-)
+function copybin {
+	# These files are relative to the binary directory, not the source
+	local copyfiles=(
+		"cxx/main/sketch-sim"
+	)
 
-function check_files {
-	local file
-	for file ($movefiles); do
-		if [[ ! -e $file ]]; then
-			local err=
-			echo "Missing file: $file" 1>&2
+	function sync_asset_dir {
+		local file
+		local filename
+
+		[[ -d $pkgpath/assets ]] || mkdir $pkgpath/assets
+
+		# Remove out-of-date files
+		while read file; do
+			filename=${file:t}
+			if [[ ! -e $srcassetpath/$filename ]]; then
+				echo Deleting\ \"assets/$filename\"
+				rm -r $file
+			fi
+		done < <(find $pkgpath/assets -mindepth 1)
+
+		# Copy files
+		while read file; do
+			filename=${file:t}
+			{
+				[[ ! -e $pkgpath/assets/$filename ]] ||
+				[[ $file -nt $pkgpath/assets/$filename ]]
+			} && {
+				echo Copying\ \"assets/$filename\"
+				cp -rut $pkgpath/assets $file
+			} || true
+		done < <(find $srcassetpath -mindepth 1 -maxdepth 1)
+	}
+
+	function check_files {
+		local file
+		for file ($copyfiles); do
+			if [[ ! -e $file ]]; then
+				local err=
+				echo "Missing file: $file" 1>&2
+			fi
+		done
+
+		if [[ -v err ]]
+		then return 1
+		else return 0
 		fi
-	done
+	}
 
-	if [[ -v err ]]
-	then return 1
-	else return 0
+	if check_files; then
+		cp -ft $pkgpath $copyfiles
+		sync_asset_dir
 	fi
 }
-
-if check_files; then
-	mv -ft $pkgpath $movefiles
-fi
+copybin

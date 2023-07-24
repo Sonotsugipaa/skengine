@@ -4,6 +4,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <posixfio.hpp>
+
 
 
 int main() {

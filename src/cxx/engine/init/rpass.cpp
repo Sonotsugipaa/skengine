@@ -1,6 +1,6 @@
 #include "init.hpp"
 
-#include <vkutil/error.hpp>
+#include <vk-util/error.hpp>
 
 #include <posixfio_tl.hpp>
 
@@ -78,17 +78,17 @@ namespace SKENGINE_NAME_NS {
 	VkCompositeAlphaFlagBitsKHR select_composite_alpha(const VkSurfaceCapabilitiesKHR& capabs) {
 		assert(capabs.supportedCompositeAlpha != 0);
 
-		#define TRY_CA_(BIT_) \
+		#define TRY_CA_(NM_, BIT_) \
 			if(capabs.supportedCompositeAlpha & BIT_) { \
-				spdlog::info("[+] composite alpha {} is supported", #BIT_); \
+				spdlog::info("[+] " #NM_ " is supported"); \
 				return BIT_; \
 			} else { \
-				spdlog::info("[ ] composite alpha {} is not supported", #BIT_); \
+				spdlog::info("[ ] " #NM_ " is not supported"); \
 			}
 
-		TRY_CA_(VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
-		TRY_CA_(VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
-		TRY_CA_(VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+		TRY_CA_("composite alpha PRE_MULTIPLIED_BIT",  VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+		TRY_CA_("composite alpha POST_MULTIPLIED_BIT", VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
+		TRY_CA_("composite alpha INHERIT_BIT",         VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
 
 		#undef TRY_CA_
 
@@ -112,21 +112,21 @@ namespace SKENGINE_NAME_NS {
 			#undef GET_
 		}
 
-		#define TRY_PM_(BIT_, DIFF_) \
+		#define TRY_PM_(NM_, BIT_, DIFF_) \
 			if(BIT_ != DIFF_) [[likely]] { \
 				if(avail_modes.end() != std::find(avail_modes.begin(), avail_modes.end(), BIT_)) { \
-					spdlog::info("[+] present mode {} is supported", #BIT_); \
+					spdlog::info("[+] " NM_ " is supported"); \
 					return BIT_; \
 				} else { \
-					spdlog::info("[ ] present mode {} is not supported", #BIT_); \
+					spdlog::info("[ ] " NM_ " is not supported"); \
 				} \
 			}
 
-		TRY_PM_(preferred_mode, VK_PRESENT_MODE_MAX_ENUM_KHR)
-		TRY_PM_(VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR,     preferred_mode)
-		TRY_PM_(VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR, preferred_mode)
-		TRY_PM_(VK_PRESENT_MODE_MAILBOX_KHR,                   preferred_mode)
-		TRY_PM_(VK_PRESENT_MODE_FIFO_RELAXED_KHR,              preferred_mode)
+		TRY_PM_("preferred present mode",                 preferred_mode, VK_PRESENT_MODE_MAX_ENUM_KHR)
+		TRY_PM_("present mode SHARED_DEMAND_REFRESH",     VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR,     preferred_mode)
+		TRY_PM_("present mode SHARED_CONTINUOUS_REFRESH", VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR, preferred_mode)
+		TRY_PM_("present mode MAILBOX",                   VK_PRESENT_MODE_MAILBOX_KHR,                   preferred_mode)
+		TRY_PM_("present mode FIFO_RELAXED",              VK_PRESENT_MODE_FIFO_RELAXED_KHR,              preferred_mode)
 
 		#undef TRY_PM_
 
@@ -190,7 +190,7 @@ namespace SKENGINE_NAME_NS {
 			SDL_bool result = SDL_Vulkan_CreateSurface(mSdlWindow, mVkInstance, &mSurface);
 			if(result != SDL_TRUE) {
 				const char* err = SDL_GetError();
-				throw vkutil::SdlRuntimeError(fmt::format(
+				throw std::runtime_error(fmt::format(
 					"Failed to create a window surface: {}", err ));
 			}
 		}

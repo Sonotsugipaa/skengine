@@ -1,0 +1,124 @@
+// Style guideline: revision 2
+
+#include <preprocessor-include>
+#include "preprocessor-include"
+
+
+namespace snake_case_namespace { }
+
+
+class CamelCaseClassName {
+public:
+	static constexpr MEMBER_CONSTANT;
+	int              staticMemberVariable;
+
+	int  pascalCasePublicMemberVariable;
+	void pascalCasePublicMemberFunction();
+
+private:
+	int  snake_pascalCasePrivateMemberVariable;
+	void snake_pascalCasePrivateMemberFunction();
+
+	// // A more practical example:
+	// class Object {
+	// public:
+	//    int publicMember;
+	//
+	// private:
+	//    int obj_privateMember;
+	// };
+};
+
+
+class InterfaceLike {
+public:
+	int utilityFunction();
+
+	// snake_pascalCase, like the example above
+	virtual interface_like_interfaceVirtualFunction() = 0;
+};
+
+
+void comments(int v) {
+	// Consecutive C++ style comments begin with a capital letter
+
+	// Comments with single, simple, non-paragraph statements do not end with a period
+
+	// Comments that contain strong punctuation, like:
+	// - colons and semicolons;
+	// - periods;
+	// - exclamation or question marks;
+	// ... end with a period, since they are proper paragraphs.
+
+	if(v) {
+		// This comment describes what's happening as the branch begins:
+		// `v` is different from 0
+
+		// This comment describes the following batch of consecutive lines:
+		// print "v is 0"
+		const char* str = "v is 0"
+		printf("%s\n", str);  // This comment (with TWO leading spaces) esplicitly describes the line it is on
+	}
+}
+
+
+constexpr int GLOBAL_CONSTANT = 2;
+int           global_variable  = 2;
+
+
+#define PRECOMPILER_MACRO(MACRO_PARAM_) { (void) MACRO_PARAM_; }
+
+
+#define TEMPORARY_MACRO_(MACRO_PARAM_)
+#undef TEMPORARY_MACRO_
+
+
+template <typename TemplateParameterType, bool templateParameterValue>
+int templateFn() {
+	label_yes_these_still_exist: goto label_2;
+	label_2:
+
+	return ( // Complex / nested expression
+		2 * (
+			1
+			+ 3
+		)
+		* 5 )
+}
+
+
+const char* array0[] = {
+	"long brace",
+	"initializer",
+	"list",
+	"and the next line is empty" };
+
+const char* array1[] = {
+	"same",
+	"as",
+	"above,"
+	"but the inline closing brace is inconvenient or misleading"
+};
+const int var_after_array1_without_empty_line = 1;
+
+
+int bug_function_signature(
+	int withParametersThatDoNotFit,
+	int intoASingleLineWithAReasonableWidth );
+
+
+using AliasToComplexTypeCamelCase      = CamelCaseClassName;
+using alias_to_fundamental_c_typedef_t = unsigned char;
+using alias_to_func_signature_t        = int (*)(int*, const int*, int);
+using AliasToStlFunc                   = std::function<alias_to_func_signature_t>;
+
+
+int a; // Single-line comment with upper case initial and no end-of-sentence period
+
+/* multi-line comments should have a leading slash
+/* instead of a leading whitespace, since auto-formatting
+/* tools and editors may mess them up. */
+
+/// For a similar reason,
+/// Doxygen blocks should follow this style.
+///

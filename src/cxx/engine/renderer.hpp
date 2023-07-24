@@ -2,7 +2,7 @@
 
 #include "types.hpp"
 
-#include "vkutil/buffer_alloc.hpp"
+#include "vk-util/memory.hpp"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -39,8 +39,8 @@ namespace SKENGINE_NAME_NS {
 		std::unordered_map<ObjectId, RenderObject> mObjects;
 		std::unordered_map<MeshId, std::unordered_map<MaterialId, DrawBatch>> mDrawBatches;
 		std::vector<bool>      mDevObjectDirtyBitset;
-		vkutil::VmaBuffer      mDevObjectBuffer;
-		vkutil::VmaBuffer      mDrawCmdBuffer;
+		vkutil::BufferDuplex   mDevObjectBuffer;
+		vkutil::BufferDuplex   mDrawCmdBuffer;
 		dev::RenderObject*     mDevObjectPtr;
 		VkDrawIndirectCommand* mDrawCmdPtr;
 		bool                   mDevObjectBufferDirty;

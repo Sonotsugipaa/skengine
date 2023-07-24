@@ -33,8 +33,6 @@ namespace SKENGINE_NAME_NS {
 		vkutil::CommandPool& mRenderCmdPool;
 		EnginePreferences& mPrefs;
 
-		void findQueueFamilies();
-
 		void initSdl();
 		void initVkInst();
 		void initVkDev();

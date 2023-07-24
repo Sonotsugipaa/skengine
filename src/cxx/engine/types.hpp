@@ -7,7 +7,7 @@
 
 #include <skengine_fwd.hpp>
 
-#include <vkutil/fwd.hpp>
+#include <vk-util/desc_proxy.hpp>
 
 
 

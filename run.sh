@@ -26,5 +26,7 @@ else
 	cmd+=('./sketch-sim')
 fi
 
+if [[ -v WAYLAND_DISPLAY ]]; then export SDL_VIDEODRIVER=wayland; fi
+
 cd $binpath
 $cmd && echo 'Exit status 0' || echo 'Exit status '$?

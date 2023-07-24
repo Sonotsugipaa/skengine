@@ -13,8 +13,7 @@ add_library(engine
 target_link_libraries(engine
 	posixfio
 	tick-regulator
-	game-asset-package
-	vkutil
+	vk-util
 	SDL2::SDL2
 	vulkan vma
 	nlohmann_json::nlohmann_json

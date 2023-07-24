@@ -3,9 +3,9 @@
 #include "input.hpp"
 #include "renderer.hpp"
 
-#include "vkutil/buffer_alloc.hpp"
-#include "vkutil/desc_proxy.hpp"
-#include "vkutil/command_pool.hpp"
+#include "vk-util/memory.hpp"
+#include "vk-util/desc_proxy.hpp"
+#include "vk-util/command_pool.hpp"
 
 #include <tick-regulator.hpp>
 
@@ -15,8 +15,6 @@
 #include <semaphore>
 #include <string>
 #include <unordered_map>
-
-#include <gap/unpacker.hpp>
 
 #include <SDL2/SDL_vulkan.h>
 
@@ -265,9 +263,7 @@ namespace SKENGINE_NAME_NS {
 
 		std::binary_semaphore   mDescProxyMutex;
 		vkutil::DescriptorProxy mDescProxy;
-		//vkutil::BufferAllocator mBufferAllocator;
 
-		gap::PackageStorage mPackageStorage;
 		//Renderer mWorldRenderer;
 		//Renderer mUiRenderer;
 
@@ -342,7 +338,7 @@ namespace SKENGINE_NAME_NS {
 	/// Furthermore, it may be assumed that the Engine will never
 	/// try to release a module that was never given by the
 	/// ShaderCacheInterface, and no module is released more
-	/// (fewer) times than it is acquired.
+	/// (nor fewer) times than it is acquired.
 	///
 	class Engine::ShaderCacheInterface {
 	public:
