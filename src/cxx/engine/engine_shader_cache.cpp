@@ -31,7 +31,7 @@ namespace SKENGINE_NAME_NS {
 
 		switch(sr.type) {
 			case ShaderRequirement::Type::eWorld:
-				str = std::string(sr.world.material);
+				str = std::string(sr.world.materialName);
 				r = {
 					try_get_shader(str + "-vtx.spv", "world-default-vtx.spv"),
 					try_get_shader(str + "-frg.spv", "world-default-frg.spv") };

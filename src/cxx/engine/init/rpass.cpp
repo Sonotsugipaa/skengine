@@ -142,10 +142,7 @@ namespace SKENGINE_NAME_NS {
 			MIRROR_(mPhysDevice),
 			MIRROR_(mDevice),
 			MIRROR_(mVma),
-			MIRROR_(mQfams),
-			MIRROR_(mGraphicsQueue),
-			MIRROR_(mComputeQueue),
-			MIRROR_(mTransferQueue),
+			MIRROR_(mQueues),
 			MIRROR_(mSurface),
 			MIRROR_(mPresentQfamIndex),
 			MIRROR_(mPresentQueue),
@@ -197,28 +194,28 @@ namespace SKENGINE_NAME_NS {
 
 		{ // Determine the queue to use for present operations
 			bool found = false;
-			#define TRY_FAM_(FAM_, Q_) \
+			#define TRY_FAM_(FAM_) \
 				if(! found) { \
 					VkBool32 supported; \
 					VK_CHECK( \
 						vkGetPhysicalDeviceSurfaceSupportKHR, \
 						mPhysDevice, \
-						uint32_t(mQfams.FAM_##_index), \
+						uint32_t(mQueues.families.FAM_##Index), \
 						mSurface, \
 						&supported ); \
 					if(supported) { \
-						mPresentQfamIndex = mQfams.FAM_##_index; \
-						mPresentQueue = m ## Q_ ## Queue; \
+						mPresentQfamIndex = QfamIndex(mQueues.families.FAM_##Index); \
+						mPresentQueue = mQueues.FAM_; \
 						spdlog::debug("[+] Queue family {} can be used to present", \
-							uint32_t(mQfams.FAM_##_index) ); \
+							uint32_t(mQueues.families.FAM_##Index) ); \
 					} else { \
 						spdlog::debug("[ ] Queue family {} cannot be used to present", \
-							uint32_t(mQfams.FAM_##_index) ); \
+							uint32_t(mQueues.families.FAM_##Index) ); \
 					} \
 				}
-			TRY_FAM_(graphics, Graphics)
-			TRY_FAM_(transfer, Transfer)
-			TRY_FAM_(compute,  Compute)
+			TRY_FAM_(graphics)
+			TRY_FAM_(transfer)
+			TRY_FAM_(compute)
 			#undef TRY_FAM_
 			spdlog::debug("Using queue family {} for the present queue", uint32_t(mPresentQfamIndex));
 		}
@@ -242,7 +239,7 @@ namespace SKENGINE_NAME_NS {
 		select_swapchain_extent(&mPrefs.present_extent, mPrefs.present_extent, mSurfaceCapabs);
 
 		uint32_t concurrent_qfams[] = {
-			uint32_t(mQfams.graphics_index),
+			mQueues.families.graphicsIndex,
 			uint32_t(mPresentQfamIndex) };
 
 		VkSwapchainCreateInfoKHR s_info = { };

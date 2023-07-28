@@ -18,20 +18,20 @@
 
 namespace SKENGINE_NAME_NS {
 
-	enum class UpdateCounter : uint_fast32_t { };
-
-	enum class ObjectId   : uint_fast64_t  { };
-	enum class MaterialId : uint_least32_t { };
-	enum class MeshId     : uint_least32_t { };
+	using render_object_id_e = uint_fast64_t;
+	using material_id_e      = uint_least32_t;
+	using mesh_id_e          = uint_least32_t;
+	enum class RenderObjectId : render_object_id_e { };
+	enum class MaterialId     : material_id_e      { };
+	enum class MeshId         : mesh_id_e          { };
 
 
 	struct RenderObject {
-		MeshId        mesh_id;
-		MaterialId    material_id;
-		glm::vec3     position_xyz;
-		glm::vec3     direction_ypr;
-		glm::vec3     scale_xyz;
-		UpdateCounter update_ctr;
+		MeshId     mesh_id;
+		MaterialId material_id;
+		glm::vec3  position_xyz;
+		glm::vec3  direction_ypr;
+		glm::vec3  scale_xyz;
 	};
 
 

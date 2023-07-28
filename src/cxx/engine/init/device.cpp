@@ -27,10 +27,7 @@ namespace SKENGINE_NAME_NS {
 			MIRROR_(mPhysDevice),
 			MIRROR_(mDevice),
 			MIRROR_(mVma),
-			MIRROR_(mQfams),
-			MIRROR_(mGraphicsQueue),
-			MIRROR_(mComputeQueue),
-			MIRROR_(mTransferQueue),
+			MIRROR_(mQueues),
 			MIRROR_(mDevProps),
 			MIRROR_(mDevFeatures),
 			MIRROR_(mTransferCmdPool),
@@ -185,8 +182,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Create logical device
-			vkutil::Queues vkutil_queues;
-			auto           dev_dst = vkutil::CreateDeviceDst { this->mDevice, vkutil_queues };
+			auto dev_dst = vkutil::CreateDeviceDst { this->mDevice, mQueues };
 
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
@@ -195,13 +191,6 @@ namespace SKENGINE_NAME_NS {
 			cd_info.pRequiredFeatures = &vkutil::commonFeatures;
 
 			vkutil::createDevice(dev_dst, cd_info);
-
-			mQfams.graphics_index = QfamIndex(vkutil_queues.families.graphicsIndex);
-			mQfams.compute_index  = QfamIndex(vkutil_queues.families.computeIndex);
-			mQfams.transfer_index = QfamIndex(vkutil_queues.families.transferIndex);
-			mQfams.graphics_props = vkutil_queues.families.graphicsProps;
-			mQfams.compute_props  = vkutil_queues.families.computeProps;
-			mQfams.transfer_props = vkutil_queues.families.transferProps;
 		}
 	}
 
@@ -218,8 +207,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initCmdPools () {
-		mRenderCmdPool   = vkutil::CommandPool(mDevice, uint32_t(mQfams.graphics_index));
-		mTransferCmdPool = vkutil::CommandPool(mDevice, uint32_t(mQfams.transfer_index));
+		mRenderCmdPool   = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.graphicsIndex));
+		mTransferCmdPool = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.transferIndex));
 	}
 
 

@@ -23,10 +23,7 @@ namespace SKENGINE_NAME_NS {
 		VkPhysicalDevice& mPhysDevice;
 		VkDevice&         mDevice;
 		VmaAllocator&     mVma;
-		QueueFamilies& mQfams;
-		VkQueue&       mGraphicsQueue;
-		VkQueue&       mComputeQueue;
-		VkQueue&       mTransferQueue;
+		vkutil::Queues&   mQueues;
 		VkPhysicalDeviceProperties& mDevProps;
 		VkPhysicalDeviceFeatures&   mDevFeatures;
 		vkutil::CommandPool& mTransferCmdPool;
@@ -60,10 +57,7 @@ namespace SKENGINE_NAME_NS {
 		const VkPhysicalDevice mPhysDevice;
 		const VkDevice         mDevice;
 		const VmaAllocator     mVma;
-		const QueueFamilies mQfams;
-		const VkQueue       mGraphicsQueue;
-		const VkQueue       mComputeQueue;
-		const VkQueue       mTransferQueue;
+		const vkutil::Queues   mQueues;
 
 		VkSurfaceKHR&   mSurface;
 		QfamIndex&      mPresentQfamIndex;

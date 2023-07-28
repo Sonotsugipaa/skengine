@@ -3,6 +3,7 @@
 #include "input.hpp"
 #include "renderer.hpp"
 
+#include "vk-util/init.hpp"
 #include "vk-util/memory.hpp"
 #include "vk-util/desc_proxy.hpp"
 #include "vk-util/command_pool.hpp"
@@ -20,7 +21,7 @@
 
 
 
-/// \file impl.hpp
+/// \file
 ///
 /// # Ambiguous or elusive terminology and shorthands
 ///
@@ -177,7 +178,6 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine {
 	public:
-		class ConcurrentAccess;
 		class ShaderCacheInterface;
 
 		Engine() = default;
@@ -210,10 +210,24 @@ namespace SKENGINE_NAME_NS {
 		void setPresentExtent    (VkExtent2D);
 		void setFullscreen       (bool should_be_fullscreen);
 
-		const auto& getInputManager() const  { return mInputMgr; }
-		auto&       getInputManager()        { return mInputMgr; }
+		auto getVmaAllocator () noexcept { return mVma; }
+		auto getDevice       () noexcept { return mDevice; }
+		auto getPhysDevice   () noexcept { return mPhysDevice; }
 
-		ConcurrentAccess getConcurrentAccess ();
+		const auto& getQueueInfo            () const noexcept { return mQueues; }
+		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
+		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
+
+		// With C++23 around the corner doing this *might* be a whole lot less ugly
+		#define MK_REF_GETTERS_(FN_, MEM_) \
+			const auto& FN_() const { return MEM_; } \
+			auto&       FN_()       { return MEM_; }
+
+		MK_REF_GETTERS_(getInputManager,  mInputMgr)
+		MK_REF_GETTERS_(getWorldRenderer, mWorldRenderer)
+		MK_REF_GETTERS_(getUiRenderer,    mUiRenderer)
+
+		#undef MK_REF_GETTERS_
 
 	private:
 		enum class QfamIndex : uint32_t { eInvalid = ~ uint32_t(0) };
@@ -221,25 +235,13 @@ namespace SKENGINE_NAME_NS {
 		class DeviceInitializer;
 		class RpassInitializer;
 
-		struct QueueFamilies {
-			VkQueueFamilyProperties graphics_props;
-			VkQueueFamilyProperties compute_props;
-			VkQueueFamilyProperties transfer_props;
-			QfamIndex graphics_index;
-			QfamIndex compute_index;
-			QfamIndex transfer_index;
-		};
-
 		SDL_Window* mSdlWindow = nullptr;
 
 		VkInstance       mVkInstance = nullptr;
 		VkPhysicalDevice mPhysDevice = nullptr;
 		VkDevice         mDevice     = nullptr;
 		VmaAllocator     mVma        = nullptr;
-		QueueFamilies    mQfams         = { { }, { }, { }, QfamIndex::eInvalid, QfamIndex::eInvalid, QfamIndex::eInvalid };
-		VkQueue          mGraphicsQueue = nullptr;
-		VkQueue          mComputeQueue  = nullptr;
-		VkQueue          mTransferQueue = nullptr;
+		vkutil::Queues   mQueues     = { };
 		VkPhysicalDeviceProperties mDevProps;
 		VkPhysicalDeviceFeatures   mDevFeatures;
 
@@ -264,13 +266,12 @@ namespace SKENGINE_NAME_NS {
 		std::binary_semaphore   mDescProxyMutex;
 		vkutil::DescriptorProxy mDescProxy;
 
-		//Renderer mWorldRenderer;
-		//Renderer mUiRenderer;
+		Renderer mWorldRenderer;
+		Renderer mUiRenderer;
 
 		vkutil::CommandPool mTransferCmdPool;
 		vkutil::CommandPool mRenderCmdPool;
 
-		std::binary_semaphore mConcurrentAccessMutex;
 		EnginePreferences     mPrefs;
 		RpassConfig           mRpassConfig;
 		size_t mConcurrentFrames;
@@ -287,18 +288,8 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
 
 
-	class Engine::ConcurrentAccess final {
-	public:
-		ConcurrentAccess() = default;
-		ConcurrentAccess(Engine&);
-
-	private:
-		Engine* mEngine;
-	};
-
-
 	struct WorldShaderRequirement {
-		std::string_view material;
+		std::string_view materialName;
 	};
 
 	struct UiShaderRequirement {
@@ -348,7 +339,18 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	#warning "Doxygen block TBW"
+	/// \brief Basic implementation of a ShaderCacheInterface.
+	///
+	/// A BasicShaderCache attempts to read shaders from files that follow
+	/// the pattern "[type]-[name]-[stage].spv", or fallback to
+	/// "[type]-default-[stage].spv" if the requested shader isn't available.
+	///
+	/// All files are looked for in the current working directory.
+	///
+	/// For example, if the engine requests a world shader for a material
+	/// called "MATERIAL_0", the BasicShaderCache will attempt to read
+	/// "world-MATERIAL_0-vtx.spv" and "world-MATERIAL_0-frg.spv".
+	///
 	class BasicShaderCache : public Engine::ShaderCacheInterface {
 	public:
 		#ifndef NDEBUG

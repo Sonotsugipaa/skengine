@@ -7,6 +7,7 @@ find_package(SDL2)
 add_library(engine
 	init/device.cpp
 	init/rpass.cpp
+	renderer.cpp
 	engine.cpp
 	engine_shader_cache.cpp )
 

@@ -14,6 +14,10 @@
 
 namespace SKENGINE_NAME_NS {
 
+	#warning "Trim the Engine-Renderer codependency"
+	class Engine;
+
+
 	/// \brief A collection of objects to be drawn, which may or
 	///        may not be frequently modified.
 	///
@@ -22,29 +26,43 @@ namespace SKENGINE_NAME_NS {
 	///
 	class Renderer {
 	public:
-		Renderer();
-		~Renderer();
+		Renderer() = default;
 
-		ObjectId createObject ();
-		void     removeObject (ObjectId) noexcept;
-		void     clearObjects () noexcept;
-		std::optional<const RenderObject*> getObject    (ObjectId) const noexcept;
-		std::optional<RenderObject*>       modifyObject (ObjectId) noexcept;
+		static Renderer create(Engine&);
+		static void destroy(Renderer&);
+
+		RenderObjectId createObject (RenderObject);
+		void           removeObject (RenderObjectId) noexcept;
+		void           clearObjects () noexcept;
+		std::optional<const RenderObject*> getObject    (RenderObjectId) const noexcept;
+		std::optional<RenderObject*>       modifyObject (RenderObjectId) noexcept;
 
 		VkBuffer getObjectStorageBuffer () const noexcept { return const_cast<VkBuffer>(mDevObjectBuffer.value); }
 		VkBuffer getDrawCommandBuffer   () const noexcept { return const_cast<VkBuffer>(mDrawCmdBuffer.value); }
-		void     updateBuffers          () noexcept;
+		void     commitBuffers          (VkCommandBuffer, VkFence signalFence) noexcept;
+
+		void reserve(size_t capacity);
+		void shrinkToFit();
 
 	private:
-		std::unordered_map<ObjectId, RenderObject> mObjects;
+		enum class State {
+			eClean,
+			eObjectBufferDirty,
+			eDrawCmdBufferDirty,
+			eReconstructionNeeded
+		};
+
+		Engine* mEngine;
+		std::unordered_map<RenderObjectId, RenderObject> mObjects;
 		std::unordered_map<MeshId, std::unordered_map<MaterialId, DrawBatch>> mDrawBatches;
-		std::vector<bool>      mDevObjectDirtyBitset;
-		vkutil::BufferDuplex   mDevObjectBuffer;
-		vkutil::BufferDuplex   mDrawCmdBuffer;
-		dev::RenderObject*     mDevObjectPtr;
-		VkDrawIndirectCommand* mDrawCmdPtr;
-		bool                   mDevObjectBufferDirty;
-		bool                   mDrawCmdBufferDirty;
+		std::vector<bool>    mDevObjectDirtyBitset;
+		vkutil::BufferDuplex mDevObjectBuffer;
+		vkutil::BufferDuplex mDrawCmdBuffer;
+		State mState;
+
+		#ifndef NDEBUG
+			bool mIsInitialized = false;
+		#endif
 	};
 
 

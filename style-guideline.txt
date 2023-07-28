@@ -1,4 +1,4 @@
-// Style guideline: revision 2
+// Style guideline: revision 3
 
 #include <preprocessor-include>
 #include "preprocessor-include"
@@ -15,19 +15,55 @@ public:
 	int  pascalCasePublicMemberVariable;
 	void pascalCasePublicMemberFunction();
 
+	// constructor with initializations
+	CamelCaseClassName() { }
+
 private:
-	int  snake_pascalCasePrivateMemberVariable;
-	void snake_pascalCasePrivateMemberFunction();
+	int  snake_pascal_casePrivateMemberVariable;
+	void snake_pascal_casePrivateMemberFunction();
 
 	// // A more practical example:
-	// class Object {
+	// class SomeObject {
 	// public:
 	//    int publicMember;
 	//
 	// private:
-	//    int obj_privateMember;
+	//    int some_obj_privateMember;
 	// };
 };
+
+
+struct LongPrototype {
+	unsigned long long int v0;
+	unsigned long long int v1;
+	unsigned long long int v2;
+	unsigned long long int v3;
+
+	LongPrototype(
+			unsigned long long int param0,
+			unsigned long long int param1,
+			unsigned long long int param2,
+			unsigned long long int param3
+	):
+		v0(param0),
+		v1(param1),
+		v2(param2),
+		v3(param3)
+	{
+		// Construction...
+	}
+};
+
+
+enum class ScopedEnum : int {
+	eElementZero,
+	eElementOne
+};
+
+
+// Scoped enum with underlying type alias for convenience
+using scoped_enum_two_e = uint_fast32_t;
+enum class ScopedEnumTwo : scoped_enum_two_e { };
 
 
 class InterfaceLike {
@@ -63,7 +99,7 @@ void comments(int v) {
 
 
 constexpr int GLOBAL_CONSTANT = 2;
-int           global_variable  = 2;
+int           global_variable = 2;
 
 
 #define PRECOMPILER_MACRO(MACRO_PARAM_) { (void) MACRO_PARAM_; }
@@ -102,7 +138,7 @@ const char* array1[] = {
 const int var_after_array1_without_empty_line = 1;
 
 
-int bug_function_signature(
+int bigFunctionSignature(
 	int withParametersThatDoNotFit,
 	int intoASingleLineWithAReasonableWidth );
 

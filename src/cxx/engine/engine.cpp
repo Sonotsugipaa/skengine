@@ -13,9 +13,8 @@
 namespace SKENGINE_NAME_NS {
 
 	Engine::Engine(const DeviceInitInfo& di, const EnginePreferences& ep):
-			mGframeSem             (0),
-			mDescProxyMutex        (1),
-			mConcurrentAccessMutex (1)
+			mGframeSem      (0),
+			mDescProxyMutex (1)
 	{
 		{
 			auto init = Engine::DeviceInitializer(*this, &di, &ep);
@@ -71,7 +70,7 @@ namespace SKENGINE_NAME_NS {
 			if(lsize > UINT32_MAX) throw ShaderModuleReadError("Shader file is too long");
 			if(lsize % 4 != 0)     throw ShaderModuleReadError("Misaligned shader file size");
 			file.lseek(0, SEEK_SET);
-			buffer    = std::unique_ptr<uint32_t[]>((uint32_t*) operator new[](lsize));
+			buffer    = std::make_unique_for_overwrite<uint32_t[]>(lsize / 4);
 			size_t rd = posixfio::readAll(file, buffer.get(), lsize);
 			if(rd != lsize) throw ShaderModuleReadError("Shader file partially read");
 			sm_info.codeSize = uint32_t(lsize);
@@ -94,6 +93,14 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::destroyShaderModule(VkShaderModule module) {
 		vkDestroyShaderModule(mDevice, module, nullptr);
+	}
+
+
+	void Engine::run(
+			ShaderCacheInterface& shaders,
+			LoopInterface&        loop
+	) {
+		abort();
 	}
 
 }
