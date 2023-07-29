@@ -5,6 +5,7 @@
 #include <bit>
 #include <cassert>
 #include <atomic>
+#include <utility>
 #include <type_traits>
 
 #include <spdlog/spdlog.h>
@@ -70,10 +71,10 @@ namespace {
 	}
 
 
-	void resizeBuffers(
+	void resizeBuffer(
 			SKENGINE_NAME_NS_SHORT::Engine& engine,
-			vkutil::BufferDuplex& objBuffer,
-			vkutil::BufferDuplex& drawCmdBuffer,
+			decltype(createObjectBuffer) createFn,
+			vkutil::BufferDuplex& buffer,
 			size_t                desired_obj_count
 	) {
 		using namespace SKENGINE_NAME_NS_SHORT;
@@ -81,44 +82,82 @@ namespace {
 		desired_obj_count = std::bit_ceil(desired_obj_count);
 
 		VmaAllocator vma = engine.getVmaAllocator();
-		vkutil::BufferDuplex::destroy(vma, objBuffer);
-		vkutil::BufferDuplex::destroy(vma, drawCmdBuffer);
-		objBuffer     = createObjectBuffer(engine, desired_obj_count);
-		drawCmdBuffer = createDrawCommandBuffer(engine, desired_obj_count);
+		vkutil::BufferDuplex::destroy(vma, buffer);
+		buffer = createFn(engine, desired_obj_count);
 	}
 
 
 	// Returns whether the buffers have been resized.
-	bool guaranteeBufferSizes(
+	bool guaranteeBufferSize(
 			SKENGINE_NAME_NS_SHORT::Engine& engine,
-			vkutil::BufferDuplex& objBuffer,
-			vkutil::BufferDuplex& drawCmdBuffer,
-			size_t                desired_obj_count
+			decltype(createObjectBuffer) createFn,
+			vkutil::BufferDuplex& buffer,
+			size_t                desired_size_bytes
 	) {
 		using namespace SKENGINE_NAME_NS_SHORT;
 
-		size_t obj_count = objBuffer.size() / sizeof(dev::RenderObject);
-		assert(objBuffer.size() % sizeof(dev::RenderObject) == 0);
+		size_t size_bytes = buffer.size();
 
-		auto too_big_threshold = desired_obj_count / OBJECT_MAP_SHRINK_FACTOR;
-		bool too_small = (obj_count < desired_obj_count);
-		bool too_big   = (obj_count > desired_obj_count) && (obj_count >= too_big_threshold);
-		spdlog::trace("Renderer buffer resize: {} < {} <= {}", too_big_threshold, obj_count, desired_obj_count);
+		auto too_big_threshold = desired_size_bytes / OBJECT_MAP_SHRINK_FACTOR;
+		bool too_small = (size_bytes < desired_size_bytes);
+		bool too_big   = (size_bytes > desired_size_bytes) && (size_bytes >= too_big_threshold);
+		spdlog::trace("Renderer buffer resize: {} < {} <= {}", too_big_threshold, size_bytes, desired_size_bytes);
 
 		if(too_small) [[unlikely]] {
-			// The desired count may be larger than what the growth factor guesses
-			auto obj_count_grown = (obj_count == 0)? 1 : obj_count * OBJECT_MAP_GROW_FACTOR;
-			desired_obj_count = std::max(obj_count_grown, desired_obj_count);
-			resizeBuffers(engine, objBuffer, drawCmdBuffer, desired_obj_count);
+			// The required size may be larger than what the growth factor guesses
+			auto size_bytes_grown = (size_bytes == 0)? 1 : size_bytes * OBJECT_MAP_GROW_FACTOR;
+			desired_size_bytes = std::max(size_bytes_grown, desired_size_bytes);
+			resizeBuffer(engine, createFn, buffer, desired_size_bytes);
 			return true;
 		} else
 		if(too_big) [[unlikely]] {
 			assert(too_big);
-			resizeBuffers(engine, objBuffer, drawCmdBuffer, desired_obj_count);
+			resizeBuffer(engine, createFn, buffer, desired_size_bytes);
 			return true;
 		}
 
 		return false;
+	}
+
+
+	using BatchMap = std::unordered_map<SKENGINE_NAME_NS_SHORT::MeshId, std::unordered_map<SKENGINE_NAME_NS_SHORT::MaterialId, SKENGINE_NAME_NS_SHORT::DrawBatch>>;
+	using Mpi      = SKENGINE_NAME_NS_SHORT::Renderer::MeshProviderInterface;
+
+	void sortDrawCmds(
+			vkutil::BufferDuplex& dst,
+			const BatchMap&       batches,
+			Mpi&                  mpi
+	) {
+		constexpr auto size_heuristic = [](const BatchMap& batches) -> size_t {
+			// Take the first (log2(n)) meshes, take the average material count, double it,
+			// return that times the number of meshes.
+			size_t max_samples = std::max<size_t>(4, std::log2f(batches.size()));
+			auto beg = batches.begin();
+			auto end = batches.end();
+			if(beg == end) return 0;
+
+			auto   iter    = beg;
+			size_t sum     = iter->second.size();
+			size_t samples = 1;
+			for(size_t i = 1; i < max_samples; ++i) {
+				++ iter;
+				++ samples;
+				if(iter == end) break;
+				sum += iter->second.size();
+			}
+
+			return batches.size() * 2 * size_t(float(sum) / float(samples));
+		};
+
+		std::vector<VkDrawIndexedIndirectCommand> cmds;
+		cmds.reserve(size_heuristic(batches));
+
+		for(auto& mesh_batches : batches) {
+			auto mesh_info = mpi.getMeshInfo(mesh_batches.first);
+			for(auto& batch : mesh_batches.second) {
+				(void) dst; (void) batch; (void) mesh_info; abort(); // I'm tired, boss
+			}
+		}
 	}
 
 
@@ -180,25 +219,53 @@ namespace SKENGINE_NAME_NS {
 
 		auto obj_count = mObjects.size();
 
-		// Grow the buffers, if necessary
-		guaranteeBufferSizes(*mEngine, mDevObjectBuffer, mDrawCmdBuffer, obj_count + 1);
+		auto PLACEHOLDER = []() -> uint32_t { /* Create an instance and put it into a yet-to-exist instance buffer */ abort(); return 0; };
 
 		auto gen_id = generateId<RenderObjectId>();
 		mObjects.emplace(gen_id, o);
+		mDrawBatches[o.mesh_id][o.material_id] = {
+			.mesh_id       = o.mesh_id,
+			.material_id   = o.material_id,
+			.instanceCount = PLACEHOLDER(),
+			.firstInstance = PLACEHOLDER() };
+
+		// Grow the buffer, if necessary
+		if(mState != State::eReconstructionNeeded) {
+			bool resized = guaranteeBufferSize(*mEngine, createObjectBuffer, mDevObjectBuffer, obj_count + 1);
+			if(resized) mState = State::eReconstructionNeeded;
+
+			auto& obj_slot = mDevObjectBuffer.mappedPtr<RenderObject>()[obj_count /* The old size, which is the new last index */];
+			obj_slot = o;
+
+			mDevObjectDirtyBitset.push_back(true);
+
+			switch(mState) {
+				case State::eClean:
+				case State::eObjectBufferDirty:
+					mState = State::eDrawCmdBufferDirty;
+					break;
+				case State::eDrawCmdBufferDirty:
+				case State::eReconstructionNeeded:
+					break;
+			}
+		}
+
 		abort(); // TBW
 	}
 
 
-	void Renderer::removeObject(RenderObjectId id) {
+	void Renderer::removeObject(RenderObjectId id) noexcept {
+		ASSERT_IS_INITIALIZED_(this)
+
 		if(0 == mObjects.erase(id)) return;
 
 		mState = State::eReconstructionNeeded;
 		mDrawBatches.clear();
 		mDevObjectDirtyBitset.clear();
 		spdlog::trace("Render object dirty bitset capacity after clear: {}", mDevObjectDirtyBitset.capacity());
-
+		(void) sortDrawCmds; abort(); // TBW
 	}
 
 }
 
-#define ASSERT_IS_INITIALIZED_
+#undef ASSERT_IS_INITIALIZED_

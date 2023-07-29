@@ -100,7 +100,21 @@ namespace SKENGINE_NAME_NS {
 			ShaderCacheInterface& shaders,
 			LoopInterface&        loop
 	) {
-		abort();
+		loop_begin:
+
+		auto loop_state = loop.loop_pollState();
+		if(loop_state == LoopInterface::LoopState::eShouldStop) return;
+
+		if(loop_state == LoopInterface::LoopState::eShouldDelay) {
+			spdlog::warn("Engine instructed to delay the loop, but the functionality isn't implemented yet");
+		}
+
+		spdlog::info("zzzzzz");
+		loop.loop_processEvents();
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		spdlog::info("I slept!");
+
+		goto loop_begin;
 	}
 
 }

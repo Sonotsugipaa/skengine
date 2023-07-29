@@ -22,9 +22,6 @@ namespace {
 
 
 		void loop_processEvents() override {
-			auto& wr = engine->getWorldRenderer();
-			auto obj = wr.createObject({ });
-			wr.removeObject(obj);
 			end = true;
 		}
 
