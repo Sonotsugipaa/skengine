@@ -130,7 +130,9 @@ namespace SKENGINE_NAME_NS {
 		vkutil::DsetToken  frame_dset;
 		vkutil::Buffer     frame_ubo;
 		dev::FrameUniform* frame_ubo_ptr;
-		// ...
+		vkutil::CommandPool transfer_cmd_pool;
+		vkutil::CommandPool render_cmd_pool;
+		bool busy = false;
 	};
 
 
@@ -178,6 +180,7 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine {
 	public:
+
 		class ShaderCacheInterface;
 
 		Engine() = default;
@@ -230,6 +233,8 @@ namespace SKENGINE_NAME_NS {
 		#undef MK_REF_GETTERS_
 
 	private:
+		class Implementation; friend Implementation;
+
 		enum class QfamIndex : uint32_t { eInvalid = ~ uint32_t(0) };
 
 		class DeviceInitializer;
@@ -272,10 +277,9 @@ namespace SKENGINE_NAME_NS {
 		vkutil::CommandPool mTransferCmdPool;
 		vkutil::CommandPool mRenderCmdPool;
 
-		EnginePreferences     mPrefs;
-		RpassConfig           mRpassConfig;
-		size_t mConcurrentFrames;
-		bool   mSwapchainOod;
+		EnginePreferences mPrefs;
+		RpassConfig       mRpassConfig;
+		bool mSwapchainOod;
 	};
 
 

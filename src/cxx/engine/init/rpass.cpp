@@ -163,6 +163,7 @@ namespace SKENGINE_NAME_NS {
 		mRpassConfig = rc;
 		initSurface();
 		initSwapchain(nullptr);
+		initGframes();
 	}
 
 
@@ -174,6 +175,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroy() {
+		destroyGframes(0);
 		destroySwapchain(nullptr);
 		destroySurface();
 	}
@@ -305,6 +307,42 @@ namespace SKENGINE_NAME_NS {
 				img_data.image = img;
 			}
 		}
+	}
+
+
+
+	void Engine::RpassInitializer::initGframes() {
+		vkutil::BufferCreateInfo ubo_bc_info = {
+			.size  = sizeof(dev::FrameUniform),
+			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			.qfam_sharing = { } };
+
+		size_t missing = mPrefs.max_concurrent_frames - mGframes.size();
+		spdlog::trace("Creating {}-{} gframes", missing, mGframes.size());
+		for(size_t i = mGframes.size(); i < missing; ++i) {
+			mGframes.push_back({ });
+			GframeData& gf = mGframes.back();
+			gf.frame_dset    = vkutil::DsetToken::eInvalid /* TODO */;
+			gf.frame_ubo     = vkutil::ManagedBuffer::createUniformBuffer(mVma, ubo_bc_info);
+			gf.frame_ubo_ptr = gf.frame_ubo.map<dev::FrameUniform>(mVma);
+			gf.transfer_cmd_pool = vkutil::CommandPool(mDevice, mQueues.families.transferIndex, false);
+			gf.render_cmd_pool   = vkutil::CommandPool(mDevice, mQueues.families.graphicsIndex, false);
+		}
+	}
+
+
+	void Engine::RpassInitializer::destroyGframes(size_t keep) {
+		spdlog::trace("Destroying {}-{} gframes", mGframes.size(), keep);
+		for(size_t i = keep; i < mGframes.size(); ++i) {
+			GframeData& gf = mGframes[i];
+			gf.render_cmd_pool   = { };
+			gf.transfer_cmd_pool = { };
+			gf.frame_ubo.unmap(mVma);
+			vkutil::Buffer::destroy(mVma, gf.frame_ubo);
+			// TODO destroy dset
+		}
+
+		mGframes.resize(std::min(keep, mGframes.size()));
 	}
 
 

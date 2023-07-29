@@ -72,6 +72,8 @@ namespace SKENGINE_NAME_NS {
 
 		void initSurface();
 		void initSwapchain(VkSwapchainKHR old_swapchain);
+		void initGframes();
+		void destroyGframes(size_t keep);
 		void destroySwapchain(VkSwapchainKHR* dst_old_swapchain);
 		void destroySurface();
 	};

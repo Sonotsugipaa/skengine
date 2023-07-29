@@ -22,6 +22,7 @@ namespace {
 
 
 		void loop_processEvents() override {
+			spdlog::info("We did it, Lemmy!");
 			end = true;
 		}
 
@@ -29,9 +30,7 @@ namespace {
 			return end? LoopState::eShouldStop : LoopState::eShouldContinue;
 		}
 
-		void loop_async_preRender() {
-			spdlog::info("We did it, Lemmy!");
-		}
+		void loop_async_preRender() { }
 
 		void loop_async_postRender() { }
 	};
@@ -44,7 +43,7 @@ int main() {
 	#ifdef NDEBUG
 		spdlog::set_level(spdlog::level::info);
 	#else
-		spdlog::set_level(spdlog::level::debug);
+		spdlog::set_level(spdlog::level::trace);
 	#endif
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
@@ -57,7 +56,11 @@ int main() {
 			SKENGINE_NAME_NS_SHORT::DeviceInitInfo {
 				.window_title     = SKENGINE_NAME_CSTR " Test Window",
 				.application_name = SKENGINE_NAME_PC_CSTR,
-				.app_version = VK_MAKE_API_VERSION(0, 0, 0, 0) },
+				.app_version = VK_MAKE_API_VERSION(
+					0,
+					SKENGINE_VERSION_MAJOR,
+					SKENGINE_VERSION_MINOR,
+					SKENGINE_VERSION_PATCH ) },
 			prefs );
 
 		Loop loop = engine;

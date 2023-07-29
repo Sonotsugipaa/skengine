@@ -10,7 +10,39 @@
 
 
 
+struct SKENGINE_NAME_NS::Engine::Implementation {
+
+	static vkutil::BufferDuplex createVertexBuffer_PLACEHOLDER() {
+
+	}
+
+
+	static size_t selectGframe() {
+
+	}
+
+
+	// Returns `false` if the swapchain is out of date
+	static bool draw(Engine& e) {
+		uint32_t sc_img_idx;
+		VkImage  sc_img;
+
+		{ // Acquire image
+			VkAcquireNextImageInfoKHR ani_info = { };
+			ani_info.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR;
+			VK_CHECK(vkAcquireNextImage2KHR, e.mDevice, &ani_info, &sc_img_idx);
+			sc_img = e.mSwapchainImages[sc_img_idx].image;
+		}
+
+		abort(); // TBW
+	}
+
+};
+
+
+
 namespace SKENGINE_NAME_NS {
+
 
 	Engine::Engine(const DeviceInitInfo& di, const EnginePreferences& ep):
 			mGframeSem      (0),
@@ -109,10 +141,8 @@ namespace SKENGINE_NAME_NS {
 			spdlog::warn("Engine instructed to delay the loop, but the functionality isn't implemented yet");
 		}
 
-		spdlog::info("zzzzzz");
 		loop.loop_processEvents();
 		std::this_thread::sleep_for(std::chrono::milliseconds(500));
-		spdlog::info("I slept!");
 
 		goto loop_begin;
 	}
