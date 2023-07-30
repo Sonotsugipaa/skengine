@@ -18,35 +18,12 @@ namespace SKENGINE_NAME_NS {
 	unsigned long sdl_init_counter = 0;
 
 
-	Engine::DeviceInitializer::DeviceInitializer(Engine& e, const DeviceInitInfo* dii, const EnginePreferences* ep):
-			#define MIRROR_(MEMBER_) MEMBER_(e.MEMBER_)
-			mSrcDeviceInitInfo (dii),
-			mSrcPrefs          (ep),
-			MIRROR_(mSdlWindow),
-			MIRROR_(mVkInstance),
-			MIRROR_(mPhysDevice),
-			MIRROR_(mDevice),
-			MIRROR_(mVma),
-			MIRROR_(mQueues),
-			MIRROR_(mDevProps),
-			MIRROR_(mDevFeatures),
-			MIRROR_(mTransferCmdPool),
-			MIRROR_(mRenderCmdPool),
-			MIRROR_(mDescProxy),
-			MIRROR_(mStaticUboDsetLayout),
-			MIRROR_(mFrameUboDsetLayout),
-			MIRROR_(mShaderStorageDsetLayout),
-			MIRROR_(mPrefs)
-			#undef MIRROR_
-	{ }
-
-
-	void Engine::DeviceInitializer::init() {
-		assert(mSrcDeviceInitInfo != nullptr);
-		assert(mSrcPrefs          != nullptr);
-		mPrefs = *mSrcPrefs;
-		initSdl();
-		initVkInst();
+	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii, const EnginePreferences* ep) {
+		assert(dii != nullptr);
+		assert(ep  != nullptr);
+		mPrefs = *ep;
+		initSdl(dii);
+		initVkInst(dii);
 		initVkDev();
 		initVma();
 		initCmdPools();
@@ -64,8 +41,8 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initSdl() {
-		if(0 == mSrcPrefs->present_extent.width * mSrcPrefs->present_extent.height) {
+	void Engine::DeviceInitializer::initSdl(const DeviceInitInfo* device_init_info) {
+		if(0 == mPrefs.present_extent.width * mPrefs.present_extent.height) {
 			throw std::invalid_argument("Initial window area cannot be 0");
 		}
 
@@ -79,18 +56,18 @@ namespace SKENGINE_NAME_NS {
 			SDL_WINDOW_SHOWN |
 			SDL_WINDOW_VULKAN |
 			SDL_WINDOW_RESIZABLE |
-			(SDL_WINDOW_FULLSCREEN * mSrcPrefs->fullscreen);
+			(SDL_WINDOW_FULLSCREEN * mPrefs.fullscreen);
 
 		mSdlWindow = SDL_CreateWindow(
-			mSrcDeviceInitInfo->window_title.c_str(),
+			device_init_info->window_title.c_str(),
 			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-			mSrcPrefs->present_extent.width, mSrcPrefs->present_extent.height,
+			mPrefs.present_extent.width, mPrefs.present_extent.height,
 			window_flags );
 
 		{ // Change the present extent, as the window decided it to be
 			int w, h;
-			auto& w0 = mSrcPrefs->present_extent.width;
-			auto& h0 = mSrcPrefs->present_extent.height;
+			auto& w0 = mPrefs.present_extent.width;
+			auto& h0 = mPrefs.present_extent.height;
 			SDL_Vulkan_GetDrawableSize(mSdlWindow, &w, &h);
 			if(uint32_t(w) != w0 || uint32_t(h) != h0) {
 				mPrefs.present_extent = { uint32_t(w), uint32_t(h) };
@@ -106,14 +83,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initVkInst() {
+	void Engine::DeviceInitializer::initVkInst(const DeviceInitInfo* device_init_info) {
 		assert(mSdlWindow != nullptr);
 
 		VkApplicationInfo a_info  = { };
 		a_info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		a_info.pEngineName        = SKENGINE_NAME_LC_CSTR;
-		a_info.pApplicationName   = mSrcDeviceInitInfo->application_name.c_str();
-		a_info.applicationVersion = mSrcDeviceInitInfo->app_version;
+		a_info.pApplicationName   = device_init_info->application_name.c_str();
+		a_info.applicationVersion = device_init_info->app_version;
 		a_info.apiVersion         = VK_API_VERSION_1_3;
 		a_info.engineVersion = VK_MAKE_API_VERSION(
 			0,
@@ -161,7 +138,6 @@ namespace SKENGINE_NAME_NS {
 
 		{ // Select physical device
 			unsigned best_dev_index;
-			mPrefs.phys_device_uuid = mSrcPrefs->phys_device_uuid;
 			vkutil::SelectBestPhysDeviceDst best_dev = {
 				mPhysDevice, mDevProps, best_dev_index };
 			vkutil::selectBestPhysDevice(best_dev, devs, vkutil::commonFeatures, &mPrefs.phys_device_uuid);

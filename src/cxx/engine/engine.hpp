@@ -17,6 +17,8 @@
 #include <string>
 #include <unordered_map>
 
+#include <boost/interprocess/sync/interprocess_semaphore.hpp>
+
 #include <SDL2/SDL_vulkan.h>
 
 
@@ -180,7 +182,6 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine {
 	public:
-
 		class ShaderCacheInterface;
 
 		static constexpr uint32_t STATIC_UBO_BINDING     = 0;
@@ -237,12 +238,11 @@ namespace SKENGINE_NAME_NS {
 		#undef MK_REF_GETTERS_
 
 	private:
-		class Implementation; friend Implementation;
+		class Implementation;    friend Implementation;
+		class DeviceInitializer; friend DeviceInitializer;
+		class RpassInitializer;  friend RpassInitializer;
 
 		enum class QfamIndex : uint32_t { eInvalid = ~ uint32_t(0) };
-
-		class DeviceInitializer;
-		class RpassInitializer;
 
 		SDL_Window* mSdlWindow = nullptr;
 
@@ -268,10 +268,10 @@ namespace SKENGINE_NAME_NS {
 		tickreg::Regulator mGraphicsReg;
 		tickreg::Regulator mLogicReg;
 
-		std::counting_semaphore<> mGframeSem;
-		uint_fast64_t             mFrameCounter;
-		uint_fast32_t             mGframeSelector;
-		std::vector<GframeData>   mGframes;
+		boost::interprocess::interprocess_semaphore mGframeSem = boost::interprocess::interprocess_semaphore(0);
+		uint_fast64_t           mFrameCounter;
+		uint_fast32_t           mGframeSelector;
+		std::vector<GframeData> mGframes;
 
 		vkutil::DescriptorProxy mDescProxy;
 		VkDescriptorSetLayout mStaticUboDsetLayout;

@@ -8,34 +8,15 @@
 
 namespace SKENGINE_NAME_NS {
 
-	class Engine::DeviceInitializer {
+	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
+	class Engine::DeviceInitializer : public Engine {
 	public:
-		DeviceInitializer(Engine&, const DeviceInitInfo*, const EnginePreferences*);
-
-		void init();
+		void init(const DeviceInitInfo*, const EnginePreferences*);
 		void destroy();
 
 	private:
-		const DeviceInitInfo*    mSrcDeviceInitInfo;
-		const EnginePreferences* mSrcPrefs;
-		SDL_Window*&      mSdlWindow;
-		VkInstance&       mVkInstance;
-		VkPhysicalDevice& mPhysDevice;
-		VkDevice&         mDevice;
-		VmaAllocator&     mVma;
-		vkutil::Queues&   mQueues;
-		VkPhysicalDeviceProperties& mDevProps;
-		VkPhysicalDeviceFeatures&   mDevFeatures;
-		vkutil::CommandPool& mTransferCmdPool;
-		vkutil::CommandPool& mRenderCmdPool;
-		vkutil::DescriptorProxy& mDescProxy;
-		VkDescriptorSetLayout&   mStaticUboDsetLayout;
-		VkDescriptorSetLayout&   mFrameUboDsetLayout;
-		VkDescriptorSetLayout&   mShaderStorageDsetLayout;
-		EnginePreferences& mPrefs;
-
-		void initSdl();
-		void initVkInst();
+		void initSdl(const DeviceInitInfo*);
+		void initVkInst(const DeviceInitInfo*);
 		void initVkDev();
 		void initVma();
 		void initCmdPools();
@@ -49,37 +30,14 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	struct Engine::RpassInitializer {
+	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
+	struct Engine::RpassInitializer : public Engine {
 	public:
-		RpassInitializer(Engine&);
-
 		void init(const RpassConfig&);
 		void reinit();
 		void destroy();
 
 	private:
-		SDL_Window* const      mSdlWindow;
-		const VkInstance       mVkInstance;
-		const VkPhysicalDevice mPhysDevice;
-		const VkDevice         mDevice;
-		const VmaAllocator     mVma;
-		const vkutil::Queues   mQueues;
-		vkutil::DescriptorProxy&     mDescProxy;
-		const VkDescriptorSetLayout& mStaticUboDsetLayout;
-		const VkDescriptorSetLayout& mFrameUboDsetLayout;
-		const VkDescriptorSetLayout& mShaderStorageDsetLayout;
-
-		VkSurfaceKHR&   mSurface;
-		QfamIndex&      mPresentQfamIndex;
-		VkQueue&        mPresentQueue;
-		VkSwapchainKHR& mSwapchain;
-		VkSurfaceCapabilitiesKHR& mSurfaceCapabs;
-		VkSurfaceFormatKHR&       mSurfaceFormat;
-		std::vector<SwapchainImageData>& mSwapchainImages;
-		std::vector<GframeData>& mGframes;
-		EnginePreferences& mPrefs;
-		RpassConfig&       mRpassConfig;
-
 		void initSurface();
 		void initSwapchain(VkSwapchainKHR old_swapchain);
 		void initGframes();

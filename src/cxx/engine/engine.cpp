@@ -48,27 +48,27 @@ namespace SKENGINE_NAME_NS {
 			mGframeSem(0)
 	{
 		{
-			auto init = Engine::DeviceInitializer(*this, &di, &ep);
-			init.init();
+			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
+			init->init(&di, &ep);
 		}
 
 		{
 			auto rpass_cfg = RpassConfig::default_cfg;
-			auto init = Engine::RpassInitializer(*this);
-			init.init(rpass_cfg);
+			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
+			init->init(rpass_cfg);
 		}
 	}
 
 
 	Engine::~Engine() {
 		{
-			auto init = Engine::RpassInitializer(*this);
-			init.destroy();
+			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
+			init->destroy();
 		}
 
 		{
-			auto init = Engine::DeviceInitializer(*this, nullptr, nullptr);
-			init.destroy();
+			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
+			init->destroy();
 		}
 	}
 

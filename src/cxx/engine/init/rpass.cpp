@@ -135,36 +135,9 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	Engine::RpassInitializer::RpassInitializer(Engine& e):
-			#define MIRROR_(MEMBER_) MEMBER_(e.MEMBER_)
-			MIRROR_(mSdlWindow),
-			MIRROR_(mVkInstance),
-			MIRROR_(mPhysDevice),
-			MIRROR_(mDevice),
-			MIRROR_(mVma),
-			MIRROR_(mQueues),
-			MIRROR_(mDescProxy),
-			MIRROR_(mStaticUboDsetLayout),
-			MIRROR_(mFrameUboDsetLayout),
-			MIRROR_(mShaderStorageDsetLayout),
-			MIRROR_(mSurface),
-			MIRROR_(mPresentQfamIndex),
-			MIRROR_(mPresentQueue),
-			MIRROR_(mSwapchain),
-			MIRROR_(mSurfaceCapabs),
-			MIRROR_(mSurfaceFormat),
-			MIRROR_(mSwapchainImages),
-			MIRROR_(mGframes),
-			MIRROR_(mPrefs),
-			MIRROR_(mRpassConfig)
-			#undef MIRROR_
-	{
-		e.mSwapchainOod = false;
-	}
-
-
 	void Engine::RpassInitializer::init(const RpassConfig& rc) {
 		mRpassConfig = rc;
+		mSwapchainOod = false;
 		initSurface();
 		initSwapchain(nullptr);
 		initGframes();
