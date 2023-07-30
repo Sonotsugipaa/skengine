@@ -32,6 +32,10 @@ namespace SKENGINE_NAME_NS {
 			MIRROR_(mDevFeatures),
 			MIRROR_(mTransferCmdPool),
 			MIRROR_(mRenderCmdPool),
+			MIRROR_(mDescProxy),
+			MIRROR_(mStaticUboDsetLayout),
+			MIRROR_(mFrameUboDsetLayout),
+			MIRROR_(mShaderStorageDsetLayout),
 			MIRROR_(mPrefs)
 			#undef MIRROR_
 	{ }
@@ -46,10 +50,12 @@ namespace SKENGINE_NAME_NS {
 		initVkDev();
 		initVma();
 		initCmdPools();
+		initDescProxy();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
+		destroyDescProxy();
 		destroyCmdPools();
 		destroyVma();
 		destroyVkDev();
@@ -209,6 +215,41 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initCmdPools () {
 		mRenderCmdPool   = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.graphicsIndex));
 		mTransferCmdPool = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.transferIndex));
+	}
+
+
+	void Engine::DeviceInitializer::initDescProxy() {
+		mDescProxy = mDevice;
+
+		VkDescriptorSetLayoutBinding dslb[3] = { { }, { }, { } };
+		dslb[0].binding = STATIC_UBO_BINDING;
+		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		dslb[0].descriptorCount = 1;
+		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		dslb[1] = dslb[0];
+		dslb[1].binding = FRAME_UBO_BINDING;
+		dslb[2] = dslb[0];
+		dslb[2].binding = SHADER_STORAGE_BINDING;
+		dslb[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+		VkDescriptorSetLayoutCreateInfo dslc_info = { };
+		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		dslc_info.bindingCount = 1;
+
+		dslc_info.pBindings = dslb+0;
+		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mStaticUboDsetLayout);
+		dslc_info.pBindings = dslb+1;
+		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mFrameUboDsetLayout);
+		dslc_info.pBindings = dslb+2;
+		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mShaderStorageDsetLayout);
+	}
+
+
+	void Engine::DeviceInitializer::destroyDescProxy() {
+		vkDestroyDescriptorSetLayout(mDevice, mShaderStorageDsetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(mDevice, mFrameUboDsetLayout,      nullptr);
+		vkDestroyDescriptorSetLayout(mDevice, mStaticUboDsetLayout,     nullptr);
+		mDescProxy.destroy();
 	}
 
 

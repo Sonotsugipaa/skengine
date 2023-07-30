@@ -45,8 +45,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	Engine::Engine(const DeviceInitInfo& di, const EnginePreferences& ep):
-			mGframeSem      (0),
-			mDescProxyMutex (1)
+			mGframeSem(0)
 	{
 		{
 			auto init = Engine::DeviceInitializer(*this, &di, &ep);

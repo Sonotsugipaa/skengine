@@ -143,6 +143,10 @@ namespace SKENGINE_NAME_NS {
 			MIRROR_(mDevice),
 			MIRROR_(mVma),
 			MIRROR_(mQueues),
+			MIRROR_(mDescProxy),
+			MIRROR_(mStaticUboDsetLayout),
+			MIRROR_(mFrameUboDsetLayout),
+			MIRROR_(mShaderStorageDsetLayout),
 			MIRROR_(mSurface),
 			MIRROR_(mPresentQfamIndex),
 			MIRROR_(mPresentQueue),
@@ -317,12 +321,18 @@ namespace SKENGINE_NAME_NS {
 			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			.qfam_sharing = { } };
 
-		size_t missing = mPrefs.max_concurrent_frames - mGframes.size();
-		spdlog::trace("Creating {}-{} gframes", missing, mGframes.size());
-		for(size_t i = mGframes.size(); i < missing; ++i) {
+		ssize_t missing = ssize_t(mPrefs.max_concurrent_frames) - ssize_t(mGframes.size());
+		if(missing <= 0) return;
+
+		mDescProxy.registerDsetLayout(mFrameUboDsetLayout, { VkDescriptorPoolSize {
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = mPrefs.max_concurrent_frames }});
+
+		spdlog::trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
+		for(size_t i = mGframes.size(); i < mPrefs.max_concurrent_frames; ++i) {
 			mGframes.push_back({ });
 			GframeData& gf = mGframes.back();
-			gf.frame_dset    = vkutil::DsetToken::eInvalid /* TODO */;
+			gf.frame_dset    = mDescProxy.createToken(mFrameUboDsetLayout);
 			gf.frame_ubo     = vkutil::ManagedBuffer::createUniformBuffer(mVma, ubo_bc_info);
 			gf.frame_ubo_ptr = gf.frame_ubo.map<dev::FrameUniform>(mVma);
 			gf.transfer_cmd_pool = vkutil::CommandPool(mDevice, mQueues.families.transferIndex, false);
@@ -332,7 +342,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroyGframes(size_t keep) {
-		spdlog::trace("Destroying {}-{} gframes", mGframes.size(), keep);
+		ssize_t excess = ssize_t(mGframes.size()) - ssize_t(keep);
+		if(excess <= 0) return;
+
+		spdlog::trace("Destroying {} gframe{}", excess, (excess != 1)? "s" : "");
 		for(size_t i = keep; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
 			gf.render_cmd_pool   = { };

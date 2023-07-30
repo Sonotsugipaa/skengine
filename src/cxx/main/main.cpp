@@ -69,4 +69,6 @@ int main() {
 	} catch(posixfio::Errcode& e) {
 		spdlog::error("Uncaught posixfio error: {}", e.errcode);
 	}
+
+	spdlog::info("Successfully exiting the program.");
 }

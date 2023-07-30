@@ -78,10 +78,10 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D  max_render_extent;
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
-		size_t max_concurrent_frames;
-		float  target_framerate;
-		float  target_tickrate;
-		bool   fullscreen;
+		uint32_t max_concurrent_frames;
+		float    target_framerate;
+		float    target_tickrate;
+		bool     fullscreen;
 	};
 
 	constexpr const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
@@ -183,6 +183,10 @@ namespace SKENGINE_NAME_NS {
 
 		class ShaderCacheInterface;
 
+		static constexpr uint32_t STATIC_UBO_BINDING     = 0;
+		static constexpr uint32_t FRAME_UBO_BINDING      = 1;
+		static constexpr uint32_t SHADER_STORAGE_BINDING = 2;
+
 		Engine() = default;
 		Engine(const DeviceInitInfo&, const EnginePreferences&);
 		~Engine();
@@ -257,7 +261,6 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceCapabilitiesKHR mSurfaceCapabs = { };
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
 		std::vector<SwapchainImageData> mSwapchainImages;
-		std::vector<GframeData>         mGframes;
 
 		std::unique_ptr<LoopInterface> mLoop = nullptr;
 		input::InputManager mInputMgr;
@@ -267,9 +270,13 @@ namespace SKENGINE_NAME_NS {
 
 		std::counting_semaphore<> mGframeSem;
 		uint_fast64_t             mFrameCounter;
+		uint_fast32_t             mGframeSelector;
+		std::vector<GframeData>   mGframes;
 
-		std::binary_semaphore   mDescProxyMutex;
 		vkutil::DescriptorProxy mDescProxy;
+		VkDescriptorSetLayout mStaticUboDsetLayout;
+		VkDescriptorSetLayout mFrameUboDsetLayout;
+		VkDescriptorSetLayout mShaderStorageDsetLayout;
 
 		Renderer mWorldRenderer;
 		Renderer mUiRenderer;

@@ -28,6 +28,10 @@ namespace SKENGINE_NAME_NS {
 		VkPhysicalDeviceFeatures&   mDevFeatures;
 		vkutil::CommandPool& mTransferCmdPool;
 		vkutil::CommandPool& mRenderCmdPool;
+		vkutil::DescriptorProxy& mDescProxy;
+		VkDescriptorSetLayout&   mStaticUboDsetLayout;
+		VkDescriptorSetLayout&   mFrameUboDsetLayout;
+		VkDescriptorSetLayout&   mShaderStorageDsetLayout;
 		EnginePreferences& mPrefs;
 
 		void initSdl();
@@ -35,6 +39,8 @@ namespace SKENGINE_NAME_NS {
 		void initVkDev();
 		void initVma();
 		void initCmdPools();
+		void initDescProxy();
+		void destroyDescProxy();
 		void destroyCmdPools();
 		void destroyVma();
 		void destroyVkDev();
@@ -58,6 +64,10 @@ namespace SKENGINE_NAME_NS {
 		const VkDevice         mDevice;
 		const VmaAllocator     mVma;
 		const vkutil::Queues   mQueues;
+		vkutil::DescriptorProxy&     mDescProxy;
+		const VkDescriptorSetLayout& mStaticUboDsetLayout;
+		const VkDescriptorSetLayout& mFrameUboDsetLayout;
+		const VkDescriptorSetLayout& mShaderStorageDsetLayout;
 
 		VkSurfaceKHR&   mSurface;
 		QfamIndex&      mPresentQfamIndex;
@@ -66,7 +76,7 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceCapabilitiesKHR& mSurfaceCapabs;
 		VkSurfaceFormatKHR&       mSurfaceFormat;
 		std::vector<SwapchainImageData>& mSwapchainImages;
-		std::vector<GframeData>&         mGframes;
+		std::vector<GframeData>& mGframes;
 		EnginePreferences& mPrefs;
 		RpassConfig&       mRpassConfig;
 
