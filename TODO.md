@@ -3,6 +3,9 @@ Figure out how to rework `Renderer`, because this isn't going anywhere.
 
 ---
 
+- **cxx/engine**
+  - Integrate cleanup queues
+
 - **cxx/engine/engine.hpp**
   - ~~Address my initial **grave** misconception that (buffer queue families >
     1 => sharing is concurrent)~~

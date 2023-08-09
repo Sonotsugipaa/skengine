@@ -31,16 +31,12 @@ namespace {
 			size_t size
 	) {
 		using namespace SKENGINE_NAME_NS_SHORT;
-		VmaAllocator vma    = engine.getVmaAllocator();
-		auto&        queues = engine.getQueueInfo();
-		uint32_t qfam_sharing[] = {
-			queues.families.transferIndex,
-			queues.families.graphicsIndex };
+		VmaAllocator vma = engine.getVmaAllocator();
 
 		vkutil::BufferCreateInfo bc_info = {
 			.size  = size,
 			.usage = usage,
-			.qfam_sharing = std::span<uint32_t>(qfam_sharing, std::size(qfam_sharing)) };
+			.qfamSharing = { } };
 		return vkutil::BufferDuplex::createStorageBuffer(vma, bc_info, host_access);
 	}
 

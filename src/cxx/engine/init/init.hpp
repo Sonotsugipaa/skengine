@@ -8,7 +8,6 @@
 
 namespace SKENGINE_NAME_NS {
 
-	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
 	class Engine::DeviceInitializer : public Engine {
 	public:
 		void init(const DeviceInitInfo*, const EnginePreferences*);
@@ -19,7 +18,7 @@ namespace SKENGINE_NAME_NS {
 		void initVkInst(const DeviceInitInfo*);
 		void initVkDev();
 		void initVma();
-		void initCmdPools();
+		[[deprecated]] void initCmdPools();
 		void initDescProxy();
 		void destroyDescProxy();
 		void destroyCmdPools();
@@ -30,19 +29,24 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
 	struct Engine::RpassInitializer : public Engine {
 	public:
+		struct State;
+
 		void init(const RpassConfig&);
 		void reinit();
 		void destroy();
 
 	private:
 		void initSurface();
-		void initSwapchain(VkSwapchainKHR old_swapchain);
-		void initGframes();
-		void destroyGframes(size_t keep);
-		void destroySwapchain(VkSwapchainKHR* dst_old_swapchain);
+		void initSwapchain(State&);
+		void initGframes(State&);
+		void initRpass(State&);
+		void initFramebuffers(State&);
+		void destroyFramebuffers(State&);
+		void destroyRpass(State&);
+		void destroyGframes(State&, size_t keep);
+		void destroySwapchain(State&);
 		void destroySurface();
 	};
 

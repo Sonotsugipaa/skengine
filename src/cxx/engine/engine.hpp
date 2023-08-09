@@ -12,12 +12,10 @@
 
 #include <stdexcept>
 #include <memory>
-#include <mutex>
-#include <semaphore>
 #include <string>
 #include <unordered_map>
 
-#include <boost/interprocess/sync/interprocess_semaphore.hpp>
+#include <boost/thread/mutex.hpp>
 
 #include <SDL2/SDL_vulkan.h>
 
@@ -76,11 +74,12 @@ namespace SKENGINE_NAME_NS {
 	struct EnginePreferences {
 		static const EnginePreferences default_prefs;
 		std::string phys_device_uuid;
-		VkExtent2D  present_extent;
+		VkExtent2D  init_present_extent;
 		VkExtent2D  max_render_extent;
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
 		uint32_t max_concurrent_frames;
+		float    upscale_factor;
 		float    target_framerate;
 		float    target_tickrate;
 		bool     fullscreen;
@@ -88,11 +87,12 @@ namespace SKENGINE_NAME_NS {
 
 	constexpr const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
 		.phys_device_uuid      = "",
-		.present_extent        = { 600, 400 },
+		.init_present_extent   = { 600, 400 },
 		.max_render_extent     = { 0xffff, 0xffff },
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
+		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
 		.fullscreen            = false
@@ -132,9 +132,18 @@ namespace SKENGINE_NAME_NS {
 		vkutil::DsetToken  frame_dset;
 		vkutil::Buffer     frame_ubo;
 		dev::FrameUniform* frame_ubo_ptr;
-		vkutil::CommandPool transfer_cmd_pool;
-		vkutil::CommandPool render_cmd_pool;
-		bool busy = false;
+		vkutil::ManagedImage atch_color;
+		vkutil::ManagedImage atch_depthstencil;
+		VkImageView atch_color_view;
+		VkImageView atch_depthstencil_view;
+		VkCommandPool cmd_pool;
+		VkCommandBuffer cmd_prepare;
+		VkCommandBuffer cmd_draw;
+		VkFramebuffer framebuffer;
+		VkSemaphore sem_swapchain_image;
+		VkSemaphore sem_prepare;
+		VkSemaphore sem_draw;
+		VkFence     fence_draw;
 	};
 
 
@@ -216,6 +225,7 @@ namespace SKENGINE_NAME_NS {
 		void setDesiredTickrate  (float) noexcept;
 		void setRenderExtent     (VkExtent2D);
 		void setPresentExtent    (VkExtent2D);
+		void setUpscaleFactor    (float pixels_per_fragment);
 		void setFullscreen       (bool should_be_fullscreen);
 
 		auto getVmaAllocator () noexcept { return mVma; }
@@ -226,21 +236,10 @@ namespace SKENGINE_NAME_NS {
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
 
-		// With C++23 around the corner doing this *might* be a whole lot less ugly
-		#define MK_REF_GETTERS_(FN_, MEM_) \
-			const auto& FN_() const { return MEM_; } \
-			auto&       FN_()       { return MEM_; }
-
-		MK_REF_GETTERS_(getInputManager,  mInputMgr)
-		MK_REF_GETTERS_(getWorldRenderer, mWorldRenderer)
-		MK_REF_GETTERS_(getUiRenderer,    mUiRenderer)
-
-		#undef MK_REF_GETTERS_
-
 	private:
-		class Implementation;    friend Implementation;
-		class DeviceInitializer; friend DeviceInitializer;
-		class RpassInitializer;  friend RpassInitializer;
+		class Implementation;
+		class DeviceInitializer;
+		class RpassInitializer;
 
 		enum class QfamIndex : uint32_t { eInvalid = ~ uint32_t(0) };
 
@@ -254,24 +253,31 @@ namespace SKENGINE_NAME_NS {
 		VkPhysicalDeviceProperties mDevProps;
 		VkPhysicalDeviceFeatures   mDevFeatures;
 
-		VkSurfaceKHR   mSurface          = nullptr;
-		QfamIndex      mPresentQfamIndex = QfamIndex::eInvalid;
-		VkQueue        mPresentQueue     = nullptr;
-		VkSwapchainKHR mSwapchain        = nullptr;
+		VkSurfaceKHR       mSurface          = nullptr;
+		QfamIndex          mPresentQfamIndex = QfamIndex::eInvalid;
+		VkQueue            mPresentQueue     = nullptr;
+		VkSwapchainKHR     mSwapchain        = nullptr;
 		VkSurfaceCapabilitiesKHR mSurfaceCapabs = { };
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
+		VkFormat                 mDepthAtchFmt;
 		std::vector<SwapchainImageData> mSwapchainImages;
 
 		std::unique_ptr<LoopInterface> mLoop = nullptr;
-		input::InputManager mInputMgr;
 
 		tickreg::Regulator mGraphicsReg;
 		tickreg::Regulator mLogicReg;
 
-		boost::interprocess::interprocess_semaphore mGframeSem = boost::interprocess::interprocess_semaphore(0);
+		boost::mutex mGframeMutex = boost::mutex();
 		uint_fast64_t           mFrameCounter;
 		uint_fast32_t           mGframeSelector;
 		std::vector<GframeData> mGframes;
+
+		VkExtent2D       mRenderExtent;
+		VkExtent2D       mPresentExtent;
+		VkRenderPass     mRpass;
+		VkFramebuffer    mFramebuffer;
+		VkPipelineLayout mPipelineLayout;
+		VkPipelineCache  mPipelineCache;
 
 		vkutil::DescriptorProxy mDescProxy;
 		VkDescriptorSetLayout mStaticUboDsetLayout;
@@ -364,6 +370,8 @@ namespace SKENGINE_NAME_NS {
 	///
 	class BasicShaderCache : public Engine::ShaderCacheInterface {
 	public:
+		BasicShaderCache(std::string path_prefix);
+
 		#ifndef NDEBUG
 			// The non-default default constructor isn't necessary,
 			// and only used for runtime assertions
@@ -375,6 +383,7 @@ namespace SKENGINE_NAME_NS {
 		void shader_cache_releaseAllModules (Engine&) override;
 
 	private:
+		std::string mPrefix;
 		std::unordered_map<VkShaderModule, size_t> mModuleCounters;
 	};
 

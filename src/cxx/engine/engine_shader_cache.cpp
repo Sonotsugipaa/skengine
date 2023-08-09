@@ -6,6 +6,11 @@
 
 namespace SKENGINE_NAME_NS {
 
+	BasicShaderCache::BasicShaderCache(std::string p):
+		mPrefix(std::move(p))
+	{ }
+
+
 	#ifndef NDEBUG
 		BasicShaderCache::~BasicShaderCache() {
 			assert(mModuleCounters.empty());
@@ -33,8 +38,8 @@ namespace SKENGINE_NAME_NS {
 			case ShaderRequirement::Type::eWorld:
 				str = std::string(sr.world.materialName);
 				r = {
-					try_get_shader(str + "-vtx.spv", "world-default-vtx.spv"),
-					try_get_shader(str + "-frg.spv", "world-default-frg.spv") };
+					try_get_shader(mPrefix + "world-" + str + "-vtx.spv", "world-default-vtx.spv"),
+					try_get_shader(mPrefix + "world-" + str + "-frg.spv", "world-default-frg.spv") };
 				break;
 			case ShaderRequirement::Type::eUi:
 				throw std::runtime_error("TBW");

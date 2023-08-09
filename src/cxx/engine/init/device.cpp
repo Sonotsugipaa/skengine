@@ -18,6 +18,7 @@ namespace SKENGINE_NAME_NS {
 	unsigned long sdl_init_counter = 0;
 
 
+	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
 	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii, const EnginePreferences* ep) {
 		assert(dii != nullptr);
 		assert(ep  != nullptr);
@@ -42,7 +43,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initSdl(const DeviceInitInfo* device_init_info) {
-		if(0 == mPrefs.present_extent.width * mPrefs.present_extent.height) {
+		if(0 == mPrefs.init_present_extent.width * mPrefs.init_present_extent.height) {
 			throw std::invalid_argument("Initial window area cannot be 0");
 		}
 
@@ -60,17 +61,17 @@ namespace SKENGINE_NAME_NS {
 
 		mSdlWindow = SDL_CreateWindow(
 			device_init_info->window_title.c_str(),
-			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-			mPrefs.present_extent.width, mPrefs.present_extent.height,
+			0, 0,
+			mPrefs.init_present_extent.width, mPrefs.init_present_extent.height,
 			window_flags );
 
 		{ // Change the present extent, as the window decided it to be
 			int w, h;
-			auto& w0 = mPrefs.present_extent.width;
-			auto& h0 = mPrefs.present_extent.height;
+			auto& w0 = mPrefs.init_present_extent.width;
+			auto& h0 = mPrefs.init_present_extent.height;
 			SDL_Vulkan_GetDrawableSize(mSdlWindow, &w, &h);
 			if(uint32_t(w) != w0 || uint32_t(h) != h0) {
-				mPrefs.present_extent = { uint32_t(w), uint32_t(h) };
+				mPrefs.init_present_extent = { uint32_t(w), uint32_t(h) };
 				spdlog::warn("Requested window size {}x{}, got {}x{}", w0, h0, w, h);
 			}
 		}
@@ -163,14 +164,18 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
+		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
+
 		{ // Create logical device
 			auto dev_dst = vkutil::CreateDeviceDst { this->mDevice, mQueues };
+
+			auto features  = vkutil::commonFeatures;
 
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
 			cd_info.extensions        = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 			cd_info.pPhysDevProps     = &mDevProps;
-			cd_info.pRequiredFeatures = &vkutil::commonFeatures;
+			cd_info.pRequiredFeatures = &features;
 
 			vkutil::createDevice(dev_dst, cd_info);
 		}

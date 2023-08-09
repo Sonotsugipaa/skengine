@@ -10,8 +10,12 @@ dstpath="${dstpath:-/tmp/game-engine-sketch}"
 assetpath="${assetpath:-"$(realpath ./assets)"}"
 
 mkdir -m755 -p "$dstpath/$config"
-cd "$dstpath/$config"
 
+
+./gen-shaders.sh
+
+
+cd "$dstpath/$config"
 
 cmake -DCMAKE_BUILD_TYPE="$config" "$srcpath" -G "$generator"
 cmake --build . --config "$config"
