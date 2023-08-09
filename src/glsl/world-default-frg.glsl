@@ -15,6 +15,5 @@ layout(location = 0) out vec4 out_col;
 
 void main() {
 	out_col = frg_col;
-	out_col = vec4(1, 0, 0, 1);
 }
 

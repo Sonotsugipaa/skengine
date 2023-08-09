@@ -420,20 +420,6 @@ namespace SKENGINE_NAME_NS {
 			atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 
-			VkSubpassDependency deps[2];
-			deps[COLOR] = { };
-			deps[COLOR].srcSubpass    = 0;
-			deps[COLOR].dstSubpass    = VK_SUBPASS_EXTERNAL;
-			deps[COLOR].srcAccessMask = 0;
-			deps[COLOR].srcStageMask  = VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-			deps[COLOR].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-			deps[COLOR].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			deps[DEPTH] = deps[COLOR];
-			deps[DEPTH].srcAccessMask = 0;
-			deps[DEPTH].srcStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-			deps[DEPTH].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			deps[DEPTH].dstStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-
 			VkAttachmentReference subpass_refs[2];
 			subpass_refs[COLOR].attachment = COLOR;
 			subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -451,10 +437,10 @@ namespace SKENGINE_NAME_NS {
 			rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 			rpc_info.attachmentCount = std::size(atch_descs);
 			rpc_info.pAttachments    = atch_descs;
-			rpc_info.dependencyCount = std::size(deps);
-			rpc_info.pDependencies   = deps;
 			rpc_info.subpassCount    = std::size(subpasses);
 			rpc_info.pSubpasses      = subpasses;
+			rpc_info.dependencyCount = 0;
+			rpc_info.pDependencies   = nullptr;
 
 			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mRpass);
 		}

@@ -44,21 +44,22 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			auto vtx = i + r.mappedPtr<Vertex_PLACEHOLDER>();
 			vtx->pos = { x, y, z, 1.0f };
 			vtx->col = color;
+			++i;
 		};
 
-		insert(  0.5f,   0.1f, +0.5f, red);
-		insert(  0.1f,   0.9f, +0.5f, grn);
-		insert(  0.9f,   0.9f, +0.5f, blu);
-		insert(  0.9f,   0.1f, +0.5f, red);
-		insert(  0.5f,   0.1f, -0.5f, red);
+		insert(  0.0f,  -0.9f, +0.5f, red); // 0
+		insert( -0.9f,  +0.9f, +0.5f, grn);
+		insert( +0.9f,  +0.9f, +0.5f, blu);
+		insert( +0.9f,  -0.9f, +1.1f, red);
+		insert(  0.0f,   0.1f, -0.5f, red); // 4
 		insert(  0.1f,   0.9f, -0.5f, grn);
 		insert(  0.9f,   0.9f, -0.5f, blu);
 		insert(  0.9f,   0.1f, -0.5f, red);
-		insert(+00.0f, -10.1f, +0.5f, red);
+		insert(+00.0f, -10.1f, +0.5f, red); // 8
 		insert(-10.1f, +10.9f, +0.5f, grn);
 		insert(+10.9f, +10.9f, +0.5f, blu);
 		insert(+10.9f, -10.1f, +0.5f, red);
-		insert(+00.0f, -10.1f, -0.5f, red);
+		insert(+00.0f, -10.1f, -0.5f, red); // c
 		insert(-10.1f, +10.9f, -0.5f, grn);
 		insert(+10.9f, +10.9f, -0.5f, blu);
 		insert(+10.9f, -10.1f, -0.5f, red);
@@ -80,27 +81,28 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		auto insert = [&](uint32_t value) {
 			auto idx = i + r.mappedPtr<uint32_t>();
 			*idx = value;
+			++i;
 		};
 
-		insert(4+1);
-		insert(4+2);
-		insert(4+3);
-		insert(4+1);
+		insert(0x0+0);
+		insert(0x0+1);
+		insert(0x0+2);
+		insert(0x0+3);
 		insert(0xffffffff);
-		insert(12+1);
-		insert(12+2);
-		insert(12+3);
-		insert(12+1);
+		insert(0xc+0);
+		insert(0xc+1);
+		insert(0xc+2);
+		insert(0xc+3);
 		insert(0xffffffff);
-		insert(0+1);
-		insert(0+2);
-		insert(0+3);
-		insert(0+1);
+		insert(0x4+0);
+		insert(0x4+1);
+		insert(0x4+2);
+		insert(0x4+3);
 		insert(0xffffffff);
-		insert(8+1);
-		insert(8+2);
-		insert(8+3);
-		insert(8+1);
+		insert(0x8+0);
+		insert(0x8+1);
+		insert(0x8+2);
+		insert(0x8+3);
 		insert(0xffffffff);
 
 		r.flush(cmd, e.mVma);
@@ -151,8 +153,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkViewport viewport = { }; {
 			viewport.x      = 0.0f;
 			viewport.y      = 0.0f;
-			viewport.width  = e.mRenderExtent.width / 4;
-			viewport.height = e.mRenderExtent.height / 4;
+			viewport.width  = e.mRenderExtent.width;
+			viewport.height = e.mRenderExtent.height;
 			viewport.minDepth = 0.0f;
 			viewport.maxDepth = 1.0f;
 		}
@@ -176,7 +178,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			r.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 			r.polygonMode = VK_POLYGON_MODE_FILL;
 			r.lineWidth   = 1.0f;
-			r.rasterizerDiscardEnable = VK_FALSE;
+			r.rasterizerDiscardEnable = false;
 		}
 
 		VkPipelineMultisampleStateCreateInfo m = { }; {
@@ -347,7 +349,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		{ // Begin the render pass
 			constexpr size_t COLOR = 0;
 			constexpr size_t DEPTH = 1;
-			constexpr float clear_color[4] = { 0.0f, 0.0f, 0.0f, 0.8f };
+			constexpr float clear_color[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
 			VkClearValue clears[2];
 			memcpy(clears[COLOR].color.float32, clear_color, 4 * sizeof(float));
 			clears[DEPTH].depthStencil = { 1.0f, 0 };
@@ -368,7 +370,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			vkCmdBindPipeline(gframe->cmd_draw, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_PLACEHOLDER);
 			vkCmdBindVertexBuffers(gframe->cmd_draw, 0, 1, &vtx_buffer_PLACEHOLDER.value, &offset);
 			vkCmdBindIndexBuffer(gframe->cmd_draw, idx_buffer_PLACEHOLDER.value, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(gframe->cmd_draw, 20, 1, 0, 0, 0);
+			vkCmdDrawIndexed(gframe->cmd_draw, 5, 1, 0, 0, 0);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);

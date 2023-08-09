@@ -38,17 +38,7 @@ layout(location = 0) out vec4 frg_col;
 
 
 void main() {
-	gl_Position = vec4(in_pos.xy, 0.1, 1.0);
+	gl_Position = vec4(in_pos.xyz, 1.0);
 	//gl_Position = staticUbo.proj * modelViewMat * vec4(in_pos.xyz, 1.0);
 	frg_col     = in_col;
-
-
-
-	///**/ if(gl_VertexIndex == 0) gl_Position = vec4(  0, 0, +0.5, 1);
-	//else if(gl_VertexIndex == 1) gl_Position = vec4(0.5, 1, +0.5, 1);
-	//else if(gl_VertexIndex == 2) gl_Position = vec4(  1, 0, +0.5, 1);
-	//else if(gl_VertexIndex == 3) gl_Position = vec4(  0, 0, -0.5, 1);
-	//else if(gl_VertexIndex == 4) gl_Position = vec4(0.5, 1, -0.5, 1);
-	//else if(gl_VertexIndex == 5) gl_Position = vec4(  1, 0, -0.5, 1);
-	frg_col = vec4(1, 0, 0, 1);
 }

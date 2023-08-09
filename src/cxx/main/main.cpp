@@ -58,7 +58,7 @@ int main() {
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
 	prefs.phys_device_uuid  = "00000000-0900-0000-0000-000000000000";
-	//prefs.max_render_extent = { 4, 4 };
+	prefs.max_render_extent = { 40, 40 };
 
 	try {
 		SKENGINE_NAME_NS_SHORT::BasicShaderCache shader_cache = std::string("assets/");
