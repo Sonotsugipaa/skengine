@@ -53,12 +53,13 @@ int main() {
 	#ifdef NDEBUG
 		spdlog::set_level(spdlog::level::info);
 	#else
-		spdlog::set_level(spdlog::level::trace);
+		spdlog::set_level(spdlog::level::debug);
 	#endif
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
-	prefs.phys_device_uuid  = "00000000-0900-0000-0000-000000000000";
-	prefs.max_render_extent = { 40, 40 };
+	//prefs.phys_device_uuid    = "00000000-0900-0000-0000-000000000000";
+	prefs.init_present_extent = { 700, 700 };
+	prefs.max_render_extent   = { 100, 100 };
 
 	try {
 		SKENGINE_NAME_NS_SHORT::BasicShaderCache shader_cache = std::string("assets/");

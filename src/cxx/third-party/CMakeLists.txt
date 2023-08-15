@@ -14,6 +14,8 @@ add_subdirectory(rll-allocator)
 add_subdirectory(vk-util)
 target_include_directories(vk-util PUBLIC SYSTEM ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_subdirectory(fmamdl)
+
 #set(POSIXFIO_LOCAL true)
 #add_subdirectory(posixfio)
 #target_include_directories(posixfio INTERFACE posixfio/include/unix)

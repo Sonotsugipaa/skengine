@@ -12,6 +12,7 @@ add_library(engine
 	engine_shader_cache.cpp )
 
 target_link_libraries(engine
+	fmamdl
 	posixfio
 	tick-regulator
 	vk-util

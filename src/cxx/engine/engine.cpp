@@ -6,9 +6,16 @@
 
 #include <spdlog/spdlog.h>
 
+#include <fmamdl/fmamdl.hpp>
+
 #include <vk-util/error.hpp>
 
 
+
+#warning "Global test model"
+auto testModel        = posixfio::File::open("assets/test-model.fma", O_RDONLY);
+auto testModelMap     = testModel.mmap(testModel.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0);
+auto testModelIndices = (fmamdl::Header { testModelMap.get<std::byte>(), testModelMap.size() }).indices();
 
 struct SKENGINE_NAME_NS::Engine::Implementation {
 
@@ -21,48 +28,18 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	static constexpr auto NO_FRAME_AVAILABLE = ~ decltype(Engine::mGframeSelector)(0);
 
 
-	struct Vertex_PLACEHOLDER {
-		glm::vec4 pos;
-		glm::vec4 col;
-	};
-
-
 	static vkutil::BufferDuplex createVertexBuffer_PLACEHOLDER(Engine& e, VkCommandBuffer cmd) {
+		const fmamdl::Header h = { testModelMap.get<std::byte>(), testModelMap.size() };
+		auto& vertices = h.vertices();
+
 		vkutil::BufferCreateInfo bc_info = {
-			.size  = 4 * sizeof(Vertex_PLACEHOLDER),
+			.size  = vertices.size_bytes(),
 			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 			.qfamSharing = { } };
 
 		auto r = vkutil::BufferDuplex::createVertexInputBuffer(e.mVma, bc_info);
 
-		glm::vec4 red = { 1.0f, 0.1f, 0.1f, 1.0f };
-		glm::vec4 grn = { 0.1f, 1.0f, 0.1f, 1.0f };
-		glm::vec4 blu = { 0.1f, 0.1f, 1.0f, 1.0f };
-
-		size_t i = 0;
-		auto insert = [&](float x, float y, float z, const glm::vec4& color) {
-			auto vtx = i + r.mappedPtr<Vertex_PLACEHOLDER>();
-			vtx->pos = { x, y, z, 1.0f };
-			vtx->col = color;
-			++i;
-		};
-
-		insert(  0.0f,  -0.9f, +0.5f, red); // 0
-		insert( -0.9f,  +0.9f, +0.5f, grn);
-		insert( +0.9f,  +0.9f, +0.5f, blu);
-		insert( +0.9f,  -0.9f, +1.1f, red);
-		insert(  0.0f,   0.1f, -0.5f, red); // 4
-		insert(  0.1f,   0.9f, -0.5f, grn);
-		insert(  0.9f,   0.9f, -0.5f, blu);
-		insert(  0.9f,   0.1f, -0.5f, red);
-		insert(+00.0f, -10.1f, +0.5f, red); // 8
-		insert(-10.1f, +10.9f, +0.5f, grn);
-		insert(+10.9f, +10.9f, +0.5f, blu);
-		insert(+10.9f, -10.1f, +0.5f, red);
-		insert(+00.0f, -10.1f, -0.5f, red); // c
-		insert(-10.1f, +10.9f, -0.5f, grn);
-		insert(+10.9f, +10.9f, -0.5f, blu);
-		insert(+10.9f, -10.1f, -0.5f, red);
+		memcpy(r.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
 
 		r.flush(cmd, e.mVma);
 		return r;
@@ -70,40 +47,17 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	static vkutil::BufferDuplex createIndexBuffer_PLACEHOLDER(Engine& e, VkCommandBuffer cmd) {
+		const fmamdl::Header h = { testModelMap.get<std::byte>(), testModelMap.size() };
+		auto& indices = h.indices();
+
 		vkutil::BufferCreateInfo bc_info = {
-			.size  = 20 * sizeof(uint32_t),
+			.size  = indices.size_bytes(),
 			.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			.qfamSharing = { } };
 
 		auto r = vkutil::BufferDuplex::createIndexInputBuffer(e.mVma, bc_info);
 
-		size_t i = 0;
-		auto insert = [&](uint32_t value) {
-			auto idx = i + r.mappedPtr<uint32_t>();
-			*idx = value;
-			++i;
-		};
-
-		insert(0x0+0);
-		insert(0x0+1);
-		insert(0x0+2);
-		insert(0x0+3);
-		insert(0xffffffff);
-		insert(0xc+0);
-		insert(0xc+1);
-		insert(0xc+2);
-		insert(0xc+3);
-		insert(0xffffffff);
-		insert(0x4+0);
-		insert(0x4+1);
-		insert(0x4+2);
-		insert(0x4+3);
-		insert(0xffffffff);
-		insert(0x8+0);
-		insert(0x8+1);
-		insert(0x8+2);
-		insert(0x8+3);
-		insert(0xffffffff);
+		memcpy(r.mappedPtr<void>(), indices.data(), indices.size_bytes());
 
 		r.flush(cmd, e.mVma);
 		return r;
@@ -120,16 +74,16 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			constexpr size_t POS = 0;
 			constexpr size_t COL = 1;
 			vtx_attr[POS].binding  = 0;
-			vtx_attr[POS].format   = VK_FORMAT_R32G32B32A32_SFLOAT;
+			vtx_attr[POS].format   = VK_FORMAT_R32G32B32_SFLOAT;
 			vtx_attr[POS].location = 0;
 			vtx_attr[POS].offset   = 0;
 			vtx_attr[COL].binding  = 0;
-			vtx_attr[COL].format   = VK_FORMAT_R32G32B32A32_SFLOAT;
+			vtx_attr[COL].format   = VK_FORMAT_R32G32B32_SFLOAT;
 			vtx_attr[COL].location = 1;
-			vtx_attr[COL].offset   = 1 * sizeof(glm::vec4);
+			vtx_attr[COL].offset   = offsetof(fmamdl::Vertex, normal);
 			vtx_bind[0].binding   = 0;
 			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-			vtx_bind[0].stride    = 2 * sizeof(glm::vec4);
+			vtx_bind[0].stride    = sizeof(fmamdl::Vertex);
 		}
 
 		VkPipelineVertexInputStateCreateInfo vi = { }; {
@@ -370,7 +324,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			vkCmdBindPipeline(gframe->cmd_draw, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_PLACEHOLDER);
 			vkCmdBindVertexBuffers(gframe->cmd_draw, 0, 1, &vtx_buffer_PLACEHOLDER.value, &offset);
 			vkCmdBindIndexBuffer(gframe->cmd_draw, idx_buffer_PLACEHOLDER.value, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(gframe->cmd_draw, 5, 1, 0, 0, 0);
+			vkCmdDrawIndexed(gframe->cmd_draw, testModelIndices.size(), 1, 0, 0, 0);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
