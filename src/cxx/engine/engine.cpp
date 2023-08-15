@@ -557,7 +557,7 @@ namespace SKENGINE_NAME_NS {
 		sm_info.codeSize = code.size_bytes();
 		VkShaderModule r;
 		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		spdlog::debug("Loaded shader module from memory");
+		spdlog::trace("Loaded shader module from memory");
 		return r;
 	}
 
@@ -591,7 +591,7 @@ namespace SKENGINE_NAME_NS {
 		sm_info.pCode = buffer.get();
 		VkShaderModule r;
 		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		spdlog::debug("Loaded shader module from file \"{}\"", file_path);
+		spdlog::trace("Loaded shader module from file \"{}\"", file_path);
 		return r;
 	}
 

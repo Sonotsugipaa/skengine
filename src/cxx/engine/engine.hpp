@@ -167,6 +167,12 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	struct ShaderModuleSet {
+		VkShaderModule vertex;
+		VkShaderModule fragment;
+	};
+
+
 	template <typename T>
 	concept ShaderCodeContainer = requires(T t) {
 		typename T::value_type;
@@ -176,16 +182,33 @@ namespace SKENGINE_NAME_NS {
 		requires 4 == sizeof(t.data()[0]);
 	};
 
-	struct ShaderModuleSet {
-		VkShaderModule vertex;
-		VkShaderModule fragment;
-	};
-
 
 	struct Material {
 		VkPipeline        pipeline;
 		VkPipelineLayout  pipeline_layout;
 		vkutil::DsetToken texture_dset;
+	};
+
+
+	struct WorldShaderRequirement {
+		std::string_view materialName;
+	};
+
+	struct UiShaderRequirement {
+		// TBW
+	};
+
+	struct ShaderRequirement {
+		enum class Type {
+			eWorld, eUi
+		};
+
+		union {
+			WorldShaderRequirement world;
+			UiShaderRequirement    ui;
+		};
+
+		Type type;
 	};
 
 
@@ -305,26 +328,20 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
 
 
-	struct WorldShaderRequirement {
-		std::string_view materialName;
+	struct ShaderRequirementHash {
+		std::size_t operator()(const ShaderRequirement&) const noexcept;
 	};
 
-	struct UiShaderRequirement {
-		// TBW
+	struct ShaderRequirementCompare {
+		bool operator()(const ShaderRequirement&, const ShaderRequirement&) const noexcept;
 	};
 
+	struct ShaderModuleSetHash {
+		std::size_t operator()(const ShaderModuleSet&) const noexcept;
+	};
 
-	struct ShaderRequirement {
-		enum class Type {
-			eWorld, eUi
-		};
-
-		union {
-			WorldShaderRequirement world;
-			UiShaderRequirement    ui;
-		};
-
-		Type type;
+	struct ShaderModuleSetCompare {
+		bool operator()(const ShaderModuleSet&, const ShaderModuleSet&) const noexcept;
 	};
 
 
@@ -383,8 +400,13 @@ namespace SKENGINE_NAME_NS {
 		void shader_cache_releaseAllModules (Engine&) override;
 
 	private:
-		std::string mPrefix;
-		std::unordered_map<VkShaderModule, size_t> mModuleCounters;
+		using SetCache       = std::unordered_map<ShaderRequirement, ShaderModuleSet, ShaderRequirementHash, ShaderRequirementCompare>;
+		using SetCacheLookup = std::unordered_map<ShaderModuleSet, ShaderRequirement, ShaderModuleSetHash, ShaderModuleSetCompare>;
+		using Counters       = std::unordered_map<ShaderRequirement, size_t, ShaderRequirementHash, ShaderRequirementCompare>;
+		std::string    mPrefix;
+		SetCache       mSetCache;
+		SetCacheLookup mSetLookup;
+		Counters       mModuleCounters;
 	};
 
 }

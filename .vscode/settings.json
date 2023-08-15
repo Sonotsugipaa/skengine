@@ -1,6 +1,6 @@
 {
 	"C_Cpp.intelliSenseEngineFallback": "disabled",
-	"C_Cpp.default.cppStandard": "c++20",
+	"C_Cpp.default.cppStandard": "c++23",
 	"C_Cpp.default.cStandard": "c17",
 	"C_Cpp.default.defines": [
 		"SKENGINE_VERSION=1.2.3",
