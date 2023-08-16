@@ -28,12 +28,11 @@ namespace {
 			while(1 == SDL_PollEvent(&ev))
 			switch(ev.type) {
 				case SDL_EventType::SDL_QUIT:
-					#warning "This exit is not graceful"
-					exit(2);
+					remainingFrames = 0;
 			}
 
 			spdlog::info("We did it, Lemmy!");
-			-- remainingFrames;
+			remainingFrames = remainingFrames - ((remainingFrames > 0u)? 1u : 0u);
 		}
 
 		SKENGINE_NAME_NS_SHORT::LoopInterface::LoopState loop_pollState() const noexcept override {

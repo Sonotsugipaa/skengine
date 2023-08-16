@@ -502,6 +502,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroyFramebuffers(State& state) {
+		// Framebuffer initialization only required if the attachments are out of date
+		bool ood = state.createdGframes || state.destroyedGframes;
+		if(! ood) return;
+
 		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
 			GframeData& gf = mGframes[i];
 			vkDestroyFramebuffer(mDevice, gf.framebuffer, nullptr);

@@ -9,6 +9,8 @@ add_library(engine
 	init/rpass.cpp
 	renderer.cpp
 	engine.cpp
+	engine_buffer.cpp
+	engine_mesh_supplier.cpp
 	engine_shader_cache.cpp )
 
 target_link_libraries(engine

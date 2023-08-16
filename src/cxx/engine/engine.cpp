@@ -12,11 +12,6 @@
 
 
 
-#warning "Global test model"
-auto testModel        = posixfio::File::open("assets/test-model.fma", O_RDONLY);
-auto testModelMap     = testModel.mmap(testModel.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0);
-auto testModelIndices = (fmamdl::Header { testModelMap.get<std::byte>(), testModelMap.size() }).indices();
-
 struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	struct PipelineCreateInfo {
@@ -26,42 +21,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	static constexpr auto NO_FRAME_AVAILABLE = ~ decltype(Engine::mGframeSelector)(0);
-
-
-	static vkutil::BufferDuplex createVertexBuffer_PLACEHOLDER(Engine& e, VkCommandBuffer cmd) {
-		const fmamdl::Header h = { testModelMap.get<std::byte>(), testModelMap.size() };
-		auto& vertices = h.vertices();
-
-		vkutil::BufferCreateInfo bc_info = {
-			.size  = vertices.size_bytes(),
-			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			.qfamSharing = { } };
-
-		auto r = vkutil::BufferDuplex::createVertexInputBuffer(e.mVma, bc_info);
-
-		memcpy(r.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
-
-		r.flush(cmd, e.mVma);
-		return r;
-	}
-
-
-	static vkutil::BufferDuplex createIndexBuffer_PLACEHOLDER(Engine& e, VkCommandBuffer cmd) {
-		const fmamdl::Header h = { testModelMap.get<std::byte>(), testModelMap.size() };
-		auto& indices = h.indices();
-
-		vkutil::BufferCreateInfo bc_info = {
-			.size  = indices.size_bytes(),
-			.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			.qfamSharing = { } };
-
-		auto r = vkutil::BufferDuplex::createIndexInputBuffer(e.mVma, bc_info);
-
-		memcpy(r.mappedPtr<void>(), indices.data(), indices.size_bytes());
-
-		r.flush(cmd, e.mVma);
-		return r;
-	}
 
 
 	static VkPipeline createPipeline(Engine& e, PipelineCreateInfo& ci) {
@@ -286,12 +245,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
 
-		vkutil::BufferDuplex vtx_buffer_PLACEHOLDER;
-		vkutil::BufferDuplex idx_buffer_PLACEHOLDER;
-		{ // Prepare the buffers
-			vtx_buffer_PLACEHOLDER = createVertexBuffer_PLACEHOLDER(e, gframe->cmd_prepare);
-			idx_buffer_PLACEHOLDER = createIndexBuffer_PLACEHOLDER(e, gframe->cmd_prepare);
-		}
+		MeshId mesh_id = e.mWorldRenderer.fetchMesh("assets/test-model.fma");
+		auto*  mesh    = e.mWorldRenderer.getMesh(mesh_id);
+		assert(mesh != nullptr);
 
 		VkImageMemoryBarrier imb[2] = { };
 		imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -322,9 +278,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		{ // Draw the objects
 			constexpr VkDeviceSize offset = 0;
 			vkCmdBindPipeline(gframe->cmd_draw, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_PLACEHOLDER);
-			vkCmdBindVertexBuffers(gframe->cmd_draw, 0, 1, &vtx_buffer_PLACEHOLDER.value, &offset);
-			vkCmdBindIndexBuffer(gframe->cmd_draw, idx_buffer_PLACEHOLDER.value, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(gframe->cmd_draw, testModelIndices.size(), 1, 0, 0, 0);
+			vkCmdBindIndexBuffer(gframe->cmd_draw, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindVertexBuffers(gframe->cmd_draw, 0, 1, &mesh->vertices.value, &offset);
+			vkCmdDrawIndexed(gframe->cmd_draw, mesh->indices.size() / sizeof(fmamdl::Index), 1, 0, 0, 0);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -443,8 +399,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
 		vkDestroyPipeline(e.mDevice, pipeline_PLACEHOLDER, nullptr);
-		vkutil::BufferDuplex::destroy(e.mVma, vtx_buffer_PLACEHOLDER);
-		vkutil::BufferDuplex::destroy(e.mVma, idx_buffer_PLACEHOLDER);
 		return true;
 	}
 

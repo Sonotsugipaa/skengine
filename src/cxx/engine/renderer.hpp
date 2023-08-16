@@ -39,6 +39,28 @@ namespace SKENGINE_NAME_NS {
 	class Engine;
 
 
+	struct DevMesh {
+		vkutil::BufferDuplex indices;
+		vkutil::BufferDuplex vertices;
+	};
+
+
+	struct UnboundDrawBatch {
+		RenderObjectId object_id;
+		MeshId         mesh_id;
+		MaterialId     material_id;
+		uint32_t       instance_count;
+	};
+
+
+	class MeshSupplierInterface {
+	public:
+		virtual DevMesh msi_requestMesh(std::string_view locator) = 0;
+		virtual void    msi_releaseMesh(std::string_view locator) noexcept = 0;
+		virtual void msi_releaseAllMeshes() noexcept = 0;
+	};
+
+
 	/// \brief A collection of objects to be drawn, which may or
 	///        may not be frequently modified.
 	///
@@ -50,25 +72,20 @@ namespace SKENGINE_NAME_NS {
 	///
 	class Renderer {
 	public:
-		/// \brief A user-implemented object that provides necessary
-		///        mesh metadata.
-		///
-		/// This interface may be used very often, depending on how often
-		/// objects are added, removed or modified;
-		/// the implementation should cache or copy-on-read the returned
-		/// information, if it isn't trivial to obtain.
-		///
-		class MeshProviderInterface;
-
-		struct MeshInfo {
-			size_t vertexCount;
-			size_t firstVertex;
+		struct MeshData {
+			DevMesh     mesh;
+			std::string locator;
 		};
+
+		using MeshLookup = std::unordered_map<std::string_view, MeshId>;
+		using MeshMap    = std::unordered_map<MeshId, MeshData>;
+		using Objects    = std::unordered_map<RenderObjectId, RenderObject>;
+		using BatchMap   = std::unordered_map<MeshId, std::unordered_map<MaterialId, UnboundDrawBatch>>;
 
 		Renderer() = default;
 
-		static Renderer create(Engine&);
-		static void destroy(Renderer&);
+		static Renderer create  (VmaAllocator, MeshSupplierInterface&);
+		static void     destroy (Renderer&);
 
 		RenderObjectId createObject (RenderObject);
 		void           removeObject (RenderObjectId) noexcept;
@@ -76,32 +93,29 @@ namespace SKENGINE_NAME_NS {
 		std::optional<const RenderObject*> getObject    (RenderObjectId) const noexcept;
 		std::optional<RenderObject*>       modifyObject (RenderObjectId) noexcept;
 
-		VkBuffer getObjectStorageBuffer () const noexcept { return const_cast<VkBuffer>(mDevObjectBuffer.value); }
-		VkBuffer getDrawCommandBuffer   () const noexcept { return const_cast<VkBuffer>(mDrawCmdBuffer.value); }
-		void     commitBuffers          (VkCommandBuffer, VkFence signalFence, MeshProviderInterface&);
+		MeshId         fetchMesh (std::string_view locator);
+		MeshId         setMesh   (std::string_view locator, DevMesh);
+		const DevMesh* getMesh   (MeshId) const noexcept;
+		void           eraseMesh (MeshId) noexcept;
+
+		VkBuffer getDrawCommandBuffer () const noexcept { return const_cast<VkBuffer>(mDrawCmdBuffer.value); }
+		void     commitBuffers        (VkCommandBuffer, VkFence signalFence);
 
 		void reserve(size_t capacity);
 		void shrinkToFit();
 
 	private:
-		enum class State {
-			eClean,
-			eObjectBufferDirty,   // Only existing device objects have been edited
-			eDrawCmdBufferDirty,  // The objects buffer is ready to be committed, and the draw commands are out of date
-			eReconstructionNeeded // Both buffers have to be rewritten
-		};
+		VkDevice     mDevice = nullptr;
+		VmaAllocator mVma;
+		MeshSupplierInterface* mMsi;
 
-		Engine* mEngine;
-		std::unordered_map<RenderObjectId, RenderObject> mObjects;
-		std::unordered_map<MeshId, std::unordered_map<MaterialId, DrawBatch>> mDrawBatches;
-		std::vector<bool>    mDevObjectDirtyBitset;
-		vkutil::BufferDuplex mDevObjectBuffer;
+		MeshLookup mMeshLocators;
+		MeshMap    mMeshes;
+		Objects    mObjects;
+		BatchMap   mDrawBatches;
 		vkutil::BufferDuplex mDrawCmdBuffer;
-		State mState;
 
-		#ifndef NDEBUG
-			bool mIsInitialized = false;
-		#endif
+		bool mObjectsOod;
 	};
 
 
@@ -110,7 +124,8 @@ namespace SKENGINE_NAME_NS {
 	///
 	class WorldRenderer : public Renderer {
 	public:
-		WorldRenderer();
+		using Renderer::create;
+		using Renderer::destroy;
 
 		const glm::mat4& getViewTransf() noexcept;
 
@@ -134,14 +149,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		UiRenderer();
 
-		using Renderer::getObjectStorageBuffer;
 		using Renderer::getDrawCommandBuffer;
-	};
-
-
-	class Renderer::MeshProviderInterface {
-	public:
-		virtual Renderer::MeshInfo getMeshInfo(MeshId) = 0;
 	};
 
 }

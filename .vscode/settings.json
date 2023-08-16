@@ -9,7 +9,7 @@
 		"SKENGINE_VERSION_PATCH=3",
 	],
 	"C_Cpp.default.includePath": [
-		"src/cxx/third-party/fmamdl/h",
+		"src/cxx/third-party/fmamdl/include",
 		"src/cxx/third-party/rll-allocator/",
 		"src/cxx/third-party/tick-regulator/",
 		"src/cxx/third-party/nlohmann_json/include/",

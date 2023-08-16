@@ -27,14 +27,16 @@ namespace SKENGINE_NAME_NS {
 		initVkInst(dii);
 		initVkDev();
 		initVma();
-		initCmdPools();
+		initTransferCmdPool();
+		initRenderer();
 		initDescProxy();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
 		destroyDescProxy();
-		destroyCmdPools();
+		destroyRenderer();
+		destroyTransferCmdPool();
 		destroyVma();
 		destroyVkDev();
 		destroyVkInst();
@@ -193,9 +195,19 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initCmdPools () {
-		mRenderCmdPool   = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.graphicsIndex));
-		mTransferCmdPool = vkutil::CommandPool(mDevice, uint32_t(mQueues.families.transferIndex));
+	void Engine::DeviceInitializer::initTransferCmdPool() {
+		VkCommandPoolCreateInfo cpc_info = { };
+		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		cpc_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		cpc_info.queueFamilyIndex = mQueues.families.graphicsIndex;
+		vkCreateCommandPool(mDevice, &cpc_info, nullptr, &mTransferCmdPool);
+	}
+
+
+	void Engine::DeviceInitializer::initRenderer() {
+		#warning "make the mesh cache configurable"
+		mMeshSupplier  = MeshSupplier(*this, 0.2f);
+		mWorldRenderer = WorldRenderer::create(mVma, mMeshSupplier);
 	}
 
 
@@ -234,11 +246,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::destroyCmdPools () {
-		assert(mDevice != nullptr);
+	void Engine::DeviceInitializer::destroyRenderer() {
+		WorldRenderer::destroy(mWorldRenderer);
+		mMeshSupplier.destroy();
+	}
 
-		mTransferCmdPool = { };
-		mRenderCmdPool   = { };
+
+	void Engine::DeviceInitializer::destroyTransferCmdPool() {
+		vkDestroyCommandPool(mDevice, mTransferCmdPool, nullptr);
 	}
 
 

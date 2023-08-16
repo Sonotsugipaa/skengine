@@ -212,6 +212,27 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	class MeshSupplier : public MeshSupplierInterface {
+	public:
+		using Meshes = std::unordered_map<std::string, DevMesh>;
+
+		MeshSupplier() = default;
+		MeshSupplier(Engine& engine, float max_inactive_ratio);
+		void destroy();
+		~MeshSupplier();
+
+		DevMesh msi_requestMesh(std::string_view locator) override;
+		void    msi_releaseMesh(std::string_view locator) noexcept override;
+		void msi_releaseAllMeshes() noexcept override;
+
+	private:
+		Engine* ms_engine;
+		Meshes  ms_active;
+		Meshes  ms_inactive;
+		float   ms_maxInactiveRatio;
+	};
+
+
 	class Engine {
 	public:
 		class ShaderCacheInterface;
@@ -251,6 +272,9 @@ namespace SKENGINE_NAME_NS {
 		void setUpscaleFactor    (float pixels_per_fragment);
 		void setFullscreen       (bool should_be_fullscreen);
 
+		void pushBuffer(vkutil::BufferDuplex&);
+		void pullBuffer(vkutil::BufferDuplex&);
+
 		auto getVmaAllocator () noexcept { return mVma; }
 		auto getDevice       () noexcept { return mDevice; }
 		auto getPhysDevice   () noexcept { return mPhysDevice; }
@@ -275,6 +299,8 @@ namespace SKENGINE_NAME_NS {
 		vkutil::Queues   mQueues     = { };
 		VkPhysicalDeviceProperties mDevProps;
 		VkPhysicalDeviceFeatures   mDevFeatures;
+
+		VkCommandPool mTransferCmdPool;
 
 		VkSurfaceKHR       mSurface          = nullptr;
 		QfamIndex          mPresentQfamIndex = QfamIndex::eInvalid;
@@ -307,11 +333,9 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mFrameUboDsetLayout;
 		VkDescriptorSetLayout mShaderStorageDsetLayout;
 
-		Renderer mWorldRenderer;
-		Renderer mUiRenderer;
-
-		vkutil::CommandPool mTransferCmdPool;
-		vkutil::CommandPool mRenderCmdPool;
+		MeshSupplier mMeshSupplier;
+		Renderer     mWorldRenderer;
+		Renderer     mUiRenderer;
 
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;

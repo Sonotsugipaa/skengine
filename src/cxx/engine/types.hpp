@@ -30,17 +30,17 @@ namespace SKENGINE_NAME_NS {
 	struct RenderObject {
 		MeshId     mesh_id;
 		MaterialId material_id;
-		glm::vec3  position_xyz;
-		glm::vec3  direction_ypr;
-		glm::vec3  scale_xyz;
+		alignas(glm::vec4) glm::vec3 position_xyz;
+		alignas(glm::vec4) glm::vec3 direction_ypr;
+		alignas(glm::vec4) glm::vec3 scale_xyz;
 	};
 
 
 	struct DrawBatch {
 		MeshId     mesh_id;
 		MaterialId material_id;
-		uint32_t   instanceCount;
-		uint32_t   firstInstance;
+		uint32_t   instance_count;
+		uint32_t   first_instance;
 	};
 
 
