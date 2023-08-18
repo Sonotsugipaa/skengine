@@ -30,6 +30,7 @@
 #include <glm/vec3.hpp>
 
 #include <optional>
+#include <unordered_set>
 #include <unordered_map>
 
 
@@ -46,10 +47,12 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct UnboundDrawBatch {
-		RenderObjectId object_id;
-		MeshId         mesh_id;
-		MaterialId     material_id;
-		uint32_t       instance_count;
+		std::unordered_set<RenderObjectId> object_ids;
+		MeshId     mesh_id;
+		MaterialId material_id;
+		uint32_t   vertex_offset;
+		uint32_t   index_count;
+		uint32_t   first_index;
 	};
 
 
@@ -77,10 +80,11 @@ namespace SKENGINE_NAME_NS {
 			std::string locator;
 		};
 
-		using MeshLookup = std::unordered_map<std::string_view, MeshId>;
-		using MeshMap    = std::unordered_map<MeshId, MeshData>;
-		using Objects    = std::unordered_map<RenderObjectId, RenderObject>;
-		using BatchMap   = std::unordered_map<MeshId, std::unordered_map<MaterialId, UnboundDrawBatch>>;
+		using MeshLookup      = std::unordered_map<std::string_view, MeshId>;
+		using MeshMap         = std::unordered_map<MeshId, MeshData>;
+		using Objects         = std::unordered_map<RenderObjectId, RenderObject>;
+		using UnboundBatchMap = std::unordered_map<MeshId, std::unordered_map<MaterialId, UnboundDrawBatch>>;
+		using BatchList       = std::vector<DrawBatch>;
 
 		Renderer() = default;
 
@@ -98,8 +102,8 @@ namespace SKENGINE_NAME_NS {
 		const DevMesh* getMesh   (MeshId) const noexcept;
 		void           eraseMesh (MeshId) noexcept;
 
-		VkBuffer getDrawCommandBuffer () const noexcept { return const_cast<VkBuffer>(mDrawCmdBuffer.value); }
-		void     commitBuffers        (VkCommandBuffer, VkFence signalFence);
+		VkBuffer getInstanceBuffer () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
+		void     commitObjects     (VkCommandBuffer);
 
 		void reserve(size_t capacity);
 		void shrinkToFit();
@@ -109,11 +113,13 @@ namespace SKENGINE_NAME_NS {
 		VmaAllocator mVma;
 		MeshSupplierInterface* mMsi;
 
-		MeshLookup mMeshLocators;
-		MeshMap    mMeshes;
-		Objects    mObjects;
-		BatchMap   mDrawBatches;
-		vkutil::BufferDuplex mDrawCmdBuffer;
+		MeshLookup      mMeshLocators;
+		MeshMap         mMeshes;
+		Objects         mObjects;
+		UnboundBatchMap mUnboundDrawBatches;
+		BatchList       mDrawBatchList;
+		vkutil::BufferDuplex mObjectBuffer;
+		vkutil::BufferDuplex mBatchBuffer;
 
 		bool mObjectsOod;
 	};
@@ -149,7 +155,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		UiRenderer();
 
-		using Renderer::getDrawCommandBuffer;
+		using Renderer::getInstanceBuffer;
 	};
 
 }

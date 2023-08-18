@@ -30,15 +30,19 @@ namespace SKENGINE_NAME_NS {
 	struct RenderObject {
 		MeshId     mesh_id;
 		MaterialId material_id;
-		alignas(glm::vec4) glm::vec3 position_xyz;
-		alignas(glm::vec4) glm::vec3 direction_ypr;
-		alignas(glm::vec4) glm::vec3 scale_xyz;
+		glm::vec4 color_rgba;
+		glm::vec3 position_xyz;
+		glm::vec3 direction_ypr;
+		glm::vec3 scale_xyz;
 	};
 
 
 	struct DrawBatch {
 		MeshId     mesh_id;
 		MaterialId material_id;
+		uint32_t   vertex_offset;
+		uint32_t   index_count;
+		uint32_t   first_index;
 		uint32_t   instance_count;
 		uint32_t   first_instance;
 	};
@@ -51,8 +55,8 @@ namespace SKENGINE_NAME_NS {
 	namespace dev {
 
 		struct RenderObject {
-			ALIGNF32(4) glm::mat4 model_transf;
-			ALIGNF32(4) glm::vec4 color_mul;
+			ALIGNF32(1) glm::mat4 model_transf;
+			ALIGNF32(1) glm::vec4 color_mul;
 			ALIGNF32(1) float     rnd;
 		};
 
@@ -65,13 +69,14 @@ namespace SKENGINE_NAME_NS {
 
 		struct PointLight {
 			ALIGNF32(1) glm::vec4 position;
+			ALIGNF32(1) float     padding0;
 			ALIGNF32(1) float     intensity;
 			ALIGNF32(1) float     falloff_exp;
 		};
 
 
 		struct StaticUniform {
-			ALIGNF32(4) glm::mat4 proj_transf;
+			ALIGNF32(1) glm::mat4 proj_transf;
 			ALIGNI32(1) uint32_t  ray_light_count;
 			ALIGNI32(1) uint32_t  point_light_count;
 			ALIGNF32(1) float     rnd;
@@ -79,7 +84,7 @@ namespace SKENGINE_NAME_NS {
 
 
 		struct FrameUniform {
-			ALIGNF32(4) glm::mat4 view_transf;
+			ALIGNF32(1) glm::mat4 view_transf;
 			ALIGNF32(1) float rnd;
 			ALIGNF32(1) float time_delta;
 		};

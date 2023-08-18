@@ -10,3 +10,4 @@
   - Protect `Renderer`-owned `RenderObject` members
   - Seek a way not to construct a string from a string_view for
     every map access
+  - Multithreaded `Renderer` object buffer generation (mostly for matrices)
