@@ -39,7 +39,7 @@ namespace {
 				auto dir   = wr.getViewRotation();
 				float dist = 2.4f;
 				dir.x += glm::radians(45.0 * delta);
-				wr.setViewPosition({ dist * std::sin(dir.x), 0.0f, dist * -std::cos(dir.x) });
+				wr.setViewPosition({ dist * std::sin(dir.x), 1.1f, dist * std::cos(dir.x) });
 				wr.setViewRotation(dir);
 			}
 		}
@@ -70,6 +70,7 @@ int main() {
 	prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
 	prefs.target_framerate    = 60.0;
 	prefs.target_tickrate     = 60.0;
+	prefs.fov_y               = glm::radians(90.0f);
 
 	try {
 		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
@@ -87,13 +88,13 @@ int main() {
 			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache) );
 
 		Loop loop = engine;
-		auto wr   = engine.getWorldRenderer();
+		auto& wr  = engine.getWorldRenderer();
 
 		{
 			float dist = 2.4f;
-			auto& dir  = wr.getViewRotation();
-			wr.setViewRotation({ 0.0f, 0.0f, 0.0f });
-			wr.setViewPosition({ dist * std::sin(dir.x), 0.0f, dist * -std::cos(dir.x) });
+			glm::vec3 dir  = { 0.0f, glm::radians(27.5f), 0.0f };
+			wr.setViewRotation(dir);
+			wr.setViewPosition({ dist * std::sin(dir.x), 1.1f, dist * std::cos(dir.x) });
 		}
 
 		engine.run(loop);

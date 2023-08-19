@@ -30,11 +30,16 @@ namespace SKENGINE_NAME_NS {
 			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
 			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
 			constexpr glm::mat4 identity = glm::mat4(1.0f);
-			glm::mat4 translate = glm::translate(identity, mViewPosXyz);
-			glm::mat4 rot0      = glm::rotate(identity, mViewDirYpr.y, x);
+			glm::vec3 actual_pos = mViewPosXyz;
+
+			// View-to-clip space transformation is weird
+			actual_pos.x = -actual_pos.x;
+
+			glm::mat4 translate = glm::translate(identity, -actual_pos);
+			glm::mat4 rot0      = glm::rotate(identity, mViewDirYpr.z, z);
 			glm::mat4 rot1      = glm::rotate(identity, mViewDirYpr.x, y);
-			glm::mat4 rot2      = glm::rotate(identity, mViewDirYpr.z, z);
-			mViewTransfCache = rot0 * rot1 * rot2 * translate;
+			glm::mat4 rot2      = glm::rotate(identity, mViewDirYpr.y, x);
+			mViewTransfCache = rot2 * rot1 * rot0 * translate;
 			mViewTransfCacheOod = false;
 		}
 

@@ -14,3 +14,6 @@
   - Implement `WorldRenderer::rotate` and `WorldRenderer::rotateTowards`
     - Optimize `WorldRenderer` rotation functions by doing old fashioned,
       matrix-on-paper math.
+  - `WorldRenderer::getViewTransf` inverts the Z axis, because the
+    glm clip-space is weird and Y is also inverted; find a way to do that
+    with the projection matrix instead

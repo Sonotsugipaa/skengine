@@ -13,6 +13,7 @@
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 
 
@@ -257,7 +258,7 @@ namespace SKENGINE_NAME_NS {
 		spdlog::debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
 
 		mProjTransf = glm::perspective(mPrefs.fov_y, float(mRenderExtent.width) / float(mRenderExtent.height), mPrefs.z_near, mPrefs.z_far);
-		mProjTransf[1][1] *= -1.0f; // Image +y is world -y
+		mProjTransf[1][1] *= -1.0f; // Clip +y is view -y
 
 		uint32_t concurrent_qfams[] = {
 			mQueues.families.graphicsIndex,
