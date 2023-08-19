@@ -1,6 +1,7 @@
 #include "engine.hpp"
 
 #include "init/init.hpp"
+#include "shader_cache.hpp"
 
 #include <posixfio_tl.hpp>
 
@@ -10,159 +11,13 @@
 
 #include <vk-util/error.hpp>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 
 
 struct SKENGINE_NAME_NS::Engine::Implementation {
 
-	struct PipelineCreateInfo {
-		ShaderCacheInterface* shaderCache;
-		std::string_view      materialName;
-	};
-
-
 	static constexpr auto NO_FRAME_AVAILABLE = ~ decltype(Engine::mGframeSelector)(0);
-
-
-	static VkPipeline createPipeline(Engine& e, PipelineCreateInfo& ci) {
-		VkPipeline pipeline;
-
-		VkVertexInputAttributeDescription vtx_attr[2];
-		VkVertexInputBindingDescription   vtx_bind[1];
-		{ // Hard-coded input descriptions and bindings
-			#warning "Vertex inputs depend on the memory-mappable model format, but it is currently hard-coded"
-			constexpr size_t POS = 0;
-			constexpr size_t COL = 1;
-			vtx_attr[POS].binding  = 0;
-			vtx_attr[POS].format   = VK_FORMAT_R32G32B32_SFLOAT;
-			vtx_attr[POS].location = 0;
-			vtx_attr[POS].offset   = 0;
-			vtx_attr[COL].binding  = 0;
-			vtx_attr[COL].format   = VK_FORMAT_R32G32B32_SFLOAT;
-			vtx_attr[COL].location = 1;
-			vtx_attr[COL].offset   = offsetof(fmamdl::Vertex, normal);
-			vtx_bind[0].binding   = 0;
-			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-			vtx_bind[0].stride    = sizeof(fmamdl::Vertex);
-		}
-
-		VkPipelineVertexInputStateCreateInfo vi = { }; {
-			vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-			vi.vertexAttributeDescriptionCount = std::size(vtx_attr);
-			vi.pVertexAttributeDescriptions    = vtx_attr;
-			vi.vertexBindingDescriptionCount = std::size(vtx_bind);
-			vi.pVertexBindingDescriptions    = vtx_bind;
-		}
-
-		VkPipelineInputAssemblyStateCreateInfo ia = { }; {
-			ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-			ia.primitiveRestartEnable = true;
-			ia.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
-		}
-
-		VkPipelineTessellationStateCreateInfo t = { }; {
-			t.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
-		}
-
-		VkViewport viewport = { }; {
-			viewport.x      = 0.0f;
-			viewport.y      = 0.0f;
-			viewport.width  = e.mRenderExtent.width;
-			viewport.height = e.mRenderExtent.height;
-			viewport.minDepth = 0.0f;
-			viewport.maxDepth = 1.0f;
-		}
-
-		VkRect2D scissor = { }; {
-			scissor.offset = { };
-			scissor.extent = { e.mRenderExtent.width, e.mRenderExtent.height };
-		}
-
-		VkPipelineViewportStateCreateInfo v = { }; {
-			v.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-			v.viewportCount = 1;
-			v.pViewports    = &viewport;
-			v.scissorCount  = 1;
-			v.pScissors     = &scissor;
-		}
-
-		VkPipelineRasterizationStateCreateInfo r = { }; {
-			r.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-			r.cullMode    = VK_CULL_MODE_NONE;
-			r.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-			r.polygonMode = VK_POLYGON_MODE_FILL;
-			r.lineWidth   = 1.0f;
-			r.rasterizerDiscardEnable = false;
-		}
-
-		VkPipelineMultisampleStateCreateInfo m = { }; {
-			m.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-			m.minSampleShading = 1.0f;
-			m.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-			m.sampleShadingEnable  = false;
-		}
-
-		VkPipelineDepthStencilStateCreateInfo ds = { }; {
-			ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-			ds.depthTestEnable  = false;
-			ds.depthWriteEnable = false;
-			ds.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
-		}
-
-		VkPipelineColorBlendAttachmentState atch_color[1]; {
-			*atch_color = { };
-			atch_color->blendEnable = false;
-			atch_color->colorWriteMask = /* rgba */ VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-		}
-
-		VkPipelineColorBlendStateCreateInfo cb = { }; {
-			cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-			cb.logicOpEnable   = false;
-			cb.attachmentCount = 1;
-			cb.pAttachments    = atch_color;
-		}
-
-		VkPipelineDynamicStateCreateInfo d = { }; {
-			d.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-		}
-
-		VkPipelineShaderStageCreateInfo stages[2]; {
-			constexpr size_t VTX = 0;
-			constexpr size_t FRG = 1;
-			ShaderRequirement req = {
-				.world = { ci.materialName },
-				.type  = ShaderRequirement::Type::eWorld };
-			auto set = ci.shaderCache->shader_cache_requestModuleSet(e, req);
-			stages[VTX] = { };
-			stages[VTX].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-			stages[VTX].pName  = "main";
-			stages[VTX].stage  = VK_SHADER_STAGE_VERTEX_BIT;
-			stages[VTX].module = set.vertex;
-			stages[FRG] = stages[VTX];
-			stages[FRG].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-			stages[FRG].module = set.fragment;
-		}
-
-		VkGraphicsPipelineCreateInfo gpc_info = { };
-		gpc_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		gpc_info.renderPass = e.mRpass;
-		gpc_info.layout     = e.mPipelineLayout;
-		gpc_info.subpass    = 0;
-		gpc_info.stageCount = std::size(stages);
-		gpc_info.pStages    = stages;
-		gpc_info.pVertexInputState   = &vi;
-		gpc_info.pInputAssemblyState = &ia;
-		gpc_info.pTessellationState  = &t;
-		gpc_info.pViewportState      = &v;
-		gpc_info.pRasterizationState = &r;
-		gpc_info.pMultisampleState   = &m;
-		gpc_info.pDepthStencilState  = &ds;
-		gpc_info.pColorBlendState    = &cb;
-		gpc_info.pDynamicState       = &d;
-
-		VK_CHECK(vkCreateGraphicsPipelines, e.mDevice, e.mPipelineCache, 1, &gpc_info, nullptr, &pipeline);
-
-		return pipeline;
-	}
 
 
 	static decltype(Engine::mGframeSelector) selectGframe(Engine& e) {
@@ -189,15 +44,14 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	// Returns `false` if the swapchain is out of date
-	static bool draw(
-		Engine& e,
-		ShaderCacheInterface& shaders,
-		LoopInterface&        loop
-	) {
+	static bool draw(Engine& e, LoopInterface& loop) {
 		size_t      gframe_idx;
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
 		VkImage     sc_img;
+		auto        delta_avg = e.mGraphicsReg.estDelta();
+
+		e.mGraphicsReg.beginCycle();
 
 		{ // Select gframe
 			gframe_idx = selectGframe(e);
@@ -228,22 +82,20 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			sc_img = e.mSwapchainImages[sc_img_idx].image;
 		}
 
-
-		VkPipeline pipeline_PLACEHOLDER;
-		{ // PLACEHOLDER
-			PipelineCreateInfo pci = {
-				.shaderCache  = &shaders,
-				.materialName = "default" };
-			pipeline_PLACEHOLDER = createPipeline(e, pci);
-		}
-
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		loop.loop_async_preRender();
+		loop.loop_async_preRender(delta_avg, e.mGraphicsReg.lastDelta());
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
+
+		{ // Prepare the gframe buffers
+			auto& ubo = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
+			ubo.view_transf     = e.mWorldRenderer.getViewTransf();
+			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
+			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
+		}
 
 		MeshId mesh_id = e.mWorldRenderer.fetchMesh("assets/test-model.fma");
 		auto*  mesh    = e.mWorldRenderer.getMesh(mesh_id);
@@ -277,10 +129,14 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		{ // Draw the objects
 			constexpr VkDeviceSize offset = 0;
-			vkCmdBindPipeline(gframe->cmd_draw, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_PLACEHOLDER);
-			vkCmdBindIndexBuffer(gframe->cmd_draw, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdBindVertexBuffers(gframe->cmd_draw, 0, 1, &mesh->vertices.value, &offset);
-			vkCmdDrawIndexed(gframe->cmd_draw, mesh->indices.size() / sizeof(fmamdl::Index), 1, 0, 0, 0);
+			auto& cmd = gframe->cmd_draw;
+			VkDescriptorSet dsets[] = { gframe->frame_dset };
+
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
+			vkCmdBindIndexBuffer(cmd, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.value, &offset);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+			vkCmdDrawIndexed(cmd, mesh->indices.size() / sizeof(fmamdl::Index), 1, 0, 0, 0);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -395,31 +251,38 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 
-		loop.loop_async_postRender();
+		loop.loop_async_postRender(delta_avg, e.mGraphicsReg.lastDelta());
 
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
-		vkDestroyPipeline(e.mDevice, pipeline_PLACEHOLDER, nullptr);
+		e.mGraphicsReg.endCycle();
+		e.mGraphicsReg.awaitNextTick();
+
 		return true;
 	}
 
 
-	static LoopInterface::LoopState runIteration(
-		Engine& e,
-		ShaderCacheInterface& shaders,
-		LoopInterface&        loop
-	) {
-		loop.loop_processEvents();
+	static LoopInterface::LoopState runIteration(Engine& e, LoopInterface& loop) {
+		auto delta_avg = e.mLogicReg.estDelta();
+
+		e.mLogicReg.beginCycle();
+		loop.loop_processEvents(delta_avg, e.mLogicReg.lastDelta());
+
 		if(e.mGframeMutex.try_lock()) {
+			e.mLogicReg.beginCycle();
 			try {
-				draw(e, shaders, loop);
+				draw(e, loop);
 				e.mGframeMutex.unlock();
 			} catch(...) {
 				e.mGframeMutex.unlock();
 				std::rethrow_exception(std::current_exception());
 			}
+			e.mLogicReg.endCycle();
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(250));
-		return loop.loop_pollState();
+
+		e.mLogicReg.endCycle();
+
+		auto r = loop.loop_pollState();
+		e.mLogicReg.awaitNextTick();
+		return r;
 	}
 
 };
@@ -428,7 +291,27 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 namespace SKENGINE_NAME_NS {
 
-	Engine::Engine(const DeviceInitInfo& di, const EnginePreferences& ep) {
+	constexpr auto regulator_params = tickreg::RegulatorParams {
+		.deltaTolerance     = 0.25,
+		.burstTolerance     = 0.01,
+		.compensationFactor = 1.0 };
+
+
+	Engine::Engine(
+			const DeviceInitInfo&    di,
+			const EnginePreferences& ep,
+			std::unique_ptr<ShaderCacheInterface> sci
+	):
+		mShaderCache(std::move(sci)),
+		mGraphicsReg(
+			std::max<unsigned>(4, ep.target_framerate / 4),
+			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
+			regulator_params ),
+		mLogicReg(
+			std::max<unsigned>(4, ep.target_tickrate / 4),
+			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
+			regulator_params )
+	{
 		{
 			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
 			init->init(&di, &ep);
@@ -443,6 +326,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	Engine::~Engine() {
+		mShaderCache->shader_cache_releaseAllModules(*this);
+
 		{
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 			init->destroy();
@@ -509,14 +394,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::run(
-			ShaderCacheInterface& shaders,
-			LoopInterface&        loop
-	) {
-		auto cleanup = [&]() {
-			shaders.shader_cache_releaseAllModules(*this);
-		};
-
+	void Engine::run(LoopInterface& loop) {
 		auto loop_state = loop.loop_pollState();
 		while(loop_state != LoopInterface::LoopState::eShouldStop) {
 			if(loop_state == LoopInterface::LoopState::eShouldDelay) {
@@ -524,17 +402,10 @@ namespace SKENGINE_NAME_NS {
 				std::this_thread::yield();
 			}
 
-			try {
-				loop_state = Implementation::runIteration(*this, shaders, loop);
-			} catch(...) {
-				cleanup();
-				std::rethrow_exception(std::current_exception());
-			}
+			loop_state = Implementation::runIteration(*this, loop);
 
 			loop_state = loop.loop_pollState();
 		}
-
-		cleanup();
 	}
 
 }

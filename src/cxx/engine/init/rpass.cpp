@@ -138,6 +138,7 @@ namespace SKENGINE_NAME_NS {
 		State state = { };
 		initSurface();
 		initSwapchain(state);
+		initGframeDescPool(state);
 		initGframes(state);
 		initRpass(state);
 		initFramebuffers(state);
@@ -170,6 +171,8 @@ namespace SKENGINE_NAME_NS {
 			destroyFramebuffers(state);
 			destroyRpass(state);
 			destroyGframes(state, 0);
+			destroyGframeDescPool(state);
+			initGframeDescPool(state);
 			initGframes(state);
 			initRpass(state);
 			initFramebuffers(state);
@@ -184,6 +187,7 @@ namespace SKENGINE_NAME_NS {
 		destroyFramebuffers(state);
 		destroyRpass(state);
 		destroyGframes(state, 0);
+		destroyGframeDescPool(state);
 		destroySwapchain(state);
 		destroySurface();
 	}
@@ -320,21 +324,48 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void Engine::RpassInitializer::initGframeDescPool(State& state) {
+		// Descriptor pool initialization only required if gframes will be created or deleted
+		bool ood = state.createdGframes || state.destroyedGframes;
+		if(state.reinit && ! ood) return;
+
+		auto frame_n = uint32_t(mPrefs.max_concurrent_frames);
+
+		VkDescriptorPoolSize sizes[] = {
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_n },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame_n * 2 } };
+
+		VkDescriptorPoolCreateInfo dpc_info = { };
+		dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		dpc_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+		dpc_info.poolSizeCount = std::size(sizes);
+		dpc_info.pPoolSizes    = sizes;
+
+		dpc_info.maxSets = 0;
+		for(auto& sz : sizes) dpc_info.maxSets += sz.descriptorCount;
+
+		VK_CHECK(vkCreateDescriptorPool, mDevice, &dpc_info, nullptr, &mGframeDescPool);
+	}
+
 
 	void Engine::RpassInitializer::initGframes(State& state) {
 		vkutil::BufferCreateInfo ubo_bc_info = {
 			.size  = sizeof(dev::FrameUniform),
 			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			.qfamSharing = { } };
+		vkutil::BufferCreateInfo object_storage_bc_info = {
+			.size  = 1 /* tmp */ * sizeof(dev::RenderObject),
+			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			.qfamSharing = { } };
+		vkutil::BufferCreateInfo light_storage_bc_info = {
+			.size  = 1 /* tmp */ * sizeof(dev::RayLight),
+			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			.qfamSharing = { } };
 
 		ssize_t missing = ssize_t(mPrefs.max_concurrent_frames) - ssize_t(mGframes.size());
 		if(missing <= 0) return;
 
 		state.createdGframes = true;
-
-		mDescProxy.registerDsetLayout(mFrameUboDsetLayout, { VkDescriptorPoolSize {
-			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.descriptorCount = mPrefs.max_concurrent_frames }});
 
 		VkCommandPoolCreateInfo cpc_info = { };
 		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -344,6 +375,29 @@ namespace SKENGINE_NAME_NS {
 		cba_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		VkCommandBuffer cmd[2];
 		cba_info.commandBufferCount = std::size(cmd);
+		VkDescriptorSetAllocateInfo dsa_info = { };
+		dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		dsa_info.descriptorPool     = mGframeDescPool;
+		dsa_info.descriptorSetCount = 1;
+		dsa_info.pSetLayouts        = &mGframeDsetLayout;
+		VkDescriptorBufferInfo frame_db_info = { };
+		frame_db_info.range = VK_WHOLE_SIZE;
+		VkDescriptorBufferInfo object_db_info = frame_db_info;
+		VkDescriptorBufferInfo light_db_info  = frame_db_info;
+		VkWriteDescriptorSet dset_wr[3];
+		dset_wr[FRAME_UBO_BINDING] = { };
+		dset_wr[FRAME_UBO_BINDING].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		dset_wr[FRAME_UBO_BINDING].dstBinding = FRAME_UBO_BINDING;
+		dset_wr[FRAME_UBO_BINDING].descriptorCount = 1;
+		dset_wr[FRAME_UBO_BINDING].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		dset_wr[FRAME_UBO_BINDING].pBufferInfo     = &frame_db_info;
+		dset_wr[OBJECT_STORAGE_BINDING] = dset_wr[FRAME_UBO_BINDING];
+		dset_wr[OBJECT_STORAGE_BINDING].dstBinding     = OBJECT_STORAGE_BINDING;
+		dset_wr[OBJECT_STORAGE_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		dset_wr[OBJECT_STORAGE_BINDING].pBufferInfo    = &object_db_info;
+		dset_wr[LIGHT_STORAGE_BINDING] = dset_wr[OBJECT_STORAGE_BINDING];
+		dset_wr[LIGHT_STORAGE_BINDING].dstBinding  = LIGHT_STORAGE_BINDING;
+		dset_wr[LIGHT_STORAGE_BINDING].pBufferInfo = &light_db_info;
 		vkutil::ImageCreateInfo ic_info;
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
 		ic_info.type   = VK_IMAGE_TYPE_2D;
@@ -369,9 +423,16 @@ namespace SKENGINE_NAME_NS {
 			gf.cmd_prepare = cmd[0];
 			gf.cmd_draw    = cmd[1];
 
-			gf.frame_dset    = mDescProxy.createToken(mFrameUboDsetLayout);
-			gf.frame_ubo     = vkutil::ManagedBuffer::createUniformBuffer(mVma, ubo_bc_info);
-			gf.frame_ubo_ptr = gf.frame_ubo.map<dev::FrameUniform>(mVma);
+			gf.frame_ubo      = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
+			gf.object_storage = vkutil::BufferDuplex::createStorageBuffer(mVma, object_storage_bc_info, vkutil::HostAccess::eWr);
+			gf.light_storage  = vkutil::BufferDuplex::createStorageBuffer(mVma, light_storage_bc_info, vkutil::HostAccess::eWr);
+
+			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
+			for(auto& wr : dset_wr) wr.dstSet = gf.frame_dset;
+			frame_db_info.buffer = gf.frame_ubo;
+			object_db_info.buffer = gf.object_storage;
+			light_db_info.buffer = gf.light_storage;
+			vkUpdateDescriptorSets(mDevice, std::size(dset_wr), dset_wr, 0, nullptr);
 
 			ic_info.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 			ic_info.format = mSurfaceFormat.format;
@@ -445,17 +506,19 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mRpass);
 		}
 
-		if(! state.reinit) { // Create the pipeline layout(s) and pipeline cache
-			VkDescriptorSetLayout layouts[] = { mStaticUboDsetLayout, mFrameUboDsetLayout, mShaderStorageDsetLayout };
+		if(! state.reinit) { // Create the pipeline layouts, pipeline cache and pipelines
+			VkDescriptorSetLayout layouts[] = { mGframeDsetLayout };
 			VkPipelineLayoutCreateInfo plc_info = { };
 			plc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			plc_info.setLayoutCount = /* PLACEHOLDER */ 0; //std::size(layouts);
+			plc_info.setLayoutCount = std::size(layouts);
 			plc_info.pSetLayouts    = layouts;
 			VK_CHECK(vkCreatePipelineLayout, mDevice, &plc_info, nullptr, &mPipelineLayout);
 
 			VkPipelineCacheCreateInfo pcc_info = { };
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
+
+			mGenericGraphicsPipeline = createPipeline("default");
 		}
 	}
 
@@ -502,9 +565,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroyFramebuffers(State& state) {
-		// Framebuffer initialization only required if the attachments are out of date
+		// Framebuffer destruction only required if the attachments will be out of date
 		bool ood = state.createdGframes || state.destroyedGframes;
-		if(! ood) return;
+		if(state.reinit && ! ood) return;
 
 		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
 			GframeData& gf = mGframes[i];
@@ -517,6 +580,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpass(State& state) {
 		if(! state.reinit) {
+			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
 			vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);
 		}
@@ -539,9 +603,10 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedImage::destroy(mVma, gf.atch_color);
 			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
 
-			gf.frame_ubo.unmap(mVma);
-			vkutil::Buffer::destroy(mVma, gf.frame_ubo);
-			mDescProxy.destroyToken(gf.frame_dset);
+			VK_CHECK(vkFreeDescriptorSets, mDevice, mGframeDescPool, 1, &gf.frame_dset);
+			vkutil::BufferDuplex::destroy(mVma, gf.light_storage);
+			vkutil::BufferDuplex::destroy(mVma, gf.object_storage);
+			vkutil::BufferDuplex::destroy(mVma, gf.frame_ubo);
 
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
 		};
@@ -553,6 +618,15 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		mGframes.resize(std::min(keep, mGframes.size()));
+	}
+
+
+	void Engine::RpassInitializer::destroyGframeDescPool(State& state) {
+		// Descriptor pool destruction only required if gframes have been created or deleted
+		bool ood = state.createdGframes || state.destroyedGframes;
+		if(! ood) return;
+
+		vkDestroyDescriptorPool(mDevice, mGframeDescPool, nullptr);
 	}
 
 

@@ -8,11 +8,17 @@
 
 layout(set = 1, binding = 0) uniform ModelUbo {
 	uint _unused;
-} modelUbo;
+} modelUbo;*/
 
-layout(set = 2, binding = 0) uniform FrameUbo {
-	uint _unused;
-} frameUbo;*/
+layout(set = 0, binding = 0) uniform FrameUbo {
+	mat4 projview_transf;
+	mat4 proj_transf;
+	mat4 view_transf;
+	uint ray_light_count;
+	uint point_light_count;
+	float rnd;
+	float time_delta;
+} frameUbo;
 
 
 
@@ -38,7 +44,6 @@ layout(location = 0) out vec4 frg_col;
 
 
 void main() {
-	gl_Position = vec4(in_pos, 1.0);
-	//gl_Position = staticUbo.proj * modelViewMat * vec4(in_pos, 1.0);
+	gl_Position = frameUbo.view_transf * vec4(in_pos, 1.0);
 	frg_col     = vec4((in_nrm + 1.0) / 2.0, 1.0);
 }

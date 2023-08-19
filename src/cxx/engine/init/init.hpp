@@ -20,8 +20,8 @@ namespace SKENGINE_NAME_NS {
 		void initVma();
 		void initTransferCmdPool();
 		void initRenderer();
-		void initDescProxy();
-		void destroyDescProxy();
+		void initDsetLayouts();
+		void destroyDsetLayouts();
 		void destroyRenderer();
 		void destroyTransferCmdPool();
 		void destroyVma();
@@ -42,12 +42,14 @@ namespace SKENGINE_NAME_NS {
 	private:
 		void initSurface();
 		void initSwapchain(State&);
+		void initGframeDescPool(State&);
 		void initGframes(State&);
 		void initRpass(State&);
 		void initFramebuffers(State&);
 		void destroyFramebuffers(State&);
 		void destroyRpass(State&);
 		void destroyGframes(State&, size_t keep);
+		void destroyGframeDescPool(State&);
 		void destroySwapchain(State&);
 		void destroySurface();
 	};

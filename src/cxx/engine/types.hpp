@@ -1,5 +1,6 @@
 #pragma once
 
+#include <type_traits>
 #include <cstdint>
 
 #include <glm/vec3.hpp>
@@ -64,29 +65,26 @@ namespace SKENGINE_NAME_NS {
 		struct RayLight {
 			ALIGNF32(1) glm::vec4 direction;
 			ALIGNF32(1) float     intensity;
+			ALIGNF32(1) float     falloff_exp;
 		};
-
 
 		struct PointLight {
 			ALIGNF32(1) glm::vec4 position;
-			ALIGNF32(1) float     padding0;
 			ALIGNF32(1) float     intensity;
 			ALIGNF32(1) float     falloff_exp;
 		};
 
-
-		struct StaticUniform {
-			ALIGNF32(1) glm::mat4 proj_transf;
-			ALIGNI32(1) uint32_t  ray_light_count;
-			ALIGNI32(1) uint32_t  point_light_count;
-			ALIGNF32(1) float     rnd;
-		};
+		static_assert(std::is_layout_compatible_v<RayLight, PointLight>);
 
 
 		struct FrameUniform {
+			ALIGNF32(1) glm::mat4 projview_transf;
+			ALIGNF32(1) glm::mat4 proj_transf;
 			ALIGNF32(1) glm::mat4 view_transf;
-			ALIGNF32(1) float rnd;
-			ALIGNF32(1) float time_delta;
+			ALIGNI32(1) uint32_t  ray_light_count;
+			ALIGNI32(1) uint32_t  point_light_count;
+			ALIGNF32(1) float     rnd;
+			ALIGNF32(1) float     time_delta;
 		};
 
 

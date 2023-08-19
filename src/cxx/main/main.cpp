@@ -1,4 +1,4 @@
-#include <unistd.h>
+#include <numbers>
 
 #include <engine/engine.hpp>
 
@@ -8,6 +8,8 @@
 
 #include <vk-util/error.hpp>
 
+#include <glm/trigonometric.hpp>
+
 
 
 namespace {
@@ -15,33 +17,38 @@ namespace {
 	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
 	public:
 		SKENGINE_NAME_NS_SHORT::Engine* engine;
-		unsigned remainingFrames = 10;
+		bool active;
 
 
 		Loop(SKENGINE_NAME_NS_SHORT::Engine& e):
-			engine(&e)
+			engine(&e),
+			active(true)
 		{ }
 
 
-		void loop_processEvents() override {
+		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
 			SDL_Event ev;
 			while(1 == SDL_PollEvent(&ev))
 			switch(ev.type) {
 				case SDL_EventType::SDL_QUIT:
-					remainingFrames = 0;
+					active = false;
 			}
 
-			spdlog::info("We did it, Lemmy!");
-			remainingFrames = remainingFrames - ((remainingFrames > 0u)? 1u : 0u);
+			{ // Rotate the view at a frame-fixed pace
+				auto& wr = engine->getWorldRenderer();
+				auto dir = wr.getViewDir();
+				dir.z += glm::radians(15.0 * delta);
+				wr.setViewDir(dir);
+			}
 		}
 
 		SKENGINE_NAME_NS_SHORT::LoopInterface::LoopState loop_pollState() const noexcept override {
-			return remainingFrames > 0? LoopState::eShouldContinue : LoopState::eShouldStop;
+			return active? LoopState::eShouldContinue : LoopState::eShouldStop;
 		}
 
-		void loop_async_preRender() override { }
+		void loop_async_preRender(tickreg::delta_t, tickreg::delta_t) override { }
 
-		void loop_async_postRender() override { }
+		void loop_async_postRender(tickreg::delta_t, tickreg::delta_t) override { }
 	};
 
 }
@@ -56,12 +63,14 @@ int main() {
 	#endif
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
-	//prefs.phys_device_uuid    = "00000000-0900-0000-0000-000000000000";
 	prefs.init_present_extent = { 700, 700 };
 	prefs.max_render_extent   = { 200, 200 };
+	prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
+	prefs.target_framerate    = 60.0;
+	prefs.target_tickrate     = 60.0;
 
 	try {
-		SKENGINE_NAME_NS_SHORT::BasicShaderCache shader_cache = std::string("assets/");
+		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
 
 		auto engine = SKENGINE_NAME_NS_SHORT::Engine(
 			SKENGINE_NAME_NS_SHORT::DeviceInitInfo {
@@ -72,11 +81,12 @@ int main() {
 					SKENGINE_VERSION_MAJOR,
 					SKENGINE_VERSION_MINOR,
 					SKENGINE_VERSION_PATCH ) },
-			prefs );
+			prefs,
+			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache) );
 
 		Loop loop = engine;
 
-		engine.run(shader_cache, loop);
+		engine.run(loop);
 	} catch(posixfio::Errcode& e) {
 		spdlog::error("Uncaught posixfio error: {}", e.errcode);
 	} catch(vkutil::VulkanError& e) {

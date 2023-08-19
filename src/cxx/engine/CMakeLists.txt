@@ -8,8 +8,10 @@ add_library(engine
 	init/device.cpp
 	init/rpass.cpp
 	renderer.cpp
+	renderer_world.cpp
 	engine.cpp
 	engine_buffer.cpp
+	engine_create_pipeline.cpp
 	engine_mesh_supplier.cpp
 	engine_shader_cache.cpp )
 

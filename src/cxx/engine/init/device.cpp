@@ -29,12 +29,12 @@ namespace SKENGINE_NAME_NS {
 		initVma();
 		initTransferCmdPool();
 		initRenderer();
-		initDescProxy();
+		initDsetLayouts();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
-		destroyDescProxy();
+		destroyDsetLayouts();
 		destroyRenderer();
 		destroyTransferCmdPool();
 		destroyVma();
@@ -211,38 +211,29 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initDescProxy() {
-		mDescProxy = mDevice;
-
+	void Engine::DeviceInitializer::initDsetLayouts() {
 		VkDescriptorSetLayoutBinding dslb[3] = { { }, { }, { } };
-		dslb[0].binding = STATIC_UBO_BINDING;
+		dslb[0].binding = FRAME_UBO_BINDING;
 		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		dslb[0].descriptorCount = 1;
 		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		dslb[1] = dslb[0];
-		dslb[1].binding = FRAME_UBO_BINDING;
-		dslb[2] = dslb[0];
-		dslb[2].binding = SHADER_STORAGE_BINDING;
-		dslb[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		dslb[1].binding = OBJECT_STORAGE_BINDING;
+		dslb[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		dslb[2] = dslb[1];
+		dslb[2].binding = LIGHT_STORAGE_BINDING;
 
 		VkDescriptorSetLayoutCreateInfo dslc_info = { };
 		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		dslc_info.bindingCount = 1;
+		dslc_info.bindingCount = 3;
 
-		dslc_info.pBindings = dslb+0;
-		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mStaticUboDsetLayout);
-		dslc_info.pBindings = dslb+1;
-		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mFrameUboDsetLayout);
-		dslc_info.pBindings = dslb+2;
-		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mShaderStorageDsetLayout);
+		dslc_info.pBindings = dslb;
+		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
 	}
 
 
-	void Engine::DeviceInitializer::destroyDescProxy() {
-		vkDestroyDescriptorSetLayout(mDevice, mShaderStorageDsetLayout, nullptr);
-		vkDestroyDescriptorSetLayout(mDevice, mFrameUboDsetLayout,      nullptr);
-		vkDestroyDescriptorSetLayout(mDevice, mStaticUboDsetLayout,     nullptr);
-		mDescProxy.destroy();
+	void Engine::DeviceInitializer::destroyDsetLayouts() {
+		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
 	}
 
 

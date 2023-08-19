@@ -38,6 +38,8 @@
 namespace SKENGINE_NAME_NS {
 
 	class Engine;
+	class WorldRenderer;
+	class UiRenderer;
 
 
 	struct DevMesh {
@@ -56,11 +58,31 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	struct Material {
+		VkDescriptorSet texture_dset;
+		vkutil::ManagedImage texture_diffuse;
+		vkutil::ManagedImage texture_normal;
+		vkutil::ManagedImage texture_specular;
+		vkutil::ManagedImage texture_emissive;
+		float emissive_mul;
+		float diffuse_mul;
+		float specular_exp;
+	};
+
+
 	class MeshSupplierInterface {
 	public:
 		virtual DevMesh msi_requestMesh(std::string_view locator) = 0;
 		virtual void    msi_releaseMesh(std::string_view locator) noexcept = 0;
 		virtual void msi_releaseAllMeshes() noexcept = 0;
+	};
+
+
+	class MaterialSupplierInterface {
+	public:
+		virtual Material msi_requestMaterial(std::string_view locator) = 0;
+		virtual void     msi_releaseMaterial(std::string_view locator) noexcept = 0;
+		virtual void msi_releaseAllMaterials() noexcept = 0;
 	};
 
 
@@ -71,10 +93,14 @@ namespace SKENGINE_NAME_NS {
 	/// meshes and materials, and creating (indirect) draw commands.
 	///
 	/// It does own buffers for draw commands and object-specific data;
-	/// it does NOT own mesh-specific or material-specific data.
+	/// it does NOT own mesh-specific or material-specific data,
+	/// like vertices or textures.
 	///
 	class Renderer {
 	public:
+		friend WorldRenderer;
+		friend UiRenderer;
+
 		struct MeshData {
 			DevMesh     mesh;
 			std::string locator;
@@ -130,21 +156,25 @@ namespace SKENGINE_NAME_NS {
 	///
 	class WorldRenderer : public Renderer {
 	public:
-		using Renderer::create;
-		using Renderer::destroy;
+		WorldRenderer() = default;
+
+		static WorldRenderer create  (VmaAllocator, MeshSupplierInterface&);
+		static void          destroy (WorldRenderer&);
 
 		const glm::mat4& getViewTransf() noexcept;
 
 		const glm::vec3& getViewPos() const noexcept { return mViewPosXyz; }
 		const glm::vec3& getViewDir() const noexcept { return mViewDirYpr; }
-		void setViewPos (const glm::vec3& pos) noexcept { mViewPosXyz = pos; mViewTransfCacheOod = true; }
-		void setViewDir (const glm::vec3& dir) noexcept { mViewDirYpr = dir; mViewTransfCacheOod = true; }
+		void setViewPos (const glm::vec3& pos) noexcept;
+		void setViewDir (const glm::vec3& dir) noexcept;
 
 	private:
 		glm::mat4 mViewTransfCache;
 		glm::vec3 mViewPosXyz;
 		glm::vec3 mViewDirYpr;
 		bool      mViewTransfCacheOod;
+
+		WorldRenderer(Renderer&&);
 	};
 
 
