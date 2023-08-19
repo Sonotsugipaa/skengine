@@ -35,10 +35,12 @@ namespace {
 			}
 
 			{ // Rotate the view at a frame-fixed pace
-				auto& wr = engine->getWorldRenderer();
-				auto dir = wr.getViewDir();
-				dir.z += glm::radians(15.0 * delta);
-				wr.setViewDir(dir);
+				auto& wr   = engine->getWorldRenderer();
+				auto dir   = wr.getViewRotation();
+				float dist = 2.4f;
+				dir.x += glm::radians(45.0 * delta);
+				wr.setViewPosition({ dist * std::sin(dir.x), 0.0f, dist * -std::cos(dir.x) });
+				wr.setViewRotation(dir);
 			}
 		}
 
@@ -85,6 +87,14 @@ int main() {
 			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache) );
 
 		Loop loop = engine;
+		auto wr   = engine.getWorldRenderer();
+
+		{
+			float dist = 2.4f;
+			auto& dir  = wr.getViewRotation();
+			wr.setViewRotation({ 0.0f, 0.0f, 0.0f });
+			wr.setViewPosition({ dist * std::sin(dir.x), 0.0f, dist * -std::cos(dir.x) });
+		}
 
 		engine.run(loop);
 	} catch(posixfio::Errcode& e) {

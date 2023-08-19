@@ -11,3 +11,6 @@
   - Seek a way not to construct a string from a string_view for
     every map access
   - Multithreaded `Renderer` object buffer generation (mostly for matrices)
+  - Implement `WorldRenderer::rotate` and `WorldRenderer::rotateTowards`
+    - Optimize `WorldRenderer` rotation functions by doing old fashioned,
+      matrix-on-paper math.

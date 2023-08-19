@@ -71,7 +71,7 @@ namespace SKENGINE_NAME_NS {
 
 		VkPipelineRasterizationStateCreateInfo r = { }; {
 			r.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-			r.cullMode    = VK_CULL_MODE_NONE;
+			r.cullMode    = VK_CULL_MODE_BACK_BIT;
 			r.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 			r.polygonMode = VK_POLYGON_MODE_FILL;
 			r.lineWidth   = 1.0f;
@@ -87,8 +87,8 @@ namespace SKENGINE_NAME_NS {
 
 		VkPipelineDepthStencilStateCreateInfo ds = { }; {
 			ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-			ds.depthTestEnable  = false;
-			ds.depthWriteEnable = false;
+			ds.depthTestEnable  = true;
+			ds.depthWriteEnable = true;
 			ds.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
 		}
 

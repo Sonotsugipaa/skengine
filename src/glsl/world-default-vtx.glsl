@@ -44,6 +44,6 @@ layout(location = 0) out vec4 frg_col;
 
 
 void main() {
-	gl_Position = frameUbo.view_transf * vec4(in_pos, 1.0);
+	gl_Position = frameUbo.projview_transf * vec4(in_pos, 1.0);
 	frg_col     = vec4((in_nrm + 1.0) / 2.0, 1.0);
 }

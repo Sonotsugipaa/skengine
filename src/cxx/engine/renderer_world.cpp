@@ -34,7 +34,7 @@ namespace SKENGINE_NAME_NS {
 			glm::mat4 rot0      = glm::rotate(identity, mViewDirYpr.y, x);
 			glm::mat4 rot1      = glm::rotate(identity, mViewDirYpr.x, y);
 			glm::mat4 rot2      = glm::rotate(identity, mViewDirYpr.z, z);
-			mViewTransfCache = translate * rot0 * rot1 * rot2;
+			mViewTransfCache = rot0 * rot1 * rot2 * translate;
 			mViewTransfCacheOod = false;
 		}
 
@@ -42,24 +42,41 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::setViewPos(const glm::vec3& pos) noexcept {
-		mViewPosXyz = pos;
+	void WorldRenderer::setViewPosition(const glm::vec3& xyz) noexcept {
+		mViewPosXyz = xyz;
 		mViewTransfCacheOod = true;
 	}
 
 
-	void WorldRenderer::setViewDir(const glm::vec3& dir) noexcept {
+	void WorldRenderer::setViewRotation(const glm::vec3& ypr) noexcept {
 		{ // Normalize the direction values
-			constexpr auto& pi = std::numbers::pi_v<float>;
-			#define NORMALIZE_(M_) { if(mViewDirYpr.M_ >= pi) [[unlikely]] { \
-				mViewDirYpr.M_ = std::floor(mViewDirYpr.M_ / pi) * pi; }}
-			NORMALIZE_(x)
-			NORMALIZE_(y)
-			NORMALIZE_(z)
+			constexpr auto pi2 = 2.0f * std::numbers::pi_v<float>;
+			#define NORMALIZE_(I_) { if(mViewDirYpr[I_] >= pi2) [[unlikely]] { \
+				mViewDirYpr[I_] = std::floor(mViewDirYpr[I_] / pi2) * pi2; }}
+			NORMALIZE_(0)
+			NORMALIZE_(1)
+			NORMALIZE_(2)
 			#undef NORMALIZE_
 		}
 
-		mViewDirYpr = dir;
+		mViewDirYpr = ypr;
+		mViewTransfCacheOod = true;
+	}
+
+
+	void WorldRenderer::setViewDirection(const glm::vec3& xyz) noexcept {
+		/*       -x         '  '        +y         '
+		'         |         '  '         |         '
+		'         |         '  '         |         '
+		'  +z ----O---- -z  '  '  +z ----O---- -z  '
+		'         |         '  '         |         '
+		'         |         '  '         |         '
+		'        +x         '  '        -y        */
+		glm::vec3 ypr;
+		ypr[0] = std::atan2(-xyz.x, -xyz.z);
+		ypr[1] = std::atan2(+xyz.y, -xyz.z);
+		ypr[2] = 0;
+		mViewDirYpr = ypr;
 		mViewTransfCacheOod = true;
 	}
 

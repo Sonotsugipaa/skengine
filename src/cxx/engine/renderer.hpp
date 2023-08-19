@@ -163,10 +163,13 @@ namespace SKENGINE_NAME_NS {
 
 		const glm::mat4& getViewTransf() noexcept;
 
-		const glm::vec3& getViewPos() const noexcept { return mViewPosXyz; }
-		const glm::vec3& getViewDir() const noexcept { return mViewDirYpr; }
-		void setViewPos (const glm::vec3& pos) noexcept;
-		void setViewDir (const glm::vec3& dir) noexcept;
+		const glm::vec3& getViewPosition () const noexcept { return mViewPosXyz; }
+		const glm::vec3& getViewRotation () const noexcept { return mViewDirYpr; }
+		void setViewPosition  (const glm::vec3& xyz) noexcept;
+		void setViewRotation  (const glm::vec3& ypr) noexcept; ///< Sets the yaw, pitch and roll of the world-view transformation.
+		void setViewDirection (const glm::vec3& xyz) noexcept; ///< Rotates the view so that `xyz - pos` in world space equals (0, 0, -1) in view space.
+		void rotate           (const glm::vec3& ypr) noexcept; ///< Similar to `WorldRenderer::setViewRotation`, but it's relative to the current position and rotation.
+		void rotateTowards    (const glm::vec3& xyz) noexcept; ///< Similar to `WorldRenderer::setViewDirection`, but it's relative to the current position.
 
 	private:
 		glm::mat4 mViewTransfCache;

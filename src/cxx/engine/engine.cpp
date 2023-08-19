@@ -92,6 +92,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		{ // Prepare the gframe buffers
 			auto& ubo = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
+			ubo.proj_transf     = e.mProjTransf;
 			ubo.view_transf     = e.mWorldRenderer.getViewTransf();
 			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);

@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include <glm/mat4x4.hpp>
+#include <glm/trigonometric.hpp>
 
 #include <boost/thread/mutex.hpp>
 
@@ -80,6 +81,9 @@ namespace SKENGINE_NAME_NS {
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
 		uint32_t max_concurrent_frames;
+		float    fov_y;
+		float    z_near;
+		float    z_far;
 		float    upscale_factor;
 		float    target_framerate;
 		float    target_tickrate;
@@ -93,10 +97,13 @@ namespace SKENGINE_NAME_NS {
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
-		.upscale_factor        = 1.0f,
-		.target_framerate      = 60.0f,
-		.target_tickrate       = 60.0f,
-		.fullscreen            = false
+		.fov_y            = glm::radians(110.0f),
+		.z_near           = 1.0f / float(1 << 8),
+		.z_far            = float(1 << 16),
+		.upscale_factor   = 1.0f,
+		.target_framerate = 60.0f,
+		.target_tickrate  = 60.0f,
+		.fullscreen       = false
 	};
 
 

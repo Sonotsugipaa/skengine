@@ -12,6 +12,8 @@
 
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
+#include <glm/ext/matrix_clip_space.hpp>
+
 
 
 namespace SKENGINE_NAME_NS {
@@ -253,6 +255,9 @@ namespace SKENGINE_NAME_NS {
 		select_swapchain_extent(&mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		spdlog::debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
+
+		mProjTransf = glm::perspective(mPrefs.fov_y, float(mRenderExtent.width) / float(mRenderExtent.height), mPrefs.z_near, mPrefs.z_far);
+		mProjTransf[1][1] *= -1.0f; // Image +y is world -y
 
 		uint32_t concurrent_qfams[] = {
 			mQueues.families.graphicsIndex,
