@@ -126,10 +126,20 @@ int main() {
 		auto& wr  = engine.getWorldRenderer();
 
 		{
+			SKENGINE_NAME_NS_SHORT::RenderObject ro = { };
 			float     dist = 2.4f;
 			glm::vec3 dir  = { 0.0f, glm::radians(27.5f), 0.0f };
 			wr.setViewRotation(dir);
 			wr.setViewPosition({ dist * std::sin(dir.x), 1.1f, dist * std::cos(dir.x) });
+			ro.mesh_id    = wr.getMeshId("assets/test-model.fma");
+			ro.color_rgba = { 1.0f, 0.0f, 1.0f, 1.0f };
+			ro.scale_xyz  = { 0.1f, 0.1f, 0.1f };
+			for(ssize_t x = -3; x <= 3; ++x)
+			for(ssize_t y = -3; y <= 3; ++y) {
+				ro.position_xyz.x = float(x) / 3.0f;
+				ro.position_xyz.z = float(y) / 3.0f;
+				wr.createObject(ro);
+			}
 		}
 
 		engine.run(loop);

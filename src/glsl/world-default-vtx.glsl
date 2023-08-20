@@ -2,14 +2,6 @@
 
 
 
-/*layout(set = 0, binding = 0) uniform StaticUbo {
-	mat4 proj;
-} staticUbo;
-
-layout(set = 1, binding = 0) uniform ModelUbo {
-	uint _unused;
-} modelUbo;*/
-
 layout(set = 0, binding = 0) uniform FrameUbo {
 	mat4 projview_transf;
 	mat4 proj_transf;
@@ -37,13 +29,16 @@ layout(location = 1) out vec3 frg_nrmTan;
 layout(location = 2) out vec4 frg_col;
 layout(location = 3) out mat3 frg_tbnInverse;*/
 
-layout(location = 0) in vec3 in_pos;
-layout(location = 1) in vec3 in_nrm;
+layout(location =  0) in vec3  in_pos;
+layout(location =  1) in vec3  in_nrm;
+layout(location =  5) in mat4  in_transf;
+layout(location =  9) in vec4  in_col;
+layout(location = 10) in float in_rnd;
 layout(location = 0) out vec4 frg_col;
 
 
 
 void main() {
-	gl_Position = frameUbo.projview_transf * vec4(in_pos, 1.0);
-	frg_col     = vec4((in_nrm + 1.0) / 2.0, 1.0);
+	gl_Position = frameUbo.projview_transf * in_transf * vec4(in_pos, 1.0);
+	frg_col     = in_col * vec4((in_nrm + 1.0) / 2.0, 1.0);
 }

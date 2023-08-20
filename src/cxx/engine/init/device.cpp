@@ -136,10 +136,13 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Select physical device
+			VkPhysicalDeviceFeatures features = vkutil::commonFeatures;
+			features.drawIndirectFirstInstance = true;
+
 			unsigned best_dev_index;
 			vkutil::SelectBestPhysDeviceDst best_dev = {
 				mPhysDevice, mDevProps, best_dev_index };
-			vkutil::selectBestPhysDevice(best_dev, devs, vkutil::commonFeatures, &mPrefs.phys_device_uuid);
+			vkutil::selectBestPhysDevice(best_dev, devs, features, &mPrefs.phys_device_uuid);
 
 			std::vector<std::string_view> missing_props;
 			{ // Check for missing required properties
@@ -208,21 +211,18 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initDsetLayouts() {
-		VkDescriptorSetLayoutBinding dslb[3] = { { }, { }, { } };
+		VkDescriptorSetLayoutBinding dslb[2] = { { }, { } };
 		dslb[0].binding = FRAME_UBO_BINDING;
 		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		dslb[0].descriptorCount = 1;
 		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		dslb[1] = dslb[0];
-		dslb[1].binding = OBJECT_STORAGE_BINDING;
+		dslb[1].binding = LIGHT_STORAGE_BINDING;
 		dslb[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		dslb[2] = dslb[1];
-		dslb[2].binding = LIGHT_STORAGE_BINDING;
 
 		VkDescriptorSetLayoutCreateInfo dslc_info = { };
 		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		dslc_info.bindingCount = 3;
-
+		dslc_info.bindingCount = std::size(dslb);
 		dslc_info.pBindings = dslb;
 		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
 	}

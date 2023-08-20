@@ -131,7 +131,6 @@ namespace SKENGINE_NAME_NS {
 	struct GframeData {
 		VkDescriptorSet      frame_dset;
 		vkutil::BufferDuplex frame_ubo;
-		vkutil::BufferDuplex object_storage;
 		vkutil::BufferDuplex light_storage;
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
@@ -193,8 +192,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		static constexpr uint32_t GFRAME_DSET            = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING      = 0;
-		static constexpr uint32_t OBJECT_STORAGE_BINDING = 1;
-		static constexpr uint32_t LIGHT_STORAGE_BINDING  = 2;
+		static constexpr uint32_t LIGHT_STORAGE_BINDING  = 1;
 
 		Engine() = default;
 		Engine(const DeviceInitInfo&, const EnginePreferences&, std::unique_ptr<ShaderCacheInterface>);

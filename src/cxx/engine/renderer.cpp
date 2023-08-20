@@ -15,46 +15,31 @@
 
 namespace {
 
-	constexpr size_t OBJECT_MAP_INITIAL_CAPACITY = 4;
-	constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR  = 4.0;
-	constexpr size_t BATCH_MAP_INITIAL_CAPACITY = 16;
-	constexpr float  BATCH_MAP_MAX_LOAD_FACTOR  = 2.0;
+	constexpr size_t OBJECT_MAP_INITIAL_CAPACITY    = 4;
+	constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = OBJECT_MAP_INITIAL_CAPACITY;
+	constexpr size_t BATCH_MAP_INITIAL_CAPACITY     = 16;
+	constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 2.0;
 
 
-	template <VkBufferUsageFlags usage, vkutil::HostAccess host_access>
-	vkutil::BufferDuplex createBuffer(
-			VmaAllocator vma,
-			size_t size
-	) {
-		vkutil::BufferCreateInfo bc_info = {
-			.size  = size,
-			.usage = usage,
-			.qfamSharing = { } };
-		return vkutil::BufferDuplex::createStorageBuffer(vma, bc_info, host_access);
+	vkutil::BufferDuplex create_object_buffer(VmaAllocator vma, size_t count) {
+		vkutil::BufferCreateInfo bc_info = { };
+		bc_info.size  = std::bit_ceil(count) * sizeof(SKENGINE_NAME_NS_SHORT::dev::RenderObject);
+		bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		vkutil::AllocationCreateInfo ac_info = { };
+		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+		return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
 	}
 
 
-	vkutil::BufferDuplex createObjectBuffer(
-			VmaAllocator vma,
-			size_t count
-	) {
-		return
-			createBuffer <
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				vkutil::HostAccess::eWr
-			> (vma, count * sizeof(SKENGINE_NAME_NS_SHORT::dev::RenderObject));
-	}
-
-
-	vkutil::BufferDuplex createDrawCommandBuffer(
-			VmaAllocator vma,
-			size_t count
-	) {
-		return
-			createBuffer <
-				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-				vkutil::HostAccess::eWr
-			> (vma, count * sizeof(VkDrawIndexedIndirectCommand));
+	vkutil::BufferDuplex create_draw_buffer(VmaAllocator vma, size_t count) {
+		vkutil::BufferCreateInfo bc_info = { };
+		bc_info.size  = std::bit_ceil(count) * sizeof(VkDrawIndexedIndirectCommand);
+		bc_info.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+		vkutil::AllocationCreateInfo ac_info = { };
+		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+		return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
 	}
 
 
@@ -65,7 +50,7 @@ namespace {
 
 
 	template <typename T>
-	T generateId() {
+	T generate_id() {
 		using int_t = std::underlying_type_t<T>;
 		static std::atomic<int_t> last = 0;
 		int_t r = last.fetch_add(1, std::memory_order_relaxed);
@@ -87,11 +72,33 @@ namespace {
 
 
 	void commit_draw_batches(
+			VmaAllocator                         vma,
 			VkCommandBuffer                      cmd,
 			const skengine::Renderer::BatchList& batches,
 			vkutil::BufferDuplex&                buffer
 	) {
+		using namespace SKENGINE_NAME_NS_SHORT;
+		using namespace vkutil;
 
+		if(batches.empty()) return;
+
+		if(batches.size() * sizeof(DrawBatch) > buffer.size()) {
+			BufferDuplex::destroy(vma, buffer);
+			buffer = create_draw_buffer(vma, batches.size());
+		}
+
+		auto buffer_batches = buffer.mappedPtr<VkDrawIndexedIndirectCommand>();
+		for(size_t i = 0; i < batches.size(); ++i) {
+			auto& h_batch = batches[i];
+			auto& b_batch = buffer_batches[i];
+			b_batch.firstIndex    = h_batch.first_index;
+			b_batch.firstInstance = h_batch.first_instance;
+			b_batch.indexCount    = h_batch.index_count;
+			b_batch.instanceCount = h_batch.instance_count;
+			b_batch.vertexOffset  = h_batch.vertex_offset;
+		}
+
+		buffer.flush(cmd, vma);
 	}
 
 }
@@ -112,7 +119,6 @@ namespace SKENGINE_NAME_NS {
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
 		r.mMsi    = &msi;
-		r.mObjectBuffer        = createObjectBuffer(vma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mMeshes              = decltype(mMeshes)             (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects             = decltype(mObjects)            (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mMeshLocators        = decltype(mMeshLocators)       (OBJECT_MAP_INITIAL_CAPACITY);
@@ -120,6 +126,8 @@ namespace SKENGINE_NAME_NS {
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mObjectsOod = true;
+		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
+		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
 		return r;
 	}
 
@@ -130,6 +138,7 @@ namespace SKENGINE_NAME_NS {
 		#endif
 
 		r.clearObjects();
+		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
 		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
 
 		#ifndef NDEBUG
@@ -138,24 +147,23 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	RenderObjectId Renderer::createObject(RenderObject o) {
+	RenderObjectId Renderer::createObject(const RenderObject& o) {
 		assert(mDevice != nullptr);
 
-		auto new_id    = generateId<RenderObjectId>();
+		auto new_id    = generate_id<RenderObjectId>();
 		auto mesh_slot = find_mesh_slot(mUnboundDrawBatches, o.mesh_id);
 
 		auto iter = mesh_slot->second.find(o.material_id);
 		if(iter == mesh_slot->second.end()) {
-			iter = mesh_slot->second.insert(UnboundBatchMap::mapped_type::value_type {
-				o.material_id,
-				skengine::UnboundDrawBatch {
-					.object_ids    = { new_id },
-					.mesh_id       = o.mesh_id,
-					.material_id   = o.material_id,
-					.vertex_offset = iter->second.vertex_offset,
-					.index_count   = iter->second.index_count,
-					.first_index   = iter->second.first_index
-				} }).first;
+			auto mesh = getMesh(mesh_slot->first);
+			auto ins  = skengine::UnboundDrawBatch {
+				.object_ids    = { new_id },
+				.mesh_id       = o.mesh_id,
+				.material_id   = o.material_id,
+				.vertex_offset = mesh->vertex_offset,
+				.index_count   = mesh->index_count,
+				.first_index   = mesh->first_index };
+			iter = mesh_slot->second.insert(UnboundBatchMap::mapped_type::value_type(o.material_id, ins)).first;
 		} else {
 			auto& batch = iter->second;
 			batch.object_ids.insert(new_id);
@@ -237,7 +245,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	MeshId Renderer::fetchMesh(std::string_view locator) {
+	MeshId Renderer::getMeshId(std::string_view locator) {
 		auto found_locator = mMeshLocators.find(locator);
 
 		if(found_locator != mMeshLocators.end()) {
@@ -264,10 +272,10 @@ namespace SKENGINE_NAME_NS {
 			locator = ins.first->second.locator; // Again, `locator` was dangling
 
 			#warning "TODO: check if deprecating the objects is superfluous"
-			mObjectsOod = false;
+			mObjectsOod = true;
 		} else {
 			mLogger->trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
-			id = generateId<MeshId>();
+			id = generate_id<MeshId>();
 		}
 
 		// Insert the mesh data (with the backing string) first
@@ -325,16 +333,20 @@ namespace SKENGINE_NAME_NS {
 		std::size_t    new_size   = new_instance_count * sizeof(dev::RenderObject);
 		constexpr auto shrink_fac = OBJECT_MAP_INITIAL_CAPACITY;
 
-		bool size_too_small = (new_size              < mObjectBuffer.size());
-		bool size_too_big   = (new_size / shrink_fac > mObjectBuffer.size());
-		if(size_too_small || size_too_big) {
-			vkutil::BufferDuplex::destroy(mVma, mObjectBuffer);
-			mObjectBuffer = createObjectBuffer(mVma, std::bit_ceil(new_instance_count));
+		{ // Ensure the object buffer is big enough
+volatile size_t new_size_smol = new_size / shrink_fac;
+			bool size_too_small = (new_size > mObjectBuffer.size());
+			bool size_too_big   = (new_size < mObjectBuffer.size() / shrink_fac);
+			if(size_too_small || size_too_big) {
+				vkutil::BufferDuplex::destroy(mVma, mObjectBuffer);
+				mObjectBuffer = create_object_buffer(mVma, std::bit_ceil(new_instance_count));
+			}
 		}
 
 		std::mt19937 rng;
 		auto         dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
 		auto* objects = mObjectBuffer.mappedPtr<dev::RenderObject>();
+		mDrawBatchList.clear();
 		for(size_t first_object = 0; auto& mesh_batches : mUnboundDrawBatches) {
 			for(size_t object_offset = 0; auto& ubatch : mesh_batches.second) {
 				for(auto obj_id : ubatch.second.object_ids) {
@@ -373,7 +385,8 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		commit_draw_batches(cmd, mDrawBatchList, mBatchBuffer);
+		mObjectBuffer.flush(cmd, mVma);
+		commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
 	}
 
 }

@@ -11,22 +11,39 @@ namespace SKENGINE_NAME_NS {
 	VkPipeline Engine::createPipeline(std::string_view material_type_name) {
 		VkPipeline pipeline;
 
-		VkVertexInputAttributeDescription vtx_attr[2];
-		VkVertexInputBindingDescription   vtx_bind[1];
+		VkVertexInputAttributeDescription vtx_attr[8];
+		VkVertexInputBindingDescription   vtx_bind[2];
 		{ // Hard-coded input descriptions and bindings
-			constexpr size_t POS = 0;
-			constexpr size_t COL = 1;
-			vtx_attr[POS].binding  = 0;
-			vtx_attr[POS].format   = VK_FORMAT_R32G32B32_SFLOAT;
-			vtx_attr[POS].location = 0;
-			vtx_attr[POS].offset   = 0;
-			vtx_attr[COL].binding  = 0;
-			vtx_attr[COL].format   = VK_FORMAT_R32G32B32_SFLOAT;
-			vtx_attr[COL].location = 1;
-			vtx_attr[COL].offset   = offsetof(fmamdl::Vertex, normal);
+			constexpr size_t V_POS = 0;
+			constexpr size_t V_NRM = 1;
+			constexpr size_t I_TR0 = 2;
+			constexpr size_t I_TR1 = 3;
+			constexpr size_t I_TR2 = 4;
+			constexpr size_t I_TR3 = 5;
+			constexpr size_t I_COL = 6;
+			constexpr size_t I_RND = 7;
+			constexpr auto vec4_sz = sizeof(glm::vec4);
+			#define ATTRIB_(I_, B_, F_, L_, O_) { \
+				static_assert(I_ < std::size(vtx_attr)); \
+				vtx_attr[I_].binding  = B_; \
+				vtx_attr[I_].format   = F_; \
+				vtx_attr[I_].location = L_; \
+				vtx_attr[I_].offset   = O_; }
+			ATTRIB_(V_POS, 0, VK_FORMAT_R32G32B32_SFLOAT,     0, offsetof(fmamdl::Vertex, position))
+			ATTRIB_(V_NRM, 0, VK_FORMAT_R32G32B32_SFLOAT,     1, offsetof(fmamdl::Vertex, normal))
+			ATTRIB_(I_TR0, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  5, (0 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
+			ATTRIB_(I_TR1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  6, (1 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
+			ATTRIB_(I_TR2, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  7, (2 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
+			ATTRIB_(I_TR3, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  8, (3 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
+			ATTRIB_(I_COL, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  9, offsetof(dev::RenderObject, color_mul))
+			ATTRIB_(I_RND, 1, VK_FORMAT_R32_SFLOAT,          10, offsetof(dev::RenderObject, rnd))
+			#undef ATTRIB_
 			vtx_bind[0].binding   = 0;
 			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 			vtx_bind[0].stride    = sizeof(fmamdl::Vertex);
+			vtx_bind[1].binding   = 1;
+			vtx_bind[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+			vtx_bind[1].stride    = sizeof(dev::RenderObject);
 		}
 
 		VkPipelineVertexInputStateCreateInfo vi = { }; {

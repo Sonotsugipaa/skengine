@@ -164,8 +164,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::reinit() {
-		auto lock = pauseRenderPass();
-
 		logger().trace("Recreating swapchain");
 
 		State state = { };
@@ -199,8 +197,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroy() {
-		auto lock = pauseRenderPass();
-
 		State state = { };
 		destroyFramebuffers(state);
 		destroyRpass(state);
@@ -356,8 +352,8 @@ namespace SKENGINE_NAME_NS {
 		auto frame_n = uint32_t(mPrefs.max_concurrent_frames);
 
 		VkDescriptorPoolSize sizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_n },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame_n * 2 } };
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_n * 1 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame_n * 1 } };
 
 		VkDescriptorPoolCreateInfo dpc_info = { };
 		dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -375,15 +371,11 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::initGframes(State& state) {
 		vkutil::BufferCreateInfo ubo_bc_info = {
 			.size  = sizeof(dev::FrameUniform),
-			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			.qfamSharing = { } };
-		vkutil::BufferCreateInfo object_storage_bc_info = {
-			.size  = 1 /* tmp */ * sizeof(dev::RenderObject),
-			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			.qfamSharing = { } };
 		vkutil::BufferCreateInfo light_storage_bc_info = {
 			.size  = 1 /* tmp */ * sizeof(dev::RayLight),
-			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			.qfamSharing = { } };
 
 		ssize_t missing = ssize_t(mPrefs.max_concurrent_frames) - ssize_t(mGframes.size());
@@ -406,21 +398,17 @@ namespace SKENGINE_NAME_NS {
 		dsa_info.pSetLayouts        = &mGframeDsetLayout;
 		VkDescriptorBufferInfo frame_db_info = { };
 		frame_db_info.range = VK_WHOLE_SIZE;
-		VkDescriptorBufferInfo object_db_info = frame_db_info;
-		VkDescriptorBufferInfo light_db_info  = frame_db_info;
-		VkWriteDescriptorSet dset_wr[3];
+		VkDescriptorBufferInfo light_db_info = frame_db_info;
+		VkWriteDescriptorSet dset_wr[2];
 		dset_wr[FRAME_UBO_BINDING] = { };
 		dset_wr[FRAME_UBO_BINDING].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		dset_wr[FRAME_UBO_BINDING].dstBinding = FRAME_UBO_BINDING;
 		dset_wr[FRAME_UBO_BINDING].descriptorCount = 1;
 		dset_wr[FRAME_UBO_BINDING].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		dset_wr[FRAME_UBO_BINDING].pBufferInfo     = &frame_db_info;
-		dset_wr[OBJECT_STORAGE_BINDING] = dset_wr[FRAME_UBO_BINDING];
-		dset_wr[OBJECT_STORAGE_BINDING].dstBinding     = OBJECT_STORAGE_BINDING;
-		dset_wr[OBJECT_STORAGE_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		dset_wr[OBJECT_STORAGE_BINDING].pBufferInfo    = &object_db_info;
-		dset_wr[LIGHT_STORAGE_BINDING] = dset_wr[OBJECT_STORAGE_BINDING];
+		dset_wr[LIGHT_STORAGE_BINDING] = dset_wr[FRAME_UBO_BINDING];
 		dset_wr[LIGHT_STORAGE_BINDING].dstBinding  = LIGHT_STORAGE_BINDING;
+		dset_wr[LIGHT_STORAGE_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		dset_wr[LIGHT_STORAGE_BINDING].pBufferInfo = &light_db_info;
 		vkutil::ImageCreateInfo ic_info;
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
@@ -447,14 +435,12 @@ namespace SKENGINE_NAME_NS {
 			gf.cmd_prepare = cmd[0];
 			gf.cmd_draw    = cmd[1];
 
-			gf.frame_ubo      = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
-			gf.object_storage = vkutil::BufferDuplex::createStorageBuffer(mVma, object_storage_bc_info, vkutil::HostAccess::eWr);
-			gf.light_storage  = vkutil::BufferDuplex::createStorageBuffer(mVma, light_storage_bc_info, vkutil::HostAccess::eWr);
+			gf.frame_ubo     = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
+			gf.light_storage = vkutil::BufferDuplex::createStorageBuffer(mVma, light_storage_bc_info, vkutil::HostAccess::eWr);
 
 			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
 			for(auto& wr : dset_wr) wr.dstSet = gf.frame_dset;
 			frame_db_info.buffer = gf.frame_ubo;
-			object_db_info.buffer = gf.object_storage;
 			light_db_info.buffer = gf.light_storage;
 			vkUpdateDescriptorSets(mDevice, std::size(dset_wr), dset_wr, 0, nullptr);
 
@@ -621,7 +607,6 @@ namespace SKENGINE_NAME_NS {
 
 			VK_CHECK(vkFreeDescriptorSets, mDevice, mGframeDescPool, 1, &gf.frame_dset);
 			vkutil::BufferDuplex::destroy(mVma, gf.light_storage);
-			vkutil::BufferDuplex::destroy(mVma, gf.object_storage);
 			vkutil::BufferDuplex::destroy(mVma, gf.frame_ubo);
 
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);

@@ -60,6 +60,11 @@ namespace SKENGINE_NAME_NS {
 			bc_info.size  = vertices.size_bytes();
 			r.vertices = vkutil::BufferDuplex::createVertexInputBuffer(vma, bc_info);
 
+			r.index_count   = indices.size();
+			r.first_index   = 0;
+			r.vertex_count  = vertices.size();
+			r.vertex_offset = 0;
+
 			memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
 			memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
 			ms_engine->pushBuffer(r.indices);

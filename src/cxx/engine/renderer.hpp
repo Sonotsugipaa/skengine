@@ -47,9 +47,14 @@ namespace SKENGINE_NAME_NS {
 	struct DevMesh {
 		vkutil::BufferDuplex indices;
 		vkutil::BufferDuplex vertices;
+		uint32_t index_count;
+		uint32_t first_index;
+		uint32_t vertex_count;
+		uint32_t vertex_offset;
 	};
 
 
+	// A draw batch, without object-specific data in favor of lists of references to them.
 	struct UnboundDrawBatch {
 		std::unordered_set<RenderObjectId> object_ids;
 		MeshId     mesh_id;
@@ -119,17 +124,18 @@ namespace SKENGINE_NAME_NS {
 		static Renderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&);
 		static void     destroy (Renderer&);
 
-		RenderObjectId createObject (RenderObject);
+		RenderObjectId createObject (const RenderObject&);
 		void           removeObject (RenderObjectId) noexcept;
 		void           clearObjects () noexcept;
 		std::optional<const RenderObject*> getObject    (RenderObjectId) const noexcept;
 		std::optional<RenderObject*>       modifyObject (RenderObjectId) noexcept;
 
-		MeshId         fetchMesh (std::string_view locator);
+		MeshId         getMeshId (std::string_view locator);
 		MeshId         setMesh   (std::string_view locator, DevMesh);
 		const DevMesh* getMesh   (MeshId) const noexcept;
 		void           eraseMesh (MeshId) noexcept;
 
+		auto     getDrawBatches() const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
 		VkBuffer getInstanceBuffer () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
 		void     commitObjects     (VkCommandBuffer);
 

@@ -43,6 +43,30 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
+	static void recordRendererDrawCommands(Engine& e, VkCommandBuffer cmd, GframeData& gf, Renderer& renderer) {
+		constexpr VkDeviceSize offset = 0;
+		auto batches         = renderer.getDrawBatches();
+		auto instance_buffer = renderer.getInstanceBuffer();
+		if(batches.empty()) return;
+		VkDescriptorSet dsets[]   = { gf.frame_dset };
+		MeshId          last_mesh = MeshId     (~ mesh_id_e     (batches.front().mesh_id));
+		MaterialId      last_mat  = MaterialId (~ material_id_e (batches.front().material_id));
+		for(const auto& batch : batches) {
+			auto* mesh = renderer.getMesh(batch.mesh_id);
+			if(batch.mesh_id != last_mesh) {
+				vkCmdBindIndexBuffer(cmd, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
+				vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.value, &offset);
+				vkCmdBindVertexBuffers(cmd, 1, 1, &instance_buffer,      &offset);
+			}
+			if(batch.material_id != last_mat) {
+				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+			}
+			vkCmdDrawIndexed(cmd, mesh->index_count, batch.instance_count, mesh->first_index, mesh->vertex_offset, batch.first_instance);
+		}
+	}
+
+
 	// Returns `false` if the swapchain is out of date
 	static bool draw(Engine& e, LoopInterface& loop) {
 		size_t      gframe_idx;
@@ -96,11 +120,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.view_transf     = e.mWorldRenderer.getViewTransf();
 			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
+			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
 		}
-
-		MeshId mesh_id = e.mWorldRenderer.fetchMesh("assets/test-model.fma");
-		auto*  mesh    = e.mWorldRenderer.getMesh(mesh_id);
-		assert(mesh != nullptr);
 
 		VkImageMemoryBarrier imb[2] = { };
 		imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -129,9 +150,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		}
 
 		{ // Draw the objects
-			constexpr VkDeviceSize offset = 0;
 			auto& cmd = gframe->cmd_draw;
-			VkDescriptorSet dsets[] = { gframe->frame_dset };
 
 			VkViewport viewport = { }; {
 				viewport.x      = 0.0f;
@@ -147,13 +166,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				scissor.extent = { e.mRenderExtent.width, e.mRenderExtent.height };
 			}
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
-			vkCmdBindIndexBuffer(cmd, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.value, &offset);
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			vkCmdDrawIndexed(cmd, mesh->indices.size() / sizeof(fmamdl::Index), 1, 0, 0, 0);
+			recordRendererDrawCommands(e, cmd, *gframe, e.mWorldRenderer);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -251,7 +266,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			subm[1].pWaitSemaphores    = &gframe->sem_prepare;
 			subm[1].pWaitDstStageMask  = &draw_wait_stages;
 			subm[1].pSignalSemaphores  = &gframe->sem_draw;
-			VK_CHECK(vkResetFences, e.mDevice, 1, &gframe->fence_draw);
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, std::size(subm), subm, gframe->fence_draw);
 		}
 
@@ -376,6 +390,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	Engine::~Engine() {
+		auto lock = pauseRenderPass();
+
 		mShaderCache->shader_cache_releaseAllModules(*this);
 
 		{
@@ -469,6 +485,7 @@ namespace SKENGINE_NAME_NS {
 	void Engine::setPresentExtent(VkExtent2D ext) {
 		mPrefs.init_present_extent = ext;
 
+		auto lock = pauseRenderPass();
 		auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 		init->reinit();
 	}
