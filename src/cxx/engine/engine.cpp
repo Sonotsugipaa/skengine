@@ -342,9 +342,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	constexpr auto regulator_params = tickreg::RegulatorParams {
-		.deltaTolerance     = 0.25,
-		.burstTolerance     = 0.01,
-		.compensationFactor = 1.0 };
+		.deltaTolerance     = 0.1,
+		.burstTolerance     = 0.05,
+		.compensationFactor = 0.0 };
 
 
 	Engine::Engine(
@@ -354,11 +354,11 @@ namespace SKENGINE_NAME_NS {
 	):
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
-			std::max<unsigned>(4, ep.target_framerate / 4),
+			std::max<unsigned>(4, ep.target_framerate),
 			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
 			regulator_params ),
 		mLogicReg(
-			std::max<unsigned>(4, ep.target_tickrate / 4),
+			std::max<unsigned>(4, ep.target_tickrate),
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			regulator_params ),
 		mLogger([&]() {
@@ -484,6 +484,10 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::setPresentExtent(VkExtent2D ext) {
 		mPrefs.init_present_extent = ext;
+
+		// Some compositors resize the window as soon as it appears, and this seems to cause problems
+		mGraphicsReg.resetEstimates(mPrefs.target_framerate);
+		mLogicReg.resetEstimates(mPrefs.target_tickrate);
 
 		auto lock = pauseRenderPass();
 		auto init = reinterpret_cast<Engine::RpassInitializer*>(this);

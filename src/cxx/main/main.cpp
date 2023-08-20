@@ -64,10 +64,13 @@ namespace {
 
 			{ // Rotate the view at a frame-fixed pace
 				auto& wr   = engine->getWorldRenderer();
+				auto  pos  = wr.getViewPosition();
 				auto  dir  = wr.getViewRotation();
 				float dist = 2.4f;
+				float sin  = std::sin(dir.x);
 				dir.x += glm::radians(45.0 * delta);
-				wr.setViewPosition({ dist * std::sin(dir.x), 1.1f, dist * std::cos(dir.x) });
+				dir.y  = glm::radians(60.0f) * sin;
+				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
 				wr.setViewRotation(dir);
 			}
 		}
@@ -92,11 +95,11 @@ int main() {
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
 	prefs.init_present_extent = { 700, 700 };
-	prefs.max_render_extent   = { 0, 100 };
+	prefs.max_render_extent   = { 0, 200 };
 	prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
 	prefs.target_framerate    = 60.0;
 	prefs.target_tickrate     = 60.0;
-	prefs.fov_y               = glm::radians(90.0f);
+	prefs.fov_y               = glm::radians(110.0f);
 
 	prefs.logger = logger;
 	#ifdef NDEBUG
@@ -127,17 +130,21 @@ int main() {
 
 		{
 			SKENGINE_NAME_NS_SHORT::RenderObject ro = { };
-			float     dist = 2.4f;
-			glm::vec3 dir  = { 0.0f, glm::radians(27.5f), 0.0f };
+			float     count_sq = 7.0f;
+			float     dist     = 2.4f;
+			glm::vec3 dir      = { 0.0f, 0.0f, 0.0f };
 			wr.setViewRotation(dir);
-			wr.setViewPosition({ dist * std::sin(dir.x), 1.1f, dist * std::cos(dir.x) });
+			wr.setViewPosition({ dist * std::sin(dir.x), 0.5f, dist * std::cos(dir.x) });
 			ro.mesh_id    = wr.getMeshId("assets/test-model.fma");
-			ro.color_rgba = { 1.0f, 0.0f, 1.0f, 1.0f };
+			ro.color_rgba = { 1.0f, 0.3f, 1.0f, 1.0f };
 			ro.scale_xyz  = { 0.1f, 0.1f, 0.1f };
-			for(ssize_t x = -3; x <= 3; ++x)
-			for(ssize_t y = -3; y <= 3; ++y) {
-				ro.position_xyz.x = float(x) / 3.0f;
-				ro.position_xyz.z = float(y) / 3.0f;
+			for(float x = -count_sq; x < count_sq; ++x)
+			for(float y = -count_sq; y < count_sq; ++y) {
+				float ox = (0.5f + x) / 3.0f;
+				float oz = (0.5f + y) / 3.0f;
+				ro.position_xyz.x = ox;
+				ro.position_xyz.z = oz;
+				ro.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (count_sq * count_sq);
 				wr.createObject(ro);
 			}
 		}
