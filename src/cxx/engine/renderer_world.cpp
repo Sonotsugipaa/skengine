@@ -4,14 +4,16 @@
 
 #include <glm/ext/matrix_transform.hpp>
 
-#include <spdlog/spdlog.h>
-
 
 
 namespace SKENGINE_NAME_NS {
 
-	WorldRenderer WorldRenderer::create(VmaAllocator vma, MeshSupplierInterface& msi) {
-		WorldRenderer r = Renderer::create(vma, msi);
+	WorldRenderer WorldRenderer::create(
+			std::shared_ptr<spdlog::logger> logger,
+			VmaAllocator vma,
+			MeshSupplierInterface& msi
+	) {
+		WorldRenderer r = Renderer::create(std::move(logger), vma, msi);
 		r.mViewPosXyz = { };
 		r.mViewDirYpr = { };
 		r.mViewTransfCacheOod = true;

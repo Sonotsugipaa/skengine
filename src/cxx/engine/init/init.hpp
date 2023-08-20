@@ -10,7 +10,7 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine::DeviceInitializer : public Engine {
 	public:
-		void init(const DeviceInitInfo*, const EnginePreferences*);
+		void init(const DeviceInitInfo*);
 		void destroy();
 
 	private:

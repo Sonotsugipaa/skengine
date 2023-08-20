@@ -1,7 +1,5 @@
 #include "engine.hpp"
 
-#include <spdlog/spdlog.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -80,7 +78,7 @@ namespace SKENGINE_NAME_NS {
 			try {
 				return e.createShaderModuleFromFile(name);
 			} catch(ShaderModuleReadError& err) {
-				spdlog::error("Recoverable error: {}", err.what());
+				e.logger().error("Recoverable error: {}", err.what());
 				return e.createShaderModuleFromFile(fallback);
 			}
 		};

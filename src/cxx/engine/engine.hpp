@@ -18,6 +18,9 @@
 #include <glm/trigonometric.hpp>
 
 #include <boost/thread/mutex.hpp>
+#include <boost/interprocess/sync/scoped_lock.hpp>
+
+#include <spdlog/logger.h>
 
 #include <SDL2/SDL_vulkan.h>
 
@@ -60,6 +63,9 @@
 
 namespace SKENGINE_NAME_NS {
 
+	using scoped_lock = boost::interprocess::scoped_lock<boost::mutex>;
+
+
 	class EngineRuntimeError : public std::runtime_error {
 	public:
 		template <typename... Args>
@@ -80,6 +86,8 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D  max_render_extent;
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
+		std::shared_ptr<spdlog::logger> logger;
+		spdlog::level::level_enum       log_level;
 		uint32_t max_concurrent_frames;
 		float    fov_y;
 		float    z_near;
@@ -88,22 +96,6 @@ namespace SKENGINE_NAME_NS {
 		float    target_framerate;
 		float    target_tickrate;
 		bool     fullscreen;
-	};
-
-	constexpr const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
-		.phys_device_uuid      = "",
-		.init_present_extent   = { 600, 400 },
-		.max_render_extent     = { 0xffff, 0xffff },
-		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
-		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
-		.max_concurrent_frames = 2,
-		.fov_y            = glm::radians(110.0f),
-		.z_near           = 1.0f / float(1 << 8),
-		.z_far            = float(1 << 16),
-		.upscale_factor   = 1.0f,
-		.target_framerate = 60.0f,
-		.target_tickrate  = 60.0f,
-		.fullscreen       = false
 	};
 
 
@@ -220,6 +212,9 @@ namespace SKENGINE_NAME_NS {
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
 
+		[[nodiscard]]
+		scoped_lock pauseRenderPass();
+
 		/// \brief Hints the Engine that large numbers of deallocations
 		///        or removals are performed, or about to be.
 		///
@@ -250,6 +245,8 @@ namespace SKENGINE_NAME_NS {
 		const auto& getQueueInfo            () const noexcept { return mQueues; }
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
+
+		auto& logger() const { return *mLogger; }
 
 	private:
 		class Implementation;
@@ -304,6 +301,8 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		Renderer      mUiRenderer;
 		glm::mat4     mProjTransf;
+
+		std::shared_ptr<spdlog::logger> mLogger;
 
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;

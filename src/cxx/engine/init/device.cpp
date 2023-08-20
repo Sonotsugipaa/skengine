@@ -9,8 +9,6 @@
 
 #include <SDL2/SDL.h>
 
-#include <spdlog/spdlog.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -19,10 +17,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
-	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii, const EnginePreferences* ep) {
+	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii) {
 		assert(dii != nullptr);
-		assert(ep  != nullptr);
-		mPrefs = *ep;
 		initSdl(dii);
 		initVkInst(dii);
 		initVkDev();
@@ -74,7 +70,7 @@ namespace SKENGINE_NAME_NS {
 			SDL_Vulkan_GetDrawableSize(mSdlWindow, &w, &h);
 			if(uint32_t(w) != w0 || uint32_t(h) != h0) {
 				mPrefs.init_present_extent = { uint32_t(w), uint32_t(h) };
-				spdlog::warn("Requested window size {}x{}, got {}x{}", w0, h0, w, h);
+				logger().warn("Requested window size {}x{}, got {}x{}", w0, h0, w, h);
 			}
 		}
 
@@ -110,7 +106,7 @@ namespace SKENGINE_NAME_NS {
 			if(SDL_TRUE != SDL_Vulkan_GetInstanceExtensions(mSdlWindow, &extCount, extensions.data())) throw std::runtime_error("Failed to query SDL Vulkan extensions");
 
 			for(uint32_t i=0; i < extCount; ++i) {
-				spdlog::debug("SDL2 requires Vulkan extension \"{}\"", extensions[i]);
+				logger().debug("SDL2 requires Vulkan extension \"{}\"", extensions[i]);
 			}
 		}
 
@@ -155,7 +151,7 @@ namespace SKENGINE_NAME_NS {
 
 			if(! missing_props.empty()) {
 				for(const auto& prop : missing_props) {
-					spdlog::error("Selected device [{}]={:x}:{:x} \"{}\" is missing property `{}`",
+					logger().error("Selected device [{}]={:x}:{:x} \"{}\" is missing property `{}`",
 						best_dev_index,
 						mDevProps.vendorID, mDevProps.deviceID,
 						mDevProps.deviceName,
@@ -207,7 +203,7 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initRenderer() {
 		#warning "make the mesh cache configurable"
 		mMeshSupplier  = MeshSupplier(*this, 0.2f);
-		mWorldRenderer = WorldRenderer::create(mVma, mMeshSupplier);
+		mWorldRenderer = WorldRenderer::create(std::make_shared<spdlog::logger>(logger()), mVma, mMeshSupplier);
 	}
 
 

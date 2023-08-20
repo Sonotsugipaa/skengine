@@ -4,13 +4,9 @@
 
 #include <posixfio_tl.hpp>
 
-#include <spdlog/spdlog.h>
-
 #include <memory>
 
 #include <vulkan/vk_enum_string_helper.h>
-
-#include <boost/interprocess/sync/scoped_lock.hpp>
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -18,9 +14,6 @@
 
 
 namespace SKENGINE_NAME_NS {
-
-	using mtx_scoped_lock = boost::interprocess::scoped_lock<boost::mutex>;
-
 
 	struct Engine::RpassInitializer::State {
 		VkSwapchainKHR oldSwapchain;
@@ -31,9 +24,11 @@ namespace SKENGINE_NAME_NS {
 
 
 	void select_swapchain_extent(
+			spdlog::logger&   logger,
 			VkExtent2D*       dst,
 			const VkExtent2D& desired,
-			const VkSurfaceCapabilitiesKHR& capabs
+			const VkSurfaceCapabilitiesKHR& capabs,
+			bool do_log
 	) {
 		assert(capabs.maxImageExtent.width  > 0);
 		assert(capabs.maxImageExtent.height > 0);
@@ -42,24 +37,24 @@ namespace SKENGINE_NAME_NS {
 		dst->width  = std::clamp(desired.width,  capabsMinExt.width,  capabsMaxExt.width);
 		dst->height = std::clamp(desired.height, capabsMinExt.height, capabsMaxExt.height);
 		if(desired.width != dst->width || desired.height != dst->height) {
-			spdlog::debug("Requested swapchain extent {}x{}, chosen {}x{}",
+			if(do_log) logger.debug("Requested swapchain extent {}x{}, chosen {}x{}",
 				desired.width, desired.height,
 				dst->width,    dst->height );
 		} else {
-			spdlog::debug("Chosen swapchain extent {}x{}", desired.width, desired.height);
+			if(do_log) logger.debug("Chosen swapchain extent {}x{}", desired.width, desired.height);
 		}
 	}
 
 
-	VkCompositeAlphaFlagBitsKHR select_composite_alpha(const VkSurfaceCapabilitiesKHR& capabs) {
+	VkCompositeAlphaFlagBitsKHR select_composite_alpha(spdlog::logger& logger, const VkSurfaceCapabilitiesKHR& capabs, bool do_log) {
 		assert(capabs.supportedCompositeAlpha != 0);
 
 		#define TRY_CA_(NM_, BIT_) \
 			if(capabs.supportedCompositeAlpha & BIT_) { \
-				spdlog::info("[+] " #NM_ " is supported"); \
+				if(do_log) logger.debug("[+] " #NM_ " is supported"); \
 				return BIT_; \
 			} else { \
-				spdlog::info("[ ] " #NM_ " is not supported"); \
+				if(do_log) logger.debug("[ ] " #NM_ " is not supported"); \
 			}
 
 		TRY_CA_("composite alpha PRE_MULTIPLIED_BIT",  VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
@@ -68,15 +63,17 @@ namespace SKENGINE_NAME_NS {
 
 		#undef TRY_CA_
 
-		spdlog::info("[x] Using fallback composite alpha VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR");
+		if(do_log) logger.info("[x] Using fallback composite alpha VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR");
 		return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	}
 
 
 	VkPresentModeKHR select_present_mode(
+			spdlog::logger&  logger,
 			VkPhysicalDevice phys_device,
 			VkSurfaceKHR     surface,
-			VkPresentModeKHR preferred_mode
+			VkPresentModeKHR preferred_mode,
+			bool do_log
 	) {
 		std::vector<VkPresentModeKHR> avail_modes;
 		{
@@ -91,10 +88,10 @@ namespace SKENGINE_NAME_NS {
 		#define TRY_PM_(NM_, BIT_, DIFF_) \
 			if(BIT_ != DIFF_) [[likely]] { \
 				if(avail_modes.end() != std::find(avail_modes.begin(), avail_modes.end(), BIT_)) { \
-					spdlog::info("[+] " NM_ "present mode {} is supported", string_VkPresentModeKHR(BIT_)); \
+					if(do_log) logger.info("[+] " NM_ "present mode {} is supported", string_VkPresentModeKHR(BIT_)); \
 					return BIT_; \
 				} else { \
-					spdlog::info("[ ] " NM_ "is not supported"); \
+					if(do_log) logger.info("[ ] " NM_ "is not supported"); \
 				} \
 			}
 
@@ -106,31 +103,49 @@ namespace SKENGINE_NAME_NS {
 
 		#undef TRY_PM_
 
-		spdlog::info("[x] Using fallback present mode VK_PRESENT_MODE_FIFO_KHR");
+		if(do_log) logger.info("[x] Using fallback present mode VK_PRESENT_MODE_FIFO_KHR");
 		return VK_PRESENT_MODE_FIFO_KHR;
 	}
 
 
-	VkExtent2D select_render_extent(const VkExtent2D& present, const VkExtent2D& max, float upscale) {
-		VkExtent2D r;
+	VkExtent2D select_render_extent(VkExtent2D desired, VkExtent2D limit, float upscale) {
 		upscale = std::max(upscale, std::numeric_limits<float>::min());
-		r.width  = std::clamp<uint32_t>(std::ceil(present.width  / upscale), 1, max.width);
-		r.height = std::clamp<uint32_t>(std::ceil(present.height / upscale), 1, max.height);
-		r.width  = std::min(r.width,  max.width);
-		r.height = std::min(r.height, max.height);
+
+		desired = {
+				uint32_t(std::ceil(desired.width  / upscale)),
+				uint32_t(std::ceil(desired.height / upscale)) };
+		float desired_fw = desired.width;
+		float desired_fh = desired.height;
+
+		if(limit.width == 0) {
+			if(limit.height == 0) return desired;
+			limit.width = float(limit.height) * desired_fw / desired_fh;
+		}
+		else if(limit.height == 0) limit.height = float(limit.width) * desired_fh / desired_fw;
+
+		VkExtent2D r = {
+			std::clamp<uint32_t>(desired.width,  1, limit.width),
+			std::clamp<uint32_t>(desired.height, 1, limit.height) };
+
+		auto select_height_for_width = [&]() { r.height = float(r.width) / float(desired.width) * float(desired.height); };
+		auto select_width_for_height = [&]() { r.width = float(r.height) / float(desired.height) * float(desired.width); };
+
+		if(desired.width > limit.width) {
+			if(desired.height > limit.height) {
+				// Width and height were both too high; change the lowest axis of the desired extent
+				if(desired.width < desired.height) select_width_for_height();
+				else select_height_for_width();
+			} else {
+				// Width was too high, height was fine
+				select_height_for_width();
+			}
+		}
+		else if(desired.height > limit.height) {
+			// Height was too high, width was fine
+			select_width_for_height();
+		}
+
 		return r;
-	}
-
-
-	mtx_scoped_lock pause_rendering(
-		const vkutil::Queues& queues,
-		boost::mutex&         gframeMtx
-	) {
-		auto lock = boost::interprocess::scoped_lock<boost::mutex>(gframeMtx);
-		VK_CHECK(vkQueueWaitIdle, queues.compute);
-		VK_CHECK(vkQueueWaitIdle, queues.transfer);
-		VK_CHECK(vkQueueWaitIdle, queues.graphics);
-		return lock;
 	}
 
 
@@ -149,9 +164,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::reinit() {
-		auto lock = pause_rendering(mQueues, mGframeMutex);
+		auto lock = pauseRenderPass();
 
-		spdlog::trace("Recreating swapchain");
+		logger().trace("Recreating swapchain");
 
 		State state = { };
 		state.reinit = true;
@@ -184,7 +199,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroy() {
-		auto lock = pause_rendering(mQueues, mGframeMutex);
+		auto lock = pauseRenderPass();
 
 		State state = { };
 		destroyFramebuffers(state);
@@ -223,10 +238,10 @@ namespace SKENGINE_NAME_NS {
 					if(supported) { \
 						mPresentQfamIndex = QfamIndex(mQueues.families.FAM_##Index); \
 						mPresentQueue = mQueues.FAM_; \
-						spdlog::debug("[+] Queue family {} can be used to present", \
+						logger().debug("[+] Queue family {} can be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
 					} else { \
-						spdlog::debug("[ ] Queue family {} cannot be used to present", \
+						logger().debug("[ ] Queue family {} cannot be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
 					} \
 				}
@@ -234,7 +249,7 @@ namespace SKENGINE_NAME_NS {
 			TRY_FAM_(transfer)
 			TRY_FAM_(compute)
 			#undef TRY_FAM_
-			spdlog::debug("Using queue family {} for the present queue", uint32_t(mPresentQfamIndex));
+			logger().debug("Using queue family {} for the present queue", uint32_t(mPresentQfamIndex));
 		}
 	}
 
@@ -253,11 +268,14 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		mSurfaceFormat = vkutil::selectSwapchainFormat(mPhysDevice, mSurface);
-		select_swapchain_extent(&mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs);
+		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
-		spdlog::debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
+		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
 
-		mProjTransf = glm::perspective(mPrefs.fov_y, float(mRenderExtent.width) / float(mRenderExtent.height), mPrefs.z_near, mPrefs.z_far);
+		mProjTransf = glm::perspective(
+			mPrefs.fov_y,
+			float(mRenderExtent.width) / float(mRenderExtent.height),
+			mPrefs.z_near, mPrefs.z_far );
 		mProjTransf[1][1] *= -1.0f; // Clip +y is view -y
 
 		uint32_t concurrent_qfams[] = {
@@ -273,8 +291,8 @@ namespace SKENGINE_NAME_NS {
 		s_info.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		s_info.imageArrayLayers = 1;
 		s_info.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-		s_info.compositeAlpha   = select_composite_alpha(mSurfaceCapabs);
-		s_info.presentMode      = select_present_mode(mPhysDevice, mSurface, mPrefs.present_mode);
+		s_info.compositeAlpha   = select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
+		s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
 		s_info.clipped          = VK_TRUE;
 		s_info.oldSwapchain     = state.oldSwapchain;
 		s_info.pQueueFamilyIndices   = concurrent_qfams;
@@ -291,9 +309,9 @@ namespace SKENGINE_NAME_NS {
 				mSurfaceCapabs.minImageCount,
 				mSurfaceCapabs.maxImageCount );
 			if(desired == s_info.minImageCount)
-				spdlog::debug("Acquired {} swapchain image{}",              desired, desired == 1? "":"s");
+				if(! state.reinit) logger().debug("Acquired {} swapchain image{}",              desired, desired == 1? "":"s");
 			else
-				spdlog::warn("Requested {} swapchain image{}, acquired {}", desired, desired == 1? "":"s", s_info.minImageCount);
+				if(! state.reinit) logger().warn("Requested {} swapchain image{}, acquired {}", desired, desired == 1? "":"s", s_info.minImageCount);
 		}
 
 		if(s_info.oldSwapchain == nullptr) [[unlikely]] {
@@ -453,7 +471,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
 		};
 
-		spdlog::trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
+		logger().trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
 		for(size_t i = mGframes.size(); i < mPrefs.max_concurrent_frames; ++i) {
 			mGframes.resize(i + 1);
 			GframeData& gf = mGframes.back();
@@ -530,10 +548,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::initFramebuffers(State& state) {
-		// Framebuffer initialization only required if the attachments are out of date
-		bool ood = state.createdGframes || state.destroyedGframes;
-		if(! ood) return;
-
 		constexpr size_t ATCH_COUNT = 2 /* color, depth/stencil */;
 
 		VkImageViewCreateInfo ivc_info = { };
@@ -561,7 +575,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_color_view);
 			ivc_info.image  = gf.atch_depthstencil;
 			ivc_info.format = mDepthAtchFmt;
-			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_depthstencil_view);
 			VkImageView atchs[ATCH_COUNT] = { gf.atch_color_view, gf.atch_depthstencil_view };
 			fc_info.pAttachments = atchs;
@@ -571,10 +585,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroyFramebuffers(State& state) {
-		// Framebuffer destruction only required if the attachments will be out of date
-		bool ood = state.createdGframes || state.destroyedGframes;
-		if(state.reinit && ! ood) return;
-
 		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
 			GframeData& gf = mGframes[i];
 			vkDestroyFramebuffer(mDevice, gf.framebuffer, nullptr);
@@ -617,7 +627,7 @@ namespace SKENGINE_NAME_NS {
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
 		};
 
-		spdlog::trace("Destroying {} gframe{}", excess, (excess != 1)? "s" : "");
+		logger().trace("Destroying {} gframe{}", excess, (excess != 1)? "s" : "");
 		for(size_t i = keep; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
 			destroy_frame(gf);

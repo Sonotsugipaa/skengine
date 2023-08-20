@@ -5,13 +5,13 @@
 
 #include <posixfio_tl.hpp>
 
-#include <spdlog/spdlog.h>
-
 #include <fmamdl/fmamdl.hpp>
 
 #include <vk-util/error.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include "spdlog/sinks/stdout_color_sinks.h"
 
 
 
@@ -30,12 +30,12 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			bool     is_free       = (wait_res == VK_SUCCESS);
 			if(is_free) {
 				e.mGframeSelector = (1 + candidate_idx) % count;
-				spdlog::trace("Selected gframe {}/{}", candidate_idx+1, e.mGframes.size());
+				e.logger().trace("Selected gframe {}/{}", candidate_idx+1, e.mGframes.size());
 				VK_CHECK(vkResetFences, e.mDevice, 1, &candidate.fence_draw);
 				VK_CHECK(vkResetCommandPool, e.mDevice, candidate.cmd_pool, 0);
 				return candidate_idx;
 			} else {
-				spdlog::trace("Skipped unavailable gframe #{}", candidate_idx);
+				e.logger().trace("Skipped unavailable gframe #{}", candidate_idx);
 			}
 		}
 		++ e.mGframeSelector;
@@ -57,7 +57,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			gframe_idx = selectGframe(e);
 			gframe     = e.mGframes.data() + gframe_idx;
 			if(gframe_idx == NO_FRAME_AVAILABLE) {
-				spdlog::trace("No gframe available");
+				e.logger().trace("No gframe available");
 				return true;
 			}
 		}
@@ -69,16 +69,16 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					break;
 				case VK_ERROR_OUT_OF_DATE_KHR:
 				case VK_SUBOPTIMAL_KHR:
-					spdlog::trace("Swapchain is suboptimal or out of date");
+					e.logger().trace("Swapchain is suboptimal or out of date");
 					return false;
 				case VK_TIMEOUT:
-					spdlog::trace("Swapchain image request timed out");
+					e.logger().trace("Swapchain image request timed out");
 					return true;
 				default:
 					assert(res < VkResult(0));
 					throw vkutil::VulkanError("vkAcquireNextImage2KHR", res);
 			}
-			spdlog::trace("Acquired swapchain image {}", sc_img_idx);
+			e.logger().trace("Acquired swapchain image {}", sc_img_idx);
 			sc_img = e.mSwapchainImages[sc_img_idx].image;
 		}
 
@@ -133,10 +133,26 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			auto& cmd = gframe->cmd_draw;
 			VkDescriptorSet dsets[] = { gframe->frame_dset };
 
+			VkViewport viewport = { }; {
+				viewport.x      = 0.0f;
+				viewport.y      = 0.0f;
+				viewport.width  = e.mRenderExtent.width;
+				viewport.height = e.mRenderExtent.height;
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+			}
+
+			VkRect2D scissor = { }; {
+				scissor.offset = { };
+				scissor.extent = { e.mRenderExtent.width, e.mRenderExtent.height };
+			}
+
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
 			vkCmdBindIndexBuffer(cmd, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
 			vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.value, &offset);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+			vkCmdSetViewport(cmd, 0, 1, &viewport);
+			vkCmdSetScissor(cmd, 0, 1, &scissor);
 			vkCmdDrawIndexed(cmd, mesh->indices.size() / sizeof(fmamdl::Index), 1, 0, 0, 0);
 		}
 
@@ -292,6 +308,25 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 namespace SKENGINE_NAME_NS {
 
+	const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
+		.phys_device_uuid      = "",
+		.init_present_extent   = { 600, 400 },
+		.max_render_extent     = { 0, 0 },
+		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
+		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
+		.logger                = { },
+		.log_level             = spdlog::level::info,
+		.max_concurrent_frames = 2,
+		.fov_y            = glm::radians(110.0f),
+		.z_near           = 1.0f / float(1 << 8),
+		.z_far            = float(1 << 16),
+		.upscale_factor   = 1.0f,
+		.target_framerate = 60.0f,
+		.target_tickrate  = 60.0f,
+		.fullscreen       = false
+	};
+
+
 	constexpr auto regulator_params = tickreg::RegulatorParams {
 		.deltaTolerance     = 0.25,
 		.burstTolerance     = 0.01,
@@ -311,11 +346,25 @@ namespace SKENGINE_NAME_NS {
 		mLogicReg(
 			std::max<unsigned>(4, ep.target_tickrate / 4),
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
-			regulator_params )
+			regulator_params ),
+		mLogger([&]() {
+			decltype(mLogger) r;
+			if(ep.logger) {
+				r = ep.logger;
+			} else {
+				r = std::make_shared<spdlog::logger>(
+					SKENGINE_NAME_CSTR,
+					std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
+			}
+			r->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
+			r->set_level(ep.log_level);
+			return r;
+		} ()),
+		mPrefs(ep)
 	{
 		{
 			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
-			init->init(&di, &ep);
+			init->init(&di);
 		}
 
 		{
@@ -351,7 +400,7 @@ namespace SKENGINE_NAME_NS {
 		sm_info.codeSize = code.size_bytes();
 		VkShaderModule r;
 		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		spdlog::trace("Loaded shader module from memory");
+		logger().trace("Loaded shader module from memory");
 		return r;
 	}
 
@@ -385,7 +434,7 @@ namespace SKENGINE_NAME_NS {
 		sm_info.pCode = buffer.get();
 		VkShaderModule r;
 		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		spdlog::trace("Loaded shader module from file \"{}\"", file_path);
+		logger().trace("Loaded shader module from file \"{}\"", file_path);
 		return r;
 	}
 
@@ -399,7 +448,7 @@ namespace SKENGINE_NAME_NS {
 		auto loop_state = loop.loop_pollState();
 		while(loop_state != LoopInterface::LoopState::eShouldStop) {
 			if(loop_state == LoopInterface::LoopState::eShouldDelay) {
-				spdlog::warn("Engine instructed to delay the loop, but the functionality isn't implemented yet");
+				logger().warn("Engine instructed to delay the loop, but the functionality isn't implemented yet");
 				std::this_thread::yield();
 			}
 
@@ -407,6 +456,21 @@ namespace SKENGINE_NAME_NS {
 
 			loop_state = loop.loop_pollState();
 		}
+	}
+
+
+	scoped_lock Engine::pauseRenderPass() {
+		auto lock = boost::interprocess::scoped_lock<boost::mutex>(mGframeMutex);
+		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw, true, UINT64_MAX);
+		return lock;
+	}
+
+
+	void Engine::setPresentExtent(VkExtent2D ext) {
+		mPrefs.init_present_extent = ext;
+
+		auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
+		init->reinit();
 	}
 
 }

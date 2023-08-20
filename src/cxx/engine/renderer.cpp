@@ -11,8 +11,6 @@
 
 #include <glm/ext/matrix_transform.hpp>
 
-#include <spdlog/spdlog.h>
-
 
 
 namespace {
@@ -102,12 +100,17 @@ namespace {
 
 namespace SKENGINE_NAME_NS {
 
-	Renderer Renderer::create(VmaAllocator vma, MeshSupplierInterface& msi) {
+	Renderer Renderer::create(
+			std::shared_ptr<spdlog::logger> logger,
+			VmaAllocator vma,
+			MeshSupplierInterface& msi
+	) {
 		VmaAllocatorInfo vma_info;
 		vmaGetAllocatorInfo(vma, &vma_info);
 		Renderer r;
 		r.mDevice = vma_info.device;
 		r.mVma    = vma;
+		r.mLogger = std::move(logger);
 		r.mMsi    = &msi;
 		r.mObjectBuffer        = createObjectBuffer(vma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mMeshes              = decltype(mMeshes)             (OBJECT_MAP_INITIAL_CAPACITY);
@@ -251,7 +254,7 @@ namespace SKENGINE_NAME_NS {
 
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mMeshLocators.end()) {
-			spdlog::debug("Renderer: reassigning mesh \"{}\" with ID {}", locator, mesh_id_e(id));
+			mLogger->debug("Renderer: reassigning mesh \"{}\" with ID {}", locator, mesh_id_e(id));
 
 			id = found_locator->second;
 
@@ -263,7 +266,7 @@ namespace SKENGINE_NAME_NS {
 			#warning "TODO: check if deprecating the objects is superfluous"
 			mObjectsOod = false;
 		} else {
-			spdlog::trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
+			mLogger->trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
 			id = generateId<MeshId>();
 		}
 
@@ -290,7 +293,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto& obj : mObjects) {
 				if(obj.second.mesh_id == id) {
 					did_remove_objects = true;
-					spdlog::warn(
+					mLogger->warn(
 						"Renderer: removing mesh \"{}\", still in use for object {}",
 						mesh_data->second.locator,
 						render_object_id_e(obj.first) );
@@ -302,7 +305,7 @@ namespace SKENGINE_NAME_NS {
 
 		mUnboundDrawBatches.erase(id);
 		mMsi->msi_releaseMesh(mesh_data->second.locator);
-		if(! did_remove_objects) spdlog::trace("Renderer: removed mesh \"{}\"", mesh_data->second.locator);
+		if(! did_remove_objects) mLogger->trace("Renderer: removed mesh \"{}\"", mesh_data->second.locator);
 		mMeshes.erase(id);
 	}
 
@@ -338,7 +341,7 @@ namespace SKENGINE_NAME_NS {
 					rng.seed(render_object_id_e(obj_id));
 					auto src_obj = mObjects.find(obj_id);
 					if(src_obj == mObjects.end()) {
-						spdlog::error("Trying to enqueue non-existent object {}", render_object_id_e(obj_id));
+						mLogger->error("Trying to enqueue non-existent object {}", render_object_id_e(obj_id));
 						continue;
 					}
 					auto& obj = objects[first_object + object_offset];

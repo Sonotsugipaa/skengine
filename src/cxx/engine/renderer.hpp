@@ -33,6 +33,8 @@
 #include <unordered_set>
 #include <unordered_map>
 
+#include <spdlog/logger.h>
+
 
 
 namespace SKENGINE_NAME_NS {
@@ -114,7 +116,7 @@ namespace SKENGINE_NAME_NS {
 
 		Renderer() = default;
 
-		static Renderer create  (VmaAllocator, MeshSupplierInterface&);
+		static Renderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&);
 		static void     destroy (Renderer&);
 
 		RenderObjectId createObject (RenderObject);
@@ -137,6 +139,7 @@ namespace SKENGINE_NAME_NS {
 	private:
 		VkDevice     mDevice = nullptr;
 		VmaAllocator mVma;
+		std::shared_ptr<spdlog::logger> mLogger;
 		MeshSupplierInterface* mMsi;
 
 		MeshLookup      mMeshLocators;
@@ -158,7 +161,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		WorldRenderer() = default;
 
-		static WorldRenderer create  (VmaAllocator, MeshSupplierInterface&);
+		static WorldRenderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&);
 		static void          destroy (WorldRenderer&);
 
 		const glm::mat4& getViewTransf() noexcept;

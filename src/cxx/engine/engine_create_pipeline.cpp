@@ -47,26 +47,10 @@ namespace SKENGINE_NAME_NS {
 			t.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
 		}
 
-		VkViewport viewport = { }; {
-			viewport.x      = 0.0f;
-			viewport.y      = 0.0f;
-			viewport.width  = mRenderExtent.width;
-			viewport.height = mRenderExtent.height;
-			viewport.minDepth = 0.0f;
-			viewport.maxDepth = 1.0f;
-		}
-
-		VkRect2D scissor = { }; {
-			scissor.offset = { };
-			scissor.extent = { mRenderExtent.width, mRenderExtent.height };
-		}
-
 		VkPipelineViewportStateCreateInfo v = { }; {
 			v.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 			v.viewportCount = 1;
-			v.pViewports    = &viewport;
 			v.scissorCount  = 1;
-			v.pScissors     = &scissor;
 		}
 
 		VkPipelineRasterizationStateCreateInfo r = { }; {
@@ -105,8 +89,13 @@ namespace SKENGINE_NAME_NS {
 			cb.pAttachments    = atch_color;
 		}
 
+		VkDynamicState states[] = {
+			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_SCISSOR };
 		VkPipelineDynamicStateCreateInfo d = { }; {
 			d.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+			d.dynamicStateCount = std::size(states);
+			d.pDynamicStates    = states;
 		}
 
 		VkPipelineShaderStageCreateInfo stages[2]; {

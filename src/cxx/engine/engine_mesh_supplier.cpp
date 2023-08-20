@@ -1,7 +1,5 @@
 #include "engine.hpp"
 
-#include <spdlog/spdlog.h>
-
 #include <fmamdl/fmamdl.hpp>
 
 #include <posixfio.hpp>
@@ -69,7 +67,7 @@ namespace SKENGINE_NAME_NS {
 
 			ms_active.insert(Meshes::value_type(std::move(locator_s), r));
 			double size_kib = indices.size_bytes() + vertices.size_bytes();
-			spdlog::trace("Loaded mesh \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+			ms_engine->logger().trace("Loaded mesh \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
 			return r;
 		}
 	}
@@ -89,9 +87,9 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferDuplex::destroy(vma, victim->second.vertices);
 				ms_inactive.erase(victim);
 			}
-			spdlog::trace("Released mesh \"{}\"", locator);
+			ms_engine->logger().trace("Released mesh \"{}\"", locator);
 		} else {
-			spdlog::debug("Tried to release mesh \"{}\", but it's not loaded", locator);
+			ms_engine->logger().debug("Tried to release mesh \"{}\", but it's not loaded", locator);
 		}
 	}
 
