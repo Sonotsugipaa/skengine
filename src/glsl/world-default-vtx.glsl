@@ -10,27 +10,15 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	uint point_light_count;
 	float rnd;
 	float time_delta;
-} frameUbo;
+} frame_ubo;
 
 
-
-/*layout(location = 0) in vec4 in_pos;
-layout(location = 1) in vec4 in_nrm;
-layout(location = 2) in vec4 in_tanu;
-layout(location = 3) in vec4 in_tanv;
-layout(location = 4) in vec2 in_tex;
-
-layout(location = 5)  in mat4  in_modelMat;
-layout(location = 9)  in vec4  in_col;
-layout(location = 10) in float in_rnd;
-
-layout(location = 0) out vec2 frg_tex;
-layout(location = 1) out vec3 frg_nrmTan;
-layout(location = 2) out vec4 frg_col;
-layout(location = 3) out mat3 frg_tbnInverse;*/
 
 layout(location =  0) in vec3  in_pos;
-layout(location =  1) in vec3  in_nrm;
+layout(location =  1) in vec2  in_tex;
+layout(location =  2) in vec3  in_nrm;
+layout(location =  3) in vec3  in_tanu;
+layout(location =  4) in vec3  in_tanv;
 layout(location =  5) in mat4  in_transf;
 layout(location =  9) in vec4  in_col;
 layout(location = 10) in float in_rnd;
@@ -39,6 +27,6 @@ layout(location = 0) out vec4 frg_col;
 
 
 void main() {
-	gl_Position = frameUbo.projview_transf * in_transf * vec4(in_pos, 1.0);
+	gl_Position = frame_ubo.projview_transf * in_transf * vec4(in_pos, 1.0);
 	frg_col     = in_col * vec4((in_nrm + 1.0) / 2.0, 1.0);
 }

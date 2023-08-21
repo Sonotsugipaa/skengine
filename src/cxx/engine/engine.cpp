@@ -11,7 +11,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "spdlog/sinks/stdout_color_sinks.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+#include <random>
 
 
 
@@ -115,10 +117,14 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
 
 		{ // Prepare the gframe buffers
-			auto& ubo = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
+			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
+			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
+			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
 			ubo.proj_transf     = e.mProjTransf;
 			ubo.view_transf     = e.mWorldRenderer.getViewTransf();
 			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
+			ubo.rnd             = dist(rng);
+			ubo.time_delta      = e.mGraphicsReg.lastDelta();
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
 		}

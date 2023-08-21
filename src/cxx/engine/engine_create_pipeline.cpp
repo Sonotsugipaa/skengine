@@ -11,17 +11,20 @@ namespace SKENGINE_NAME_NS {
 	VkPipeline Engine::createPipeline(std::string_view material_type_name) {
 		VkPipeline pipeline;
 
-		VkVertexInputAttributeDescription vtx_attr[8];
+		VkVertexInputAttributeDescription vtx_attr[11];
 		VkVertexInputBindingDescription   vtx_bind[2];
 		{ // Hard-coded input descriptions and bindings
-			constexpr size_t V_POS = 0;
-			constexpr size_t V_NRM = 1;
-			constexpr size_t I_TR0 = 2;
-			constexpr size_t I_TR1 = 3;
-			constexpr size_t I_TR2 = 4;
-			constexpr size_t I_TR3 = 5;
-			constexpr size_t I_COL = 6;
-			constexpr size_t I_RND = 7;
+			constexpr size_t V_POS =  0;
+			constexpr size_t V_TEX =  1;
+			constexpr size_t V_NRM =  2;
+			constexpr size_t V_TNU =  3;
+			constexpr size_t V_TNV =  4;
+			constexpr size_t I_TR0 =  5;
+			constexpr size_t I_TR1 =  6;
+			constexpr size_t I_TR2 =  7;
+			constexpr size_t I_TR3 =  8;
+			constexpr size_t I_COL =  9;
+			constexpr size_t I_RND = 10;
 			constexpr auto vec4_sz = sizeof(glm::vec4);
 			#define ATTRIB_(I_, B_, F_, L_, O_) { \
 				static_assert(I_ < std::size(vtx_attr)); \
@@ -30,7 +33,10 @@ namespace SKENGINE_NAME_NS {
 				vtx_attr[I_].location = L_; \
 				vtx_attr[I_].offset   = O_; }
 			ATTRIB_(V_POS, 0, VK_FORMAT_R32G32B32_SFLOAT,     0, offsetof(fmamdl::Vertex, position))
-			ATTRIB_(V_NRM, 0, VK_FORMAT_R32G32B32_SFLOAT,     1, offsetof(fmamdl::Vertex, normal))
+			ATTRIB_(V_TEX, 0, VK_FORMAT_R32G32_SFLOAT,        1, offsetof(fmamdl::Vertex, texture))
+			ATTRIB_(V_NRM, 0, VK_FORMAT_R32G32B32_SFLOAT,     2, offsetof(fmamdl::Vertex, normal))
+			ATTRIB_(V_TNU, 0, VK_FORMAT_R32G32B32_SFLOAT,     3, offsetof(fmamdl::Vertex, tangent))
+			ATTRIB_(V_TNV, 0, VK_FORMAT_R32G32B32_SFLOAT,     4, offsetof(fmamdl::Vertex, bitangent))
 			ATTRIB_(I_TR0, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  5, (0 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
 			ATTRIB_(I_TR1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  6, (1 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
 			ATTRIB_(I_TR2, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  7, (2 * vec4_sz) + offsetof(dev::RenderObject, model_transf))

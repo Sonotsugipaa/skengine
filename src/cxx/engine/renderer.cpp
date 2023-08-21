@@ -334,7 +334,6 @@ namespace SKENGINE_NAME_NS {
 		constexpr auto shrink_fac = OBJECT_MAP_INITIAL_CAPACITY;
 
 		{ // Ensure the object buffer is big enough
-volatile size_t new_size_smol = new_size / shrink_fac;
 			bool size_too_small = (new_size > mObjectBuffer.size());
 			bool size_too_big   = (new_size < mObjectBuffer.size() / shrink_fac);
 			if(size_too_small || size_too_big) {

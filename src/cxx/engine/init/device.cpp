@@ -142,7 +142,7 @@ namespace SKENGINE_NAME_NS {
 			unsigned best_dev_index;
 			vkutil::SelectBestPhysDeviceDst best_dev = {
 				mPhysDevice, mDevProps, best_dev_index };
-			vkutil::selectBestPhysDevice(best_dev, devs, features, &mPrefs.phys_device_uuid);
+			vkutil::selectBestPhysDevice(mLogger.get(), best_dev, devs, features, &mPrefs.phys_device_uuid);
 
 			std::vector<std::string_view> missing_props;
 			{ // Check for missing required properties
@@ -165,7 +165,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
+		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mLogger.get(), mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
 
 		{ // Create logical device
 			auto dev_dst = vkutil::CreateDeviceDst { this->mDevice, mQueues };
@@ -178,7 +178,7 @@ namespace SKENGINE_NAME_NS {
 			cd_info.pPhysDevProps     = &mDevProps;
 			cd_info.pRequiredFeatures = &features;
 
-			vkutil::createDevice(dev_dst, cd_info);
+			vkutil::createDevice(mLogger.get(), dev_dst, cd_info);
 		}
 	}
 

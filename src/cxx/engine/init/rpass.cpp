@@ -263,7 +263,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mSurfaceFormat = vkutil::selectSwapchainFormat(mPhysDevice, mSurface);
+		mSurfaceFormat = vkutil::selectSwapchainFormat(mLogger.get(), mPhysDevice, mSurface);
 		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
@@ -304,10 +304,11 @@ namespace SKENGINE_NAME_NS {
 				desired,
 				mSurfaceCapabs.minImageCount,
 				mSurfaceCapabs.maxImageCount );
-			if(desired == s_info.minImageCount)
+			if(desired == s_info.minImageCount) {
 				if(! state.reinit) logger().debug("Acquired {} swapchain image{}",              desired, desired == 1? "":"s");
-			else
+			} else {
 				if(! state.reinit) logger().warn("Requested {} swapchain image{}, acquired {}", desired, desired == 1? "":"s", s_info.minImageCount);
+			}
 		}
 
 		if(s_info.oldSwapchain == nullptr) [[unlikely]] {
@@ -533,7 +534,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::initFramebuffers(State& state) {
+	void Engine::RpassInitializer::initFramebuffers(State&) {
 		constexpr size_t ATCH_COUNT = 2 /* color, depth/stencil */;
 
 		VkImageViewCreateInfo ivc_info = { };
@@ -570,7 +571,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::destroyFramebuffers(State& state) {
+	void Engine::RpassInitializer::destroyFramebuffers(State&) {
 		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
 			GframeData& gf = mGframes[i];
 			vkDestroyFramebuffer(mDevice, gf.framebuffer, nullptr);

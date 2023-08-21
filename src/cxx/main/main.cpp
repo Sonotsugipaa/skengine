@@ -10,7 +10,7 @@
 
 #include <glm/trigonometric.hpp>
 
-#include "spdlog/sinks/stdout_color_sinks.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 
 
@@ -68,7 +68,7 @@ namespace {
 				auto  dir  = wr.getViewRotation();
 				float dist = 2.4f;
 				float sin  = std::sin(dir.x);
-				dir.x += glm::radians(45.0 * delta);
+				dir.x += glm::radians(15.0 * delta);
 				dir.y  = glm::radians(60.0f) * sin;
 				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
 				wr.setViewRotation(dir);
