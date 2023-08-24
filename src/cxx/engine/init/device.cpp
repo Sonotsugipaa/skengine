@@ -24,14 +24,14 @@ namespace SKENGINE_NAME_NS {
 		initVkDev();
 		initVma();
 		initTransferCmdPool();
-		initRenderer();
 		initDsetLayouts();
+		initRenderer();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
-		destroyDsetLayouts();
 		destroyRenderer();
+		destroyDsetLayouts();
 		destroyTransferCmdPool();
 		destroyVma();
 		destroyVkDev();
@@ -203,39 +203,62 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void Engine::DeviceInitializer::initDsetLayouts() {
+		{ // Gframe dset layout
+			VkDescriptorSetLayoutBinding dslb[2] = { { }, { } };
+			dslb[0].binding = FRAME_UBO_BINDING;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			dslb[0].descriptorCount = 1;
+			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			dslb[1] = dslb[0];
+			dslb[1].binding = LIGHT_STORAGE_BINDING;
+			dslb[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+			VkDescriptorSetLayoutCreateInfo dslc_info = { };
+			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			dslc_info.bindingCount = std::size(dslb);
+			dslc_info.pBindings = dslb;
+			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
+		}
+
+		{ // Material dset layout
+			VkDescriptorSetLayoutBinding dslb[4] = { { }, { }, { }, { } };
+			dslb[0].binding = DIFFUSE_TEX_BINDING;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			dslb[0].descriptorCount = 1;
+			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			dslb[1] = dslb[0];
+			dslb[1].binding = NORMAL_TEX_BINDING;
+			dslb[2] = dslb[0];
+			dslb[2].binding = SPECULAR_TEX_BINDING;
+			dslb[3] = dslb[0];
+			dslb[3].binding = EMISSIVE_TEX_BINDING;
+
+			VkDescriptorSetLayoutCreateInfo dslc_info = { };
+			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			dslc_info.bindingCount = std::size(dslb);
+			dslc_info.pBindings = dslb;
+			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mMaterialDsetLayout);
+		}
+	}
+
+
 	void Engine::DeviceInitializer::initRenderer() {
 		#warning "make the mesh cache configurable"
-		mMeshSupplier  = MeshSupplier(*this, 0.2f);
-		mWorldRenderer = WorldRenderer::create(std::make_shared<spdlog::logger>(logger()), mVma, mMeshSupplier);
-	}
-
-
-	void Engine::DeviceInitializer::initDsetLayouts() {
-		VkDescriptorSetLayoutBinding dslb[2] = { { }, { } };
-		dslb[0].binding = FRAME_UBO_BINDING;
-		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		dslb[0].descriptorCount = 1;
-		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-		dslb[1] = dslb[0];
-		dslb[1].binding = LIGHT_STORAGE_BINDING;
-		dslb[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-
-		VkDescriptorSetLayoutCreateInfo dslc_info = { };
-		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		dslc_info.bindingCount = std::size(dslb);
-		dslc_info.pBindings = dslb;
-		VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
-	}
-
-
-	void Engine::DeviceInitializer::destroyDsetLayouts() {
-		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
+		mAssetSupplier = AssetSupplier(*this, 0.2f);
+		mWorldRenderer = WorldRenderer::create(std::make_shared<spdlog::logger>(logger()), mVma, mAssetSupplier, mAssetSupplier);
 	}
 
 
 	void Engine::DeviceInitializer::destroyRenderer() {
 		WorldRenderer::destroy(mWorldRenderer);
-		mMeshSupplier.destroy();
+		mAssetSupplier.destroy();
+	}
+
+
+	void Engine::DeviceInitializer::destroyDsetLayouts() {
+		vkDestroyDescriptorSetLayout(mDevice, mMaterialDsetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
 	}
 
 

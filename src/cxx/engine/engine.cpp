@@ -32,12 +32,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			bool     is_free       = (wait_res == VK_SUCCESS);
 			if(is_free) {
 				e.mGframeSelector = (1 + candidate_idx) % count;
-				e.logger().trace("Selected gframe {}/{}", candidate_idx+1, e.mGframes.size());
 				VK_CHECK(vkResetFences, e.mDevice, 1, &candidate.fence_draw);
 				VK_CHECK(vkResetCommandPool, e.mDevice, candidate.cmd_pool, 0);
 				return candidate_idx;
-			} else {
-				e.logger().trace("Skipped unavailable gframe #{}", candidate_idx);
 			}
 		}
 		++ e.mGframeSelector;
@@ -50,7 +47,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		auto batches         = renderer.getDrawBatches();
 		auto instance_buffer = renderer.getInstanceBuffer();
 		if(batches.empty()) return;
-		VkDescriptorSet dsets[]   = { gf.frame_dset };
+		VkDescriptorSet dsets[]   = { gf.frame_dset, { } };
 		MeshId          last_mesh = MeshId     (~ mesh_id_e     (batches.front().mesh_id));
 		MaterialId      last_mat  = MaterialId (~ material_id_e (batches.front().material_id));
 		for(const auto& batch : batches) {
@@ -61,6 +58,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				vkCmdBindVertexBuffers(cmd, 1, 1, &instance_buffer,      &offset);
 			}
 			if(batch.material_id != last_mat) {
+				auto mat = renderer.getMaterial(batch.material_id);
+				assert(mat != nullptr);
+				dsets[MATERIAL_DSET_LOC] = mat->dset;
 				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			}
@@ -104,7 +104,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					assert(res < VkResult(0));
 					throw vkutil::VulkanError("vkAcquireNextImage2KHR", res);
 			}
-			e.logger().trace("Acquired swapchain image {}", sc_img_idx);
 			sc_img = e.mSwapchainImages[sc_img_idx].image;
 		}
 
@@ -275,6 +274,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, std::size(subm), subm, gframe->fence_draw);
 		}
 
+		auto wait_for_prev_frame = e.mLastGframe.exchange(gframe_idx);
+		VK_CHECK(vkWaitForFences, e.mDevice, 1, &e.mGframes[wait_for_prev_frame].fence_draw, true, UINT64_MAX);
+
 		{ // Here's a present!
 			VkResult res;
 			VkPresentInfoKHR p_info = { };
@@ -348,7 +350,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	constexpr auto regulator_params = tickreg::RegulatorParams {
-		.deltaTolerance     = 0.1,
+		.deltaTolerance     = 0.2,
 		.burstTolerance     = 0.05,
 		.compensationFactor = 0.0 };
 
@@ -360,11 +362,11 @@ namespace SKENGINE_NAME_NS {
 	):
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
-			std::max<unsigned>(4, ep.target_framerate),
+			std::max<unsigned>(4, 8),
 			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
 			regulator_params ),
 		mLogicReg(
-			std::max<unsigned>(4, ep.target_tickrate),
+			std::max<unsigned>(4, 8),
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			regulator_params ),
 		mLogger([&]() {
@@ -396,8 +398,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	Engine::~Engine() {
-		auto lock = pauseRenderPass();
-
 		mShaderCache->shader_cache_releaseAllModules(*this);
 
 		{
@@ -478,6 +478,8 @@ namespace SKENGINE_NAME_NS {
 
 			loop_state = loop.loop_pollState();
 		}
+
+		auto lock = pauseRenderPass();
 	}
 
 

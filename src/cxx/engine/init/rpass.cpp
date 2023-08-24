@@ -411,7 +411,7 @@ namespace SKENGINE_NAME_NS {
 		dset_wr[LIGHT_STORAGE_BINDING].dstBinding  = LIGHT_STORAGE_BINDING;
 		dset_wr[LIGHT_STORAGE_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		dset_wr[LIGHT_STORAGE_BINDING].pBufferInfo = &light_db_info;
-		vkutil::ImageCreateInfo ic_info;
+		vkutil::ImageCreateInfo ic_info = { };
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
 		ic_info.type   = VK_IMAGE_TYPE_2D;
 		ic_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -457,6 +457,8 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_draw);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
 		};
+
+		mLastGframe = 0;
 
 		logger().trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
 		for(size_t i = mGframes.size(); i < mPrefs.max_concurrent_frames; ++i) {
@@ -518,7 +520,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		if(! state.reinit) { // Create the pipeline layouts, pipeline cache and pipelines
-			VkDescriptorSetLayout layouts[] = { mGframeDsetLayout };
+			VkDescriptorSetLayout layouts[] = { mGframeDsetLayout, mMaterialDsetLayout };
 			VkPipelineLayoutCreateInfo plc_info = { };
 			plc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 			plc_info.setLayoutCount = std::size(layouts);

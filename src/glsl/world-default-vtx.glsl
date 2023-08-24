@@ -22,11 +22,14 @@ layout(location =  4) in vec3  in_tanv;
 layout(location =  5) in mat4  in_transf;
 layout(location =  9) in vec4  in_col;
 layout(location = 10) in float in_rnd;
+
 layout(location = 0) out vec4 frg_col;
+layout(location = 1) out vec2 frg_tex;
 
 
 
 void main() {
 	gl_Position = frame_ubo.projview_transf * in_transf * vec4(in_pos, 1.0);
-	frg_col     = in_col * vec4((in_nrm + 1.0) / 2.0, 1.0);
+	frg_col     = in_col;
+	frg_tex     = in_tex;
 }

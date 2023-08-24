@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <unordered_map>
 
 #include <glm/mat4x4.hpp>
@@ -167,32 +168,52 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class MeshSupplier : public MeshSupplierInterface {
+	class AssetSupplier : public MeshSupplierInterface, public MaterialSupplierInterface {
 	public:
-		using Meshes = std::unordered_map<std::string, DevMesh>;
+		using Meshes           = std::unordered_map<std::string, DevMesh>;
+		using Materials        = std::unordered_map<std::string, Material>;
+		using MissingMaterials = std::unordered_set<std::string>;
 
-		MeshSupplier() = default;
-		MeshSupplier(Engine& engine, float max_inactive_ratio);
+		AssetSupplier(): as_engine(nullptr) { }
+		AssetSupplier(Engine& engine, float max_inactive_ratio);
+		AssetSupplier(AssetSupplier&&);
+		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy();
-		~MeshSupplier();
+		~AssetSupplier();
 
 		DevMesh msi_requestMesh(std::string_view locator) override;
 		void    msi_releaseMesh(std::string_view locator) noexcept override;
 		void msi_releaseAllMeshes() noexcept override;
 
+		Material msi_requestMaterial(std::string_view locator) override;
+		void     msi_releaseMaterial(std::string_view locator) noexcept override;
+		void msi_releaseAllMaterials() noexcept override;
+
 	private:
-		Engine* ms_engine;
-		Meshes  ms_active;
-		Meshes  ms_inactive;
-		float   ms_maxInactiveRatio;
+		Engine* as_engine;
+		VkDescriptorPool as_dpool;
+		size_t           as_dpoolSize;
+		size_t           as_dpoolCapacity;
+		Meshes    as_activeMeshes;
+		Meshes    as_inactiveMeshes;
+		Materials as_activeMaterials;
+		Materials as_inactiveMaterials;
+		Material  as_fallbackMaterial;
+		MissingMaterials as_missingMaterials;
+		float     as_maxInactiveRatio;
 	};
 
 
 	class Engine {
 	public:
-		static constexpr uint32_t GFRAME_DSET            = 0;
-		static constexpr uint32_t FRAME_UBO_BINDING      = 0;
-		static constexpr uint32_t LIGHT_STORAGE_BINDING  = 1;
+		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
+		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
+		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
+		static constexpr uint32_t MATERIAL_DSET_LOC     = 1;
+		static constexpr uint32_t DIFFUSE_TEX_BINDING   = 0;
+		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
+		static constexpr uint32_t SPECULAR_TEX_BINDING  = 2;
+		static constexpr uint32_t EMISSIVE_TEX_BINDING  = 3;
 
 		Engine() = default;
 		Engine(const DeviceInitInfo&, const EnginePreferences&, std::unique_ptr<ShaderCacheInterface>);
@@ -233,9 +254,12 @@ namespace SKENGINE_NAME_NS {
 		void pushBuffer(vkutil::BufferDuplex&);
 		void pullBuffer(vkutil::BufferDuplex&);
 
-		auto getVmaAllocator () noexcept { return mVma; }
-		auto getDevice       () noexcept { return mDevice; }
-		auto getPhysDevice   () noexcept { return mPhysDevice; }
+		auto getVmaAllocator       () noexcept { return mVma; }
+		auto getDevice             () noexcept { return mDevice; }
+		auto getPhysDevice         () noexcept { return mPhysDevice; }
+		auto getTransferCmdPool    () noexcept { return mTransferCmdPool; }
+		auto getMaterialDsetLayout () noexcept { return mMaterialDsetLayout; }
+		auto getQueues             () noexcept { return mQueues; }
 
 		const auto& getWorldRenderer() const noexcept { return mWorldRenderer; }
 		auto&       getWorldRenderer()       noexcept { return mWorldRenderer; }
@@ -283,6 +307,7 @@ namespace SKENGINE_NAME_NS {
 		uint_fast64_t           mFrameCounter;
 		uint_fast32_t           mGframeSelector;
 		std::vector<GframeData> mGframes;
+		std::atomic_uint_fast32_t mLastGframe;
 
 		VkExtent2D       mRenderExtent;
 		VkExtent2D       mPresentExtent;
@@ -294,8 +319,9 @@ namespace SKENGINE_NAME_NS {
 
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
+		VkDescriptorSetLayout mMaterialDsetLayout;
 
-		MeshSupplier  mMeshSupplier;
+		AssetSupplier mAssetSupplier;
 		WorldRenderer mWorldRenderer;
 		Renderer      mUiRenderer;
 		glm::mat4     mProjTransf;

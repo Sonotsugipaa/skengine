@@ -18,16 +18,6 @@ namespace {
 
 	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
 	public:
-		struct EtlHash {
-			constexpr std::size_t operator()(const SDL_Event& e) const noexcept { return e.type; }
-		};
-
-		struct EtlCmp {
-			constexpr bool operator()(const SDL_Event& l, const SDL_Event& r) const noexcept { return l.type == r.type; }
-		};
-
-		using EventTypeList = std::unordered_set<SDL_Event, EtlHash, EtlCmp>;
-
 		SKENGINE_NAME_NS_SHORT::Engine* engine;
 		bool active;
 
@@ -39,16 +29,10 @@ namespace {
 
 
 		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
-			EventTypeList event_type_list;
-			SDL_Event     ev;
+			SDL_Event ev;
 
 			// Consume events, but only the last one of each type; discard the rest
 			while(1 == SDL_PollEvent(&ev)) {
-				auto found = event_type_list.find(ev);
-				if(found != event_type_list.end()) event_type_list.erase(found);
-				event_type_list.insert(found, ev);
-			}
-			for(const auto& ev : event_type_list) {
 				switch(ev.type) {
 					case SDL_EventType::SDL_QUIT: {
 						active = false;
@@ -66,10 +50,10 @@ namespace {
 				auto& wr   = engine->getWorldRenderer();
 				auto  pos  = wr.getViewPosition();
 				auto  dir  = wr.getViewRotation();
-				float dist = 2.4f;
+				float dist = 1.0f;
 				float sin  = std::sin(dir.x);
 				dir.x += glm::radians(15.0 * delta);
-				dir.y  = glm::radians(60.0f) * sin;
+				dir.y  = glm::radians(20.0f) + (glm::radians(20.0f) * sin);
 				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
 				wr.setViewRotation(dir);
 			}
@@ -131,13 +115,14 @@ int main() {
 		{
 			SKENGINE_NAME_NS_SHORT::RenderObject ro = { };
 			float     count_sq = 7.0f;
-			float     dist     = 2.4f;
-			glm::vec3 dir      = { 0.0f, 0.0f, 0.0f };
+			float     dist     = 1.0f;
+			glm::vec3 dir      = { 0.0f, glm::radians(20.0f), 0.0f };
 			wr.setViewRotation(dir);
-			wr.setViewPosition({ dist * std::sin(dir.x), 0.5f, dist * std::cos(dir.x) });
-			ro.mesh_id    = wr.getMeshId("assets/test-model.fma");
-			ro.color_rgba = { 1.0f, 0.3f, 1.0f, 1.0f };
-			ro.scale_xyz  = { 0.1f, 0.1f, 0.1f };
+			wr.setViewPosition({ dist * std::sin(dir.x), 0.35f, dist * std::cos(dir.x) });
+			ro.mesh_id     = wr.getMeshId("assets/test-model.fma");
+			ro.material_id = wr.getMaterialId("assets/test-model.mtl.fma");
+			ro.color_rgba = { 1.0f, 1.0f, 1.0f, 1.0f };
+			ro.scale_xyz  = { 0.125f, 0.125f, 0.125f };
 			for(float x = -count_sq; x < count_sq; ++x)
 			for(float y = -count_sq; y < count_sq; ++y) {
 				float ox = (0.5f + x) / 3.0f;

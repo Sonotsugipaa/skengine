@@ -110,7 +110,8 @@ namespace SKENGINE_NAME_NS {
 	Renderer Renderer::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
-			MeshSupplierInterface& msi
+			MeshSupplierInterface&     mesh_si,
+			MaterialSupplierInterface& mat_si
 	) {
 		VmaAllocatorInfo vma_info;
 		vmaGetAllocatorInfo(vma, &vma_info);
@@ -118,7 +119,8 @@ namespace SKENGINE_NAME_NS {
 		r.mDevice = vma_info.device;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
-		r.mMsi    = &msi;
+		r.mMeshSupplier     = &mesh_si;
+		r.mMaterialSupplier = &mat_si;
 		r.mMeshes              = decltype(mMeshes)             (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects             = decltype(mObjects)            (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mMeshLocators        = decltype(mMeshLocators)       (OBJECT_MAP_INITIAL_CAPACITY);
@@ -203,7 +205,7 @@ namespace SKENGINE_NAME_NS {
 
 				// These two operations need to be the last, since they may
 				// destroy strings that string_views point to
-				mMsi->msi_releaseMesh(locator);
+				mMeshSupplier->msi_releaseMesh(locator);
 				mMeshes.erase(mesh);
 			}
 		}
@@ -238,21 +240,22 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	const DevMesh* Renderer::getMesh(MeshId id) const noexcept {
-		auto found = mMeshes.find(id);
-		if(found == mMeshes.end()) return nullptr;
-		return &found->second.mesh;
-	}
-
-
 	MeshId Renderer::getMeshId(std::string_view locator) {
 		auto found_locator = mMeshLocators.find(locator);
 
 		if(found_locator != mMeshLocators.end()) {
 			return found_locator->second;
 		} else {
-			return setMesh(locator, mMsi->msi_requestMesh(locator));
+			auto r = setMesh(locator, mMeshSupplier->msi_requestMesh(locator));
+			return r;
 		}
+	}
+
+
+	const DevMesh* Renderer::getMesh(MeshId id) const noexcept {
+		auto found = mMeshes.find(id);
+		if(found == mMeshes.end()) return nullptr;
+		return &found->second.mesh;
 	}
 
 
@@ -262,9 +265,8 @@ namespace SKENGINE_NAME_NS {
 
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mMeshLocators.end()) {
-			mLogger->debug("Renderer: reassigning mesh \"{}\" with ID {}", locator, mesh_id_e(id));
-
 			id = found_locator->second;
+			mLogger->debug("Renderer: reassigning mesh \"{}\" with ID {}", locator, mesh_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseMesh(found_locator->second);
@@ -274,8 +276,8 @@ namespace SKENGINE_NAME_NS {
 			#warning "TODO: check if deprecating the objects is superfluous"
 			mObjectsOod = true;
 		} else {
-			mLogger->trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
 			id = generate_id<MeshId>();
+			mLogger->trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
 		}
 
 		// Insert the mesh data (with the backing string) first
@@ -312,9 +314,80 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		mUnboundDrawBatches.erase(id);
-		mMsi->msi_releaseMesh(mesh_data->second.locator);
+		mMeshSupplier->msi_releaseMesh(mesh_data->second.locator);
 		if(! did_remove_objects) mLogger->trace("Renderer: removed mesh \"{}\"", mesh_data->second.locator);
 		mMeshes.erase(id);
+	}
+
+
+	MaterialId Renderer::getMaterialId(std::string_view locator) {
+		auto found_locator = mMaterialLocators.find(locator);
+
+		if(found_locator != mMaterialLocators.end()) {
+			return found_locator->second;
+		} else {
+			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(locator));
+		}
+	}
+
+
+	const Material* Renderer::getMaterial(MaterialId id) const noexcept {
+		auto found = mMaterials.find(id);
+		if(found == mMaterials.end()) return nullptr;
+		return &found->second.material;
+	}
+
+
+	MaterialId Renderer::setMaterial(std::string_view locator, Material material) {
+		auto found_locator = mMaterialLocators.find(locator);
+		MaterialId id;
+
+		// Generate a new ID, or remove the existing one and reassign it
+		if(found_locator != mMaterialLocators.end()) {
+			id = found_locator->second;
+			mLogger->debug("Renderer: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
+
+			std::string locator_s = std::string(locator); // Dangling `locator` string_view
+			eraseMaterial(found_locator->second);
+			auto ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, locator_s)));
+			locator = ins.first->second.locator; // Again, `locator` was dangling
+
+			mObjectsOod = true;
+		} else {
+			id = generate_id<MaterialId>();
+			mLogger->trace("Renderer: associating material \"{}\" with ID {}", locator, material_id_e(id));
+		}
+
+		// Insert the material data (with the backing string) first
+		auto  material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, std::string(locator) }));
+		auto& locator_r    = material_ins.first->second.locator;
+		mMaterialLocators.insert(MaterialLookup::value_type(locator_r, id));
+
+		return id;
+	}
+
+
+	void Renderer::eraseMaterial(MaterialId id) noexcept {
+		auto mat_data = mMaterials.find(id);
+		assert(mat_data != mMaterials.end());
+
+		{ // Check if any object is using the material, eventually return prematurely
+			std::vector<RenderObjectId> rm_objects;
+			for(auto& obj : mObjects) {
+				if(obj.second.material_id == id) {
+					mLogger->warn(
+						"Renderer: removing material \"{}\", still in use for object {}",
+						mat_data->second.locator,
+						render_object_id_e(obj.first) );
+					return;
+				}
+			}
+		}
+
+		mMaterialLocators.erase(mat_data->second.locator);
+
+		mMaterialSupplier->msi_releaseMaterial(mat_data->second.locator);
+		mMaterials.erase(id);
 	}
 
 

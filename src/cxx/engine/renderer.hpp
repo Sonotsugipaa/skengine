@@ -49,7 +49,6 @@ namespace SKENGINE_NAME_NS {
 		vkutil::BufferDuplex vertices;
 		uint32_t index_count;
 		uint32_t first_index;
-		uint32_t vertex_count;
 		uint32_t vertex_offset;
 	};
 
@@ -66,14 +65,17 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct Material {
-		VkDescriptorSet texture_dset;
-		vkutil::ManagedImage texture_diffuse;
-		vkutil::ManagedImage texture_normal;
-		vkutil::ManagedImage texture_specular;
-		vkutil::ManagedImage texture_emissive;
-		float emissive_mul;
-		float diffuse_mul;
-		float specular_exp;
+		struct Texture {
+			vkutil::ManagedImage image;
+			VkImageView          image_view;
+			VkSampler            sampler;
+			bool                 is_copy;
+		};
+		VkDescriptorSet dset;
+		Texture texture_diffuse;
+		Texture texture_normal;
+		Texture texture_specular;
+		Texture texture_emissive;
 	};
 
 
@@ -113,15 +115,22 @@ namespace SKENGINE_NAME_NS {
 			std::string locator;
 		};
 
+		struct MaterialData {
+			Material    material;
+			std::string locator;
+		};
+
 		using MeshLookup      = std::unordered_map<std::string_view, MeshId>;
+		using MaterialLookup  = std::unordered_map<std::string_view, MaterialId>;
 		using MeshMap         = std::unordered_map<MeshId, MeshData>;
+		using MaterialMap     = std::unordered_map<MaterialId, MaterialData>;
 		using Objects         = std::unordered_map<RenderObjectId, RenderObject>;
 		using UnboundBatchMap = std::unordered_map<MeshId, std::unordered_map<MaterialId, UnboundDrawBatch>>;
 		using BatchList       = std::vector<DrawBatch>;
 
 		Renderer() = default;
 
-		static Renderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&);
+		static Renderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&, MaterialSupplierInterface&);
 		static void     destroy (Renderer&);
 
 		RenderObjectId createObject (const RenderObject&);
@@ -135,6 +144,9 @@ namespace SKENGINE_NAME_NS {
 		const DevMesh* getMesh   (MeshId) const noexcept;
 		void           eraseMesh (MeshId) noexcept;
 
+		MaterialId      getMaterialId (std::string_view locator);
+		const Material* getMaterial   (MaterialId) const noexcept;
+
 		auto     getDrawBatches() const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
 		VkBuffer getInstanceBuffer () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
 		void     commitObjects     (VkCommandBuffer);
@@ -146,10 +158,13 @@ namespace SKENGINE_NAME_NS {
 		VkDevice     mDevice = nullptr;
 		VmaAllocator mVma;
 		std::shared_ptr<spdlog::logger> mLogger;
-		MeshSupplierInterface* mMsi;
+		MeshSupplierInterface*     mMeshSupplier;
+		MaterialSupplierInterface* mMaterialSupplier;
 
 		MeshLookup      mMeshLocators;
+		MaterialLookup  mMaterialLocators;
 		MeshMap         mMeshes;
+		MaterialMap     mMaterials;
 		Objects         mObjects;
 		UnboundBatchMap mUnboundDrawBatches;
 		BatchList       mDrawBatchList;
@@ -157,6 +172,9 @@ namespace SKENGINE_NAME_NS {
 		vkutil::BufferDuplex mBatchBuffer;
 
 		bool mObjectsOod;
+
+		MaterialId setMaterial   (std::string_view locator, Material);
+		void       eraseMaterial (MaterialId) noexcept;
 	};
 
 
@@ -167,7 +185,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		WorldRenderer() = default;
 
-		static WorldRenderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&);
+		static WorldRenderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&, MaterialSupplierInterface&);
 		static void          destroy (WorldRenderer&);
 
 		const glm::mat4& getViewTransf() noexcept;

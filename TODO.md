@@ -3,6 +3,7 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Release `AssetSupplier` materials along with meshes
   - Asynchronous one-time transfer commands
     - Make them use the transfer queue
   - Integrate cleanup queues
@@ -17,3 +18,7 @@
   - `WorldRenderer::getViewTransf` inverts the Z axis, because the
     glm clip-space is weird and Y is also inverted; find a way to do that
     with the projection matrix instead
+  - Make `vkQueuePresentKHR` wait for swapchain images instead of gframes
+    - It is probably not needed to have an acquired image in order to
+      draw a gframe
+  - Try and simplify `AssetSupplier::msi_requestMaterial`
