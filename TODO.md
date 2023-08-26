@@ -7,7 +7,6 @@
     - As things are currently, texture filenames **will** be relative to
       the working directory and nothing else.
   - Integrate cleanup queues
-  - Release `AssetSupplier` materials along with meshes
   - Asynchronous one-time transfer commands
     - Make them use the transfer queue
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation

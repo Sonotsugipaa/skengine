@@ -394,10 +394,10 @@ namespace SKENGINE_NAME_NS {
 			VkDescriptorSetLayout layout = e.getMaterialDsetLayout();
 
 			uint8_t texels_col[4][4] = {
-				{ 0xff, 0x00, 0x00, 0xff },
-				{ 0x00, 0xff, 0x00, 0xff },
-				{ 0x00, 0x00, 0xff, 0xff },
-				{ 0xff, 0xff, 0xff, 0xff } };
+				{ 0xff, 0x00, 0x4c, 0xff },
+				{ 0x10, 0x13, 0x13, 0xff },
+				{ 0x10, 0x13, 0x13, 0xff },
+				{ 0xff, 0x00, 0x4c, 0xff } };
 			uint8_t texels_nrm[4][4] = {
 				{ 0x7f-0x20, 0x7f-0x20, 0xfe, 0xff },
 				{ 0x7f+0x20, 0x7f-0x20, 0xfe, 0xff },
@@ -691,7 +691,7 @@ namespace SKENGINE_NAME_NS {
 				double(texture_size_bytes(r.texture_emissive)) / 1000.0 };
 			log.info(
 				"Loaded material \"{}\" ({:.3f} + {:.3f} + {:.3f} + {:.3f} = {:.3f} KiB)",
-				locator_s,
+				locator,
 				size_kib[0],  size_kib[1],  size_kib[2],  size_kib[3],
 				size_kib[0] + size_kib[1] + size_kib[2] + size_kib[3] );
 			return r;

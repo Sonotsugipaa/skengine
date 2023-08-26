@@ -69,10 +69,10 @@ namespace {
 
 
 	void commit_draw_batches(
-			VmaAllocator                         vma,
-			VkCommandBuffer                      cmd,
-			const skengine::Renderer::BatchList& batches,
-			vkutil::BufferDuplex&                buffer
+			VmaAllocator vma,
+			VkCommandBuffer cmd,
+			const SKENGINE_NAME_NS_SHORT::Renderer::BatchList& batches,
+			vkutil::BufferDuplex& buffer
 	) {
 		using namespace SKENGINE_NAME_NS_SHORT;
 		using namespace vkutil;
@@ -96,6 +96,27 @@ namespace {
 		}
 
 		buffer.flush(cmd, vma);
+	}
+
+
+	void erase_objects_with_model(
+			SKENGINE_NAME_NS_SHORT::Renderer::Objects& objects,
+			spdlog::logger& log,
+			SKENGINE_NAME_NS_SHORT::ModelId id,
+			std::string_view locator
+	) {
+		using namespace SKENGINE_NAME_NS_SHORT;
+		std::vector<ObjectId> rm_objects;
+		for(auto& obj : objects) {
+			if(obj.second.first.model_id == id) [[unlikely]] {
+				log.warn(
+					"Renderer: removing model \"{}\", still in use for object {}",
+					locator,
+					object_id_e(obj.first) );
+				rm_objects.push_back(obj.first);
+			}
+		}
+		for(auto obj : rm_objects) objects.erase(obj);
 	}
 
 }
@@ -223,7 +244,7 @@ namespace SKENGINE_NAME_NS {
 					if(batch.second.object_refs.size() != 1) return false; }
 				return true;
 			} ());
-			eraseModelNoObjectCheck(obj.first.model_id);
+			eraseModelNoObjectCheck(obj.first.model_id, model);
 		} else {
 			// Remove the references from the unbound draw batches
 			assert(obj.second.size() == model.bones.size() /* The Nth object bone instance refers to the model's Nth bone */);
@@ -332,42 +353,57 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Renderer::eraseModel(ModelId id) noexcept {
-		auto model_data = mModels.find(id);
-		assert(model_data != mModels.end());
+		auto& model_data = assert_not_end_(mModels, id)->second;
 
-		{
-			std::vector<ObjectId> rm_objects;
-			for(auto& obj : mObjects) {
-				if(obj.second.first.model_id == id) [[unlikely]] {
-					mLogger->warn(
-						"Renderer: removing model \"{}\", still in use for object {}",
-						model_data->second.locator,
-						object_id_e(obj.first) );
-					rm_objects.push_back(obj.first);
-				}
-			}
-			for(auto obj : rm_objects) mObjects.erase(obj);
-		}
+		erase_objects_with_model(mObjects, *mLogger, id, model_data.locator);
 
-		eraseModelNoObjectCheck(id);
+		eraseModelNoObjectCheck(id, model_data);
 	}
 
 
-	void Renderer::eraseModelNoObjectCheck(ModelId id) noexcept {
-		auto model_data = mModels.find(id);
-		assert(model_data != mModels.end());
+	void Renderer::eraseModelNoObjectCheck(ModelId id, ModelData& model_data) noexcept {
+		// Move the string out of the models storage, we'll need it later
+		auto model_locator = std::move(model_data.locator);
+
+		{ // Seek materials to release
+			auto candidates = std::unordered_map<MaterialId, std::string_view>(model_data.bones.size());
+			for(auto& bone : model_data.bones) {
+				auto material_id = assert_not_end_(mMaterialLocators, bone.material)->second;
+				candidates.insert(decltype(candidates)::value_type(material_id, std::string_view(bone.material)));
+			}
+
+			std::vector<decltype(candidates)::value_type> erase_queue;
+			erase_queue.reserve(candidates.size());
+
+			auto check_material = [&](const decltype(candidates)::value_type& candidate) {
+				for(auto& model : mModels)
+				if(model.first != id) [[likely]]
+				for(auto& bone : model.second.bones) {
+					if(bone.material == candidate.second) return;
+				}
+				erase_queue.push_back(candidate);
+			};
+
+			for(auto& candidate : candidates) check_material(candidate);
+			candidates = { };
+
+			for(auto& material : erase_queue) {
+				mLogger->trace("Renderer: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
+				eraseMaterial(material.first);
+			}
+		}
 
 		std::string mdl_filename;
-		mdl_filename.reserve(mFilenamePrefix.size() + model_data->second.locator.size());
+		mdl_filename.reserve(mFilenamePrefix.size() + model_locator.size());
 		mdl_filename.append(mFilenamePrefix);
-		mdl_filename.append(model_data->second.locator);
+		mdl_filename.append(model_locator);
 
-		mModelLocators.erase(model_data->second.locator);
+		mModelLocators.erase(model_locator);
 
 		mUnboundDrawBatches.erase(id);
 		mModelSupplier->msi_releaseModel(mdl_filename);
-		mLogger->trace("Renderer: removed model \"{}\"", model_data->second.locator);
-		mModels.erase(id);
+		mLogger->trace("Renderer: removed model \"{}\"", model_locator);
+		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 	}
 
 
@@ -406,8 +442,6 @@ namespace SKENGINE_NAME_NS {
 			eraseMaterial(found_locator->second);
 			auto ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, locator_s)));
 			locator = ins.first->second.locator; // Again, `locator` was dangling
-
-			mObjectsOod = true;
 		} else {
 			id = generate_id<MaterialId>();
 			mLogger->trace("Renderer: associating material \"{}\" with ID {}", locator, material_id_e(id));
@@ -423,8 +457,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Renderer::eraseMaterial(MaterialId id) noexcept {
-		auto mat_data = mMaterials.find(id);
-		assert(mat_data != mMaterials.end());
+		auto& mat_data = assert_not_end_(mMaterials, id)->second;
 
 		#ifndef NDEBUG
 		// Assert that no object is using the material: this function is only called internally when this is the case
@@ -434,12 +467,12 @@ namespace SKENGINE_NAME_NS {
 		}
 		#endif
 
-		mMaterialLocators.erase(mat_data->second.locator);
+		mMaterialLocators.erase(mat_data.locator);
 
 		std::string mat_filename;
-		mat_filename.reserve(mFilenamePrefix.size() + mat_data->second.locator.size());
+		mat_filename.reserve(mFilenamePrefix.size() + mat_data.locator.size());
 		mat_filename.append(mFilenamePrefix);
-		mat_filename.append(mat_data->second.locator);
+		mat_filename.append(mat_data.locator);
 		mMaterialSupplier->msi_releaseMaterial(mat_filename);
 		mMaterials.erase(id);
 	}
@@ -481,7 +514,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto obj_ref : ubatch.object_refs) { // Update/set the instances, while indirectly sorting the buffer
 				auto src_obj_iter = mObjects.find(obj_ref);
 				if(src_obj_iter == mObjects.end()) {
-					mLogger->error("Trying to enqueue non-existent object {}", object_id_e(obj_ref));
+					mLogger->error("Renderer: trying to enqueue non-existent object {}", object_id_e(obj_ref));
 					continue;
 				}
 				auto& src_obj = src_obj_iter->second;

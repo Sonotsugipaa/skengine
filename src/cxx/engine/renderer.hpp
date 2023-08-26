@@ -200,7 +200,7 @@ namespace SKENGINE_NAME_NS {
 		ModelId    setModel      (std::string_view locator, DevModel);
 		MaterialId setMaterial   (std::string_view locator, Material);
 		void       eraseMaterial (MaterialId) noexcept;
-		void       eraseModelNoObjectCheck (ModelId) noexcept;
+		void       eraseModelNoObjectCheck (ModelId, ModelData&) noexcept;
 	};
 
 
