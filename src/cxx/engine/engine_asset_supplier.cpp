@@ -398,18 +398,18 @@ namespace SKENGINE_NAME_NS {
 				{ 0x00, 0xff, 0x00, 0xff },
 				{ 0x00, 0x00, 0xff, 0xff },
 				{ 0xff, 0xff, 0xff, 0xff } };
-			uint8_t texels_nrm[4][3] = {
-				{ 0x7f-9, 0x7f-9, 0xfe },
-				{ 0x7f+9, 0x7f-9, 0xfe },
-				{ 0x7f-9, 0x7f+9, 0xfe },
-				{ 0x7f+9, 0x7f+9, 0xfe } };
-			uint8_t texels_spc[2] = { 0xff, 0x00 };
-			uint8_t texels_emi[2] = { 0xff, 0x02 };
+			uint8_t texels_nrm[4][4] = {
+				{ 0x7f-0x20, 0x7f-0x20, 0xfe, 0xff },
+				{ 0x7f+0x20, 0x7f-0x20, 0xfe, 0xff },
+				{ 0x7f-0x20, 0x7f+0x20, 0xfe, 0xff },
+				{ 0x7f+0x20, 0x7f+0x20, 0xfe, 0xff } };
+			uint8_t texels_spc[4] = { 0xff, 0xff, 0xff, 0x00 };
+			uint8_t texels_emi[4] = { 0xff, 0xff, 0xff, 0x02 };
 
 			create_texture_from_pixels(e, &dst->texture_diffuse,  texels_col, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
-			create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_SNORM, 2, 2);
-			create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8_UNORM, 1, 1);
-			create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8_UNORM, 1, 1);
+			create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
+			create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
+			create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 
 			create_mat_dset(
 				dev, dpool, layout,
@@ -439,11 +439,12 @@ namespace SKENGINE_NAME_NS {
 			MV_(as_dpool),
 			MV_(as_dpoolSize),
 			MV_(as_dpoolCapacity),
-			MV_(as_activeMeshes),
-			MV_(as_inactiveMeshes),
+			MV_(as_activeModels),
+			MV_(as_inactiveModels),
 			MV_(as_activeMaterials),
 			MV_(as_inactiveMaterials),
 			MV_(as_fallbackMaterial),
+			MV_(as_missingMaterials),
 			MV_(as_maxInactiveRatio)
 			#undef MV_
 	{
@@ -455,16 +456,16 @@ namespace SKENGINE_NAME_NS {
 		assert(as_engine != nullptr);
 		auto dev = as_engine->getDevice();
 		auto vma = as_engine->getVmaAllocator();
-		msi_releaseAllMeshes();
+		msi_releaseAllModels();
 		msi_releaseAllMaterials();
 
-		auto destroy_mesh = [&](Meshes::value_type& mesh) {
-			vkutil::BufferDuplex::destroy(vma, mesh.second.indices);
-			vkutil::BufferDuplex::destroy(vma, mesh.second.vertices);
+		auto destroy_model = [&](Models::value_type& model) {
+			vkutil::BufferDuplex::destroy(vma, model.second.indices);
+			vkutil::BufferDuplex::destroy(vma, model.second.vertices);
 		};
 
-		for(auto& mesh : as_inactiveMeshes) destroy_mesh(mesh);
-		as_inactiveMeshes.clear();
+		for(auto& model : as_inactiveModels) destroy_model(model);
+		as_inactiveModels.clear();
 
 		for(auto& mat : as_inactiveMaterials) destroy_material(dev, vma, as_dpool, mat.second);
 		as_inactiveMaterials.clear();
@@ -482,89 +483,110 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	DevMesh AssetSupplier::msi_requestMesh(std::string_view locator) {
+	DevModel AssetSupplier::msi_requestModel(std::string_view locator) {
 		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeMeshes.find(locator_s);
+		auto        existing  = as_activeModels.find(locator_s);
 		auto        vma       = as_engine->getVmaAllocator();
 
-		if(existing != as_activeMeshes.end()) {
+		if(existing != as_activeModels.end()) {
 			return existing->second;
 		}
-		else if((existing = as_inactiveMeshes.find(locator_s)) != as_inactiveMeshes.end()) {
-			auto ins = as_activeMeshes.insert(*existing);
+		else if((existing = as_inactiveModels.find(locator_s)) != as_inactiveModels.end()) {
+			auto ins = as_activeModels.insert(*existing);
 			assert(ins.second);
-			as_inactiveMeshes.erase(existing);
+			as_inactiveModels.erase(existing);
 			return ins.first->second;
 		}
 		else {
 			using posixfio::MemProtFlags;
 			using posixfio::MemMapFlags;
 
-			DevMesh r;
+			DevModel r;
 
 			auto file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
 			auto len  = file.lseek(0, SEEK_END);
 			auto mmap = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
 			auto h    = fmamdl::HeaderView { mmap.get<std::byte>(), mmap.size() };
-			auto meshes   = h.meshes();
-			auto faces    = h.faces();
-			auto indices  = h.indices();
-			auto vertices = h.vertices();
+			auto materials = h.materials();
+			auto meshes    = h.meshes();
+			auto faces     = h.faces();
+			auto indices   = h.indices();
+			auto vertices  = h.vertices();
 
-			assert(! meshes.empty());
-			auto& first_face = faces[meshes.front().firstFace];
+			if(meshes.empty()) {
+				as_engine->logger().critical(
+					"Attempting to load model \"{}\" without meshes; fallback model logic is not implemented yet",
+					locator );
+				abort();
+			}
 
-			vkutil::BufferCreateInfo bc_info = { };
-			bc_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-			bc_info.size  = indices.size_bytes();
-			r.indices = vkutil::BufferDuplex::createIndexInputBuffer(vma, bc_info);
-			bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-			bc_info.size  = vertices.size_bytes();
-			r.vertices = vkutil::BufferDuplex::createVertexInputBuffer(vma, bc_info);
-			r.index_count   = meshes.front().indexCount;
-			r.first_index   = first_face.firstIndex;
-			r.vertex_offset = 0;
+			{ // Create the vertex input buffers
+				vkutil::BufferCreateInfo bc_info = { };
+				bc_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+				bc_info.size  = indices.size_bytes();
+				r.indices = vkutil::BufferDuplex::createIndexInputBuffer(vma, bc_info);
+				bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+				bc_info.size  = vertices.size_bytes();
+				r.vertices = vkutil::BufferDuplex::createVertexInputBuffer(vma, bc_info);
+				r.index_count   = indices.size();
+				r.vertex_count  = vertices.size();
 
-			memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
-			memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
-			as_engine->pushBuffer(r.indices);
-			as_engine->pushBuffer(r.vertices);
+				memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
+				memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
+				as_engine->pushBuffer(r.indices);
+				as_engine->pushBuffer(r.vertices);
+			}
 
-			as_activeMeshes.insert(Meshes::value_type(std::move(locator_s), r));
+			for(auto& mesh : meshes) {
+				auto& first_face   = faces[mesh.firstFace];
+				auto  material_str = h.getStringView(materials[mesh.materialIndex].name);
+				auto  ins = Bone {
+					.mesh = Mesh {
+						.index_count = uint32_t(mesh.indexCount),
+						.first_index = uint32_t(first_face.firstIndex) },
+					.material      = std::string(material_str),
+					.position_xyz  = { },
+					.direction_ypr = { },
+					.scale_xyz     = { 1.0f, 1.0f, 1.0f } };
+				r.bones.push_back(std::move(ins));
+			}
+
+			as_activeModels.insert(Models::value_type(std::move(locator_s), r));
 			double size_kib = indices.size_bytes() + vertices.size_bytes();
-			as_engine->logger().info("Loaded mesh \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+			as_engine->logger().info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+
 			return r;
 		}
 	}
 
 
-	void AssetSupplier::msi_releaseMesh(std::string_view locator) noexcept {
+	void AssetSupplier::msi_releaseModel(std::string_view locator) noexcept {
 		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeMeshes.find(locator_s);
+		auto        existing  = as_activeModels.find(locator_s);
 		auto        vma       = as_engine->getVmaAllocator();
 
-		if(existing != as_activeMeshes.end()) {
+		if(existing != as_activeModels.end()) {
 			// Move to the inactive map
-			as_inactiveMeshes.insert(*existing);
-			as_activeMeshes.erase(existing);
-			if(as_maxInactiveRatio < float(as_inactiveMeshes.size()) / float(as_activeMeshes.size())) {
-				auto victim = as_inactiveMeshes.begin();
+			as_inactiveModels.insert(*existing);
+			as_activeModels.erase(existing);
+			if(as_maxInactiveRatio < float(as_inactiveModels.size()) / float(as_activeModels.size())) {
+				auto victim = as_inactiveModels.begin();
 				vkutil::BufferDuplex::destroy(vma, victim->second.indices);
 				vkutil::BufferDuplex::destroy(vma, victim->second.vertices);
-				as_inactiveMeshes.erase(victim);
+				as_inactiveModels.erase(victim);
 			}
-			as_engine->logger().info("Released mesh \"{}\"", locator);
+			as_engine->logger().info("Released model \"{}\"", locator);
 		} else {
-			as_engine->logger().debug("Tried to release mesh \"{}\", but it's not loaded", locator);
+			as_engine->logger().debug("Tried to release model \"{}\", but it's not loaded", locator);
 		}
 	}
 
 
-	void AssetSupplier::msi_releaseAllMeshes() noexcept {
+	void AssetSupplier::msi_releaseAllModels() noexcept {
 		std::vector<std::string> queue;
-		queue.reserve(as_activeMeshes.size());
-		for(auto& mesh : as_activeMeshes) queue.push_back(mesh.first);
-		for(auto& loc  : queue)           msi_releaseMesh(loc);
+		queue.reserve(as_activeModels.size());
+		for(auto& model : as_activeModels) queue.push_back(model.first);
+		for(auto& loc   : queue)           msi_releaseModel(loc);
 	}
 
 
@@ -603,7 +625,7 @@ namespace SKENGINE_NAME_NS {
 			try {
 				file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
 			} catch(posixfio::Errcode& ex) {
-				log.error("Failed to load material \"{}\" (errno {}), using fallback", locator, ex.errcode);
+				log.error("Failed to load material \"{}\" (errno {}), using fallback", locator_s, ex.errcode);
 				as_missingMaterials.insert(std::move(locator_s));
 				return as_fallbackMaterial;
 			}
@@ -622,18 +644,32 @@ namespace SKENGINE_NAME_NS {
 					const char*  name
 			) {
 				if(flags & mf_e(flag)) {
-					auto fmt = use_signed_fmt? VK_FORMAT_R8G8B8A8_SNORM : VK_FORMAT_R8G8B8A8_UNORM;
-					create_texture_from_pixels(*as_engine, &dst, &fma_value, fmt, 1, 1);
-					log.info("Loaded {} texture for \"{}\" as a single texel", name, locator);
+					using fmamdl::u4_t;
+					using fmamdl::u8_t;
+					auto fmt    = use_signed_fmt? VK_FORMAT_R8G8B8A8_SNORM : VK_FORMAT_R8G8B8A8_UNORM;
+					auto value4 = // Convert from P1111U1111 to U1111, since type punning is not a valid option here
+						((u4_t(fma_value >> u8_t(24)) & u4_t(0xff)) << u4_t(24)) |
+						((u4_t(fma_value >> u8_t(16)) & u4_t(0xff)) << u4_t(16)) |
+						((u4_t(fma_value >> u8_t( 8)) & u4_t(0xff)) << u4_t( 8)) |
+						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
+					create_texture_from_pixels(*as_engine, &dst, &value4, fmt, 1, 1);
+					log.info(
+						"Loaded {} texture for \"{}\" as a single texel ({:02x}{:02x}{:02x}{:02x})",
+						name,
+						locator_s,
+						(value4 >> u4_t( 0)) & u4_t(0xff),
+						(value4 >> u4_t( 8)) & u4_t(0xff),
+						(value4 >> u4_t(16)) & u4_t(0xff),
+						(value4 >> u4_t(24)) & u4_t(0xff) );
 				} else {
-					auto str = h.getCstring(fma_value);
-					bool success = create_texture_from_file(*as_engine, &dst, use_signed_fmt, str);
+					auto texture_file = h.getCstring(fma_value);
+					bool success = create_texture_from_file(*as_engine, &dst, use_signed_fmt, texture_file);
 					if(success) {
-						log.info("Loaded {} texture for \"{}\" from \"{}\"", name, locator, str);
+						log.info("Loaded {} texture for \"{}\" from \"{}\"", name, locator_s, texture_file);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
-						log.warn("Failed to load {} texture \"{}\" for \"{}\", using fallback", name, str, locator);
+						log.warn("Failed to load {} texture \"{}\" for \"{}\", using fallback", name, texture_file, locator_s);
 					}
 				}
 			};
@@ -655,7 +691,7 @@ namespace SKENGINE_NAME_NS {
 				double(texture_size_bytes(r.texture_emissive)) / 1000.0 };
 			log.info(
 				"Loaded material \"{}\" ({:.3f} + {:.3f} + {:.3f} + {:.3f} = {:.3f} KiB)",
-				locator,
+				locator_s,
 				size_kib[0],  size_kib[1],  size_kib[2],  size_kib[3],
 				size_kib[0] + size_kib[1] + size_kib[2] + size_kib[3] );
 			return r;

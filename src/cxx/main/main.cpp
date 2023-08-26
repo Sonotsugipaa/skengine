@@ -14,18 +14,50 @@
 
 
 
+inline namespace main_ns {
 namespace {
+
+	using namespace SKENGINE_NAME_NS;
+
 
 	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
 	public:
-		SKENGINE_NAME_NS_SHORT::Engine* engine;
+		static constexpr ssize_t obj_count_sq = 7;
+
+		Engine*  engine;
+		ObjectId objects[obj_count_sq+obj_count_sq+1][obj_count_sq+obj_count_sq+1];
 		bool active;
 
 
-		Loop(SKENGINE_NAME_NS_SHORT::Engine& e):
+		explicit Loop(Engine& e):
 			engine(&e),
 			active(true)
-		{ }
+		{
+			using s_object_id_e = std::make_signed_t<object_id_e>;
+
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca->world_renderer;
+
+			Renderer::NewObject o = { };
+			float     dist     = 1.0f;
+			glm::vec3 dir      = { 0.0f, glm::radians(20.0f), 0.0f };
+			wr.setViewRotation(dir);
+			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
+			o.model_locator = "test-model.fma";
+			o.scale_xyz = { 0.3f, 0.3f, 0.3f };
+			for(s_object_id_e x = -obj_count_sq; x < obj_count_sq; ++x)
+			for(s_object_id_e y = -obj_count_sq; y < obj_count_sq; ++y) {
+				float ox = x;
+				float oz = y;
+				o.position_xyz.x = ox;
+				o.position_xyz.z = oz;
+				o.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (obj_count_sq * obj_count_sq);
+				size_t xi = x + obj_count_sq;
+				size_t yi = y + obj_count_sq;
+				assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
+				objects[yi][xi] = wr.createObject(o);
+			}
+		}
 
 
 		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
@@ -46,8 +78,10 @@ namespace {
 				}
 			}
 
-			{ // Rotate the view at a frame-fixed pace
-				auto& wr   = engine->getWorldRenderer();
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca->world_renderer;
+
+			{ // Rotate the view
 				auto  pos  = wr.getViewPosition();
 				auto  dir  = wr.getViewRotation();
 				float dist = 1.0f;
@@ -56,6 +90,11 @@ namespace {
 				dir.y  = glm::radians(20.0f) + (glm::radians(20.0f) * sin);
 				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
 				wr.setViewRotation(dir);
+			}
+
+			{ // Rotate the object at the center
+				auto o = wr.modifyObject(objects[obj_count_sq][obj_count_sq]).value();
+				o.direction_ypr.x += glm::radians(93.0 * delta);
 			}
 		}
 
@@ -68,7 +107,7 @@ namespace {
 		void loop_async_postRender(tickreg::delta_t, tickreg::delta_t) override { }
 	};
 
-}
+}}
 
 
 
@@ -78,12 +117,13 @@ int main() {
 		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
-	prefs.init_present_extent = { 700, 700 };
-	prefs.max_render_extent   = { 0, 200 };
-	prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
-	prefs.target_framerate    = 60.0;
-	prefs.target_tickrate     = 60.0;
-	prefs.fov_y               = glm::radians(110.0f);
+	prefs.init_present_extent   = { 700, 700 };
+	prefs.max_render_extent     = { 0, 200 };
+	prefs.asset_filename_prefix = "assets/";
+	prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
+	prefs.target_framerate      = 60.0;
+	prefs.target_tickrate       = 60.0;
+	prefs.fov_y                 = glm::radians(110.0f);
 
 	prefs.logger = logger;
 	#ifdef NDEBUG
@@ -109,30 +149,7 @@ int main() {
 			prefs,
 			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache) );
 
-		Loop loop = engine;
-		auto& wr  = engine.getWorldRenderer();
-
-		{
-			SKENGINE_NAME_NS_SHORT::RenderObject ro = { };
-			float     count_sq = 7.0f;
-			float     dist     = 1.0f;
-			glm::vec3 dir      = { 0.0f, glm::radians(20.0f), 0.0f };
-			wr.setViewRotation(dir);
-			wr.setViewPosition({ dist * std::sin(dir.x), 0.35f, dist * std::cos(dir.x) });
-			ro.mesh_id     = wr.getMeshId("assets/test-model.fma");
-			ro.material_id = wr.getMaterialId("assets/test-model.mtl.fma");
-			ro.color_rgba = { 1.0f, 1.0f, 1.0f, 1.0f };
-			ro.scale_xyz  = { 0.125f, 0.125f, 0.125f };
-			for(float x = -count_sq; x < count_sq; ++x)
-			for(float y = -count_sq; y < count_sq; ++y) {
-				float ox = (0.5f + x) / 3.0f;
-				float oz = (0.5f + y) / 3.0f;
-				ro.position_xyz.x = ox;
-				ro.position_xyz.z = oz;
-				ro.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (count_sq * count_sq);
-				wr.createObject(ro);
-			}
-		}
+		auto loop = Loop(engine);
 
 		engine.run(loop);
 

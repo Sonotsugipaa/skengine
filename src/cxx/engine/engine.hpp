@@ -21,6 +21,8 @@
 #include <boost/thread/mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
+#include "mutex_ptr.inl.hpp"
+
 #include <spdlog/logger.h>
 
 #include <SDL2/SDL_vulkan.h>
@@ -85,10 +87,11 @@ namespace SKENGINE_NAME_NS {
 		std::string phys_device_uuid;
 		VkExtent2D  init_present_extent;
 		VkExtent2D  max_render_extent;
-		VkPresentModeKHR   present_mode;
-		VkSampleCountFlags sample_count;
+		std::string_view asset_filename_prefix;
 		std::shared_ptr<spdlog::logger> logger;
 		spdlog::level::level_enum       log_level;
+		VkPresentModeKHR   present_mode;
+		VkSampleCountFlags sample_count;
 		uint32_t max_concurrent_frames;
 		float    fov_y;
 		float    z_near;
@@ -144,7 +147,13 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_swapchain_image;
 		VkSemaphore sem_prepare;
 		VkSemaphore sem_draw;
+		VkFence     fence_prepare;
 		VkFence     fence_draw;
+	};
+
+
+	struct ConcurrentAccess {
+		WorldRenderer& world_renderer;
 	};
 
 
@@ -168,9 +177,9 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class AssetSupplier : public MeshSupplierInterface, public MaterialSupplierInterface {
+	class AssetSupplier : public ModelSupplierInterface, public MaterialSupplierInterface {
 	public:
-		using Meshes           = std::unordered_map<std::string, DevMesh>;
+		using Models           = std::unordered_map<std::string, DevModel>;
 		using Materials        = std::unordered_map<std::string, Material>;
 		using MissingMaterials = std::unordered_set<std::string>;
 
@@ -181,9 +190,9 @@ namespace SKENGINE_NAME_NS {
 		void destroy();
 		~AssetSupplier();
 
-		DevMesh msi_requestMesh(std::string_view locator) override;
-		void    msi_releaseMesh(std::string_view locator) noexcept override;
-		void msi_releaseAllMeshes() noexcept override;
+		DevModel msi_requestModel(std::string_view locator) override;
+		void     msi_releaseModel(std::string_view locator) noexcept override;
+		void msi_releaseAllModels() noexcept override;
 
 		Material msi_requestMaterial(std::string_view locator) override;
 		void     msi_releaseMaterial(std::string_view locator) noexcept override;
@@ -194,13 +203,13 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorPool as_dpool;
 		size_t           as_dpoolSize;
 		size_t           as_dpoolCapacity;
-		Meshes    as_activeMeshes;
-		Meshes    as_inactiveMeshes;
+		Models    as_activeModels;
+		Models    as_inactiveModels;
 		Materials as_activeMaterials;
 		Materials as_inactiveMaterials;
 		Material  as_fallbackMaterial;
 		MissingMaterials as_missingMaterials;
-		float     as_maxInactiveRatio;
+		float as_maxInactiveRatio;
 	};
 
 
@@ -261,14 +270,18 @@ namespace SKENGINE_NAME_NS {
 		auto getMaterialDsetLayout () noexcept { return mMaterialDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
 
-		const auto& getWorldRenderer() const noexcept { return mWorldRenderer; }
-		auto&       getWorldRenderer()       noexcept { return mWorldRenderer; }
-
 		const auto& getQueueInfo            () const noexcept { return mQueues; }
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
 
 		auto& logger() const { return *mLogger; }
+
+		auto getConcurrentAccess() noexcept {
+			return MutexAccess(
+				ConcurrentAccess {
+					mWorldRenderer },
+				mRendererMutex );
+		}
 
 	private:
 		class Implementation;
@@ -304,9 +317,9 @@ namespace SKENGINE_NAME_NS {
 		tickreg::Regulator mLogicReg;
 
 		boost::mutex mGframeMutex = boost::mutex();
-		uint_fast64_t           mFrameCounter;
-		uint_fast32_t           mGframeSelector;
-		std::vector<GframeData> mGframes;
+		std::atomic_uint_fast32_t mGframeCounter;
+		uint_fast32_t             mGframeSelector;
+		std::vector<GframeData>   mGframes;
 		std::atomic_uint_fast32_t mLastGframe;
 
 		VkExtent2D       mRenderExtent;
@@ -321,6 +334,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGframeDsetLayout;
 		VkDescriptorSetLayout mMaterialDsetLayout;
 
+		boost::mutex  mRendererMutex = boost::mutex();
 		AssetSupplier mAssetSupplier;
 		WorldRenderer mWorldRenderer;
 		Renderer      mUiRenderer;

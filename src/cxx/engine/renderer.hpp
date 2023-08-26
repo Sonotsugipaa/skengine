@@ -44,23 +44,20 @@ namespace SKENGINE_NAME_NS {
 	class UiRenderer;
 
 
-	struct DevMesh {
+	struct DevModel {
 		vkutil::BufferDuplex indices;
 		vkutil::BufferDuplex vertices;
+		std::vector<Bone>    bones;
 		uint32_t index_count;
-		uint32_t first_index;
-		uint32_t vertex_offset;
+		uint32_t vertex_count;
 	};
 
 
 	// A draw batch, without object-specific data in favor of lists of references to them.
 	struct UnboundDrawBatch {
-		std::unordered_set<RenderObjectId> object_ids;
-		MeshId     mesh_id;
+		std::vector<ObjectId> object_refs;
 		MaterialId material_id;
-		uint32_t   vertex_offset;
-		uint32_t   index_count;
-		uint32_t   first_index;
+		bone_id_e  model_bone_index;
 	};
 
 
@@ -79,11 +76,11 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class MeshSupplierInterface {
+	class ModelSupplierInterface {
 	public:
-		virtual DevMesh msi_requestMesh(std::string_view locator) = 0;
-		virtual void    msi_releaseMesh(std::string_view locator) noexcept = 0;
-		virtual void msi_releaseAllMeshes() noexcept = 0;
+		virtual DevModel msi_requestModel(std::string_view locator) = 0;
+		virtual void     msi_releaseModel(std::string_view locator) noexcept = 0;
+		virtual void msi_releaseAllModels() noexcept = 0;
 	};
 
 
@@ -110,46 +107,71 @@ namespace SKENGINE_NAME_NS {
 		friend WorldRenderer;
 		friend UiRenderer;
 
-		struct MeshData {
-			DevMesh     mesh;
+		// This type should only be used for function parameters
+		struct NewObject {
+			std::string_view model_locator;
+			glm::vec3 position_xyz;
+			glm::vec3 direction_ypr;
+			glm::vec3 scale_xyz;
+		};
+
+		struct ModelData : DevModel {
 			std::string locator;
 		};
 
-		struct MaterialData {
-			Material    material;
+		struct MaterialData : Material {
 			std::string locator;
 		};
 
-		using MeshLookup      = std::unordered_map<std::string_view, MeshId>;
-		using MaterialLookup  = std::unordered_map<std::string_view, MaterialId>;
-		using MeshMap         = std::unordered_map<MeshId, MeshData>;
-		using MaterialMap     = std::unordered_map<MaterialId, MaterialData>;
-		using Objects         = std::unordered_map<RenderObjectId, RenderObject>;
-		using UnboundBatchMap = std::unordered_map<MeshId, std::unordered_map<MaterialId, UnboundDrawBatch>>;
-		using BatchList       = std::vector<DrawBatch>;
+		struct ModifiableObject {
+			#define MK_REF_(M_) decltype(Object::M_)& M_;
+			MK_REF_(position_xyz)
+			MK_REF_(direction_ypr)
+			MK_REF_(scale_xyz)
+			#undef MK_REF_
+		};
+
+		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
+		using ModelLookup       = Umap<std::string_view, ModelId>;
+		using MaterialLookup    = Umap<std::string_view, MaterialId>;
+		using ModelMap          = Umap<ModelId,          ModelData>;
+		using MaterialMap       = Umap<MaterialId,       MaterialData>;
+		using Objects           = Umap<ObjectId,         std::pair<Object, std::vector<BoneInstance>>>;
+		using UnboundBatchMap   = Umap<ModelId,          Umap<bone_id_e, Umap<MaterialId, UnboundDrawBatch>>>;
+		using ModelDepCounters  = Umap<ModelId,          object_id_e>;
+		using BatchList         = std::vector<DrawBatch>;
 
 		Renderer() = default;
 
-		static Renderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&, MaterialSupplierInterface&);
-		static void     destroy (Renderer&);
+		static Renderer create(
+			std::shared_ptr<spdlog::logger>,
+			VmaAllocator,
+			std::string_view filename_prefix,
+			ModelSupplierInterface&,
+			MaterialSupplierInterface& );
 
-		RenderObjectId createObject (const RenderObject&);
-		void           removeObject (RenderObjectId) noexcept;
-		void           clearObjects () noexcept;
-		std::optional<const RenderObject*> getObject    (RenderObjectId) const noexcept;
-		std::optional<RenderObject*>       modifyObject (RenderObjectId) noexcept;
+		static void destroy(Renderer&);
 
-		MeshId         getMeshId (std::string_view locator);
-		MeshId         setMesh   (std::string_view locator, DevMesh);
-		const DevMesh* getMesh   (MeshId) const noexcept;
-		void           eraseMesh (MeshId) noexcept;
+		ObjectId createObject (const NewObject&);
+		void     removeObject (ObjectId) noexcept;
+		void     clearObjects () noexcept;
+		std::optional<const Object*>    getObject    (ObjectId) const noexcept;
+		std::optional<ModifiableObject> modifyObject (ObjectId) noexcept;
+
+		ModelId          getModelId (std::string_view locator);
+		const ModelData* getModel   (ModelId) const noexcept;
+		void             eraseModel (ModelId) noexcept;
 
 		MaterialId      getMaterialId (std::string_view locator);
 		const Material* getMaterial   (MaterialId) const noexcept;
 
-		auto     getDrawBatches() const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
-		VkBuffer getInstanceBuffer () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
-		void     commitObjects     (VkCommandBuffer);
+		auto     getDrawBatches       () const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
+		VkBuffer getInstanceBuffer    () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
+		VkBuffer getDrawCommandBuffer () const noexcept { return const_cast<VkBuffer>(mBatchBuffer.value); }
+
+		/// \returns `true` only if any command was recorded into the command buffer parameter.
+		///
+		bool commitObjects(VkCommandBuffer);
 
 		void reserve(size_t capacity);
 		void shrinkToFit();
@@ -158,23 +180,27 @@ namespace SKENGINE_NAME_NS {
 		VkDevice     mDevice = nullptr;
 		VmaAllocator mVma;
 		std::shared_ptr<spdlog::logger> mLogger;
-		MeshSupplierInterface*     mMeshSupplier;
+		ModelSupplierInterface*    mModelSupplier;
 		MaterialSupplierInterface* mMaterialSupplier;
 
-		MeshLookup      mMeshLocators;
-		MaterialLookup  mMaterialLocators;
-		MeshMap         mMeshes;
-		MaterialMap     mMaterials;
-		Objects         mObjects;
-		UnboundBatchMap mUnboundDrawBatches;
-		BatchList       mDrawBatchList;
+		ModelLookup      mModelLocators;
+		MaterialLookup   mMaterialLocators;
+		ModelMap         mModels;
+		MaterialMap      mMaterials;
+		Objects          mObjects;
+		UnboundBatchMap  mUnboundDrawBatches;
+		BatchList        mDrawBatchList;
+		ModelDepCounters mModelDepCounters;
 		vkutil::BufferDuplex mObjectBuffer;
 		vkutil::BufferDuplex mBatchBuffer;
+		std::string mFilenamePrefix;
 
 		bool mObjectsOod;
 
+		ModelId    setModel      (std::string_view locator, DevModel);
 		MaterialId setMaterial   (std::string_view locator, Material);
 		void       eraseMaterial (MaterialId) noexcept;
+		void       eraseModelNoObjectCheck (ModelId) noexcept;
 	};
 
 
@@ -185,8 +211,15 @@ namespace SKENGINE_NAME_NS {
 	public:
 		WorldRenderer() = default;
 
-		static WorldRenderer create  (std::shared_ptr<spdlog::logger>, VmaAllocator, MeshSupplierInterface&, MaterialSupplierInterface&);
-		static void          destroy (WorldRenderer&);
+
+		static WorldRenderer create(
+			std::shared_ptr<spdlog::logger>,
+			VmaAllocator,
+			std::string_view filename_prefix,
+			ModelSupplierInterface&,
+			MaterialSupplierInterface& );
+
+		static void destroy(WorldRenderer&);
 
 		const glm::mat4& getViewTransf() noexcept;
 
@@ -211,11 +244,8 @@ namespace SKENGINE_NAME_NS {
 	/// \brief A specialisation of Renderer, for drawing objects
 	///        user interface elements.
 	///
-	class UiRenderer : private Renderer {
-	public:
-		UiRenderer();
-
-		using Renderer::getInstanceBuffer;
+	/* Placeholder */ struct UiRenderer : public WorldRenderer {
+		using WorldRenderer::WorldRenderer;
 	};
 
 }

@@ -170,7 +170,8 @@ namespace SKENGINE_NAME_NS {
 		{ // Create logical device
 			auto dev_dst = vkutil::CreateDeviceDst { this->mDevice, mQueues };
 
-			auto features  = vkutil::commonFeatures;
+			auto features = vkutil::commonFeatures;
+			features.drawIndirectFirstInstance = true;
 
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
@@ -246,7 +247,12 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initRenderer() {
 		#warning "make the mesh cache configurable"
 		mAssetSupplier = AssetSupplier(*this, 0.2f);
-		mWorldRenderer = WorldRenderer::create(std::make_shared<spdlog::logger>(logger()), mVma, mAssetSupplier, mAssetSupplier);
+		mWorldRenderer = WorldRenderer::create(
+			std::make_shared<spdlog::logger>(logger()),
+			mVma,
+			mPrefs.asset_filename_prefix,
+			mAssetSupplier,
+			mAssetSupplier );
 	}
 
 

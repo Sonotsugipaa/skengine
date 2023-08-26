@@ -9,6 +9,9 @@ namespace SKENGINE_NAME_NS {
 		using ReqType = ShaderRequirement::Type;
 		std::size_t r;
 		switch(req.type) {
+			default:
+				std::unreachable();
+				abort();
 			case ReqType::eWorld:
 				r = std::hash<std::string_view>()(req.world.materialName);
 				break;

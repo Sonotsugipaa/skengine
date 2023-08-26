@@ -19,17 +19,18 @@
 
 struct SKENGINE_NAME_NS::Engine::Implementation {
 
-	static constexpr auto NO_FRAME_AVAILABLE = ~ decltype(Engine::mGframeSelector)(0);
+	using frame_counter_t = decltype(Engine::mGframeSelector);
+
+	static constexpr auto NO_FRAME_AVAILABLE = ~ frame_counter_t(0);
 
 
-	static decltype(Engine::mGframeSelector) selectGframe(Engine& e) {
-		using ctr_t = decltype(Engine::mGframeSelector);
+	static frame_counter_t selectGframe(Engine& e) {
 		auto count = e.mGframes.size();
-		for(ctr_t i = 0; i < count; ++i) {
-			ctr_t    candidate_idx = (i + e.mGframeSelector) % count;
-			auto&    candidate     = e.mGframes[candidate_idx];
-			VkResult wait_res      = vkWaitForFences(e.mDevice, 1, &candidate.fence_draw, VK_TRUE, 0);
-			bool     is_free       = (wait_res == VK_SUCCESS);
+		for(frame_counter_t i = 0; i < count; ++i) {
+			frame_counter_t candidate_idx = (i + e.mGframeSelector) % count;
+			auto&    candidate = e.mGframes[candidate_idx];
+			VkResult wait_res  = vkWaitForFences(e.mDevice, 1, &candidate.fence_draw, VK_TRUE, 0);
+			bool     is_free   = (wait_res == VK_SUCCESS);
 			if(is_free) {
 				e.mGframeSelector = (1 + candidate_idx) % count;
 				VK_CHECK(vkResetFences, e.mDevice, 1, &candidate.fence_draw);
@@ -42,29 +43,50 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void recordRendererDrawCommands(Engine& e, VkCommandBuffer cmd, GframeData& gf, Renderer& renderer) {
+	static void recordRendererDrawCommands(
+			Engine& e,
+			VkCommandBuffer cmd,
+			uint_fast32_t   frame_counter,
+			size_t          gf_index,
+			Renderer&       renderer
+	) {
 		constexpr VkDeviceSize offset = 0;
+		GframeData& gf = e.mGframes[gf_index];
 		auto batches         = renderer.getDrawBatches();
 		auto instance_buffer = renderer.getInstanceBuffer();
+		auto batch_buffer    = renderer.getDrawCommandBuffer();
 		if(batches.empty()) return;
 		VkDescriptorSet dsets[]   = { gf.frame_dset, { } };
-		MeshId          last_mesh = MeshId     (~ mesh_id_e     (batches.front().mesh_id));
-		MaterialId      last_mat  = MaterialId (~ material_id_e (batches.front().material_id));
-		for(const auto& batch : batches) {
-			auto* mesh = renderer.getMesh(batch.mesh_id);
-			if(batch.mesh_id != last_mesh) {
-				vkCmdBindIndexBuffer(cmd, mesh->indices.value, 0, VK_INDEX_TYPE_UINT32);
-				vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.value, &offset);
-				vkCmdBindVertexBuffers(cmd, 1, 1, &instance_buffer,      &offset);
+		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
+		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
+		for(VkDeviceSize i = 0; const auto& batch : batches) {
+			auto* model = renderer.getModel(batch.model_id);
+			assert(model != nullptr);
+			if(batch.model_id != last_mdl) {
+				vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
+				vkCmdBindVertexBuffers(cmd, 0, 1, &model->vertices.value, &offset);
+				vkCmdBindVertexBuffers(cmd, 1, 1, &instance_buffer,       &offset);
 			}
 			if(batch.material_id != last_mat) {
 				auto mat = renderer.getMaterial(batch.material_id);
 				assert(mat != nullptr);
 				dsets[MATERIAL_DSET_LOC] = mat->dset;
-				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			}
-			vkCmdDrawIndexed(cmd, mesh->index_count, batch.instance_count, mesh->first_index, mesh->vertex_offset, batch.first_instance);
+			e.mLogger->trace(
+				"[{:09}] Drawing batch #{} {}:{} with {} instances",
+				frame_counter % 1000'000'000,
+				i,
+				model_id_e(batch.model_id),
+				model_id_e(batch.material_id),
+				batch.instance_count );
+			vkCmdDrawIndexedIndirect(
+				cmd, batch_buffer,
+				i * sizeof(VkDrawIndexedIndirectCommand), 1,
+				sizeof(VkDrawIndexedIndirectCommand) );
+
+			++ i;
 		}
 	}
 
@@ -107,6 +129,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			sc_img = e.mSwapchainImages[sc_img_idx].image;
 		}
 
+		auto frame_counter = e.mGframeCounter.fetch_add(1, std::memory_order_relaxed);
+
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -125,7 +149,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.rnd             = dist(rng);
 			ubo.time_delta      = e.mGraphicsReg.lastDelta();
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
-			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
+			{ // Synchronously commit the renderers
+				e.mRendererMutex.lock();
+				e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
+			}
 		}
 
 		VkImageMemoryBarrier imb[2] = { };
@@ -173,7 +200,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			recordRendererDrawCommands(e, cmd, *gframe, e.mWorldRenderer);
+			recordRendererDrawCommands(e, cmd, frame_counter, gframe_idx, e.mWorldRenderer);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -257,25 +284,28 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		{ // Submit the prepare and draw commands
 			constexpr VkPipelineStageFlags prepare_wait_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 			constexpr VkPipelineStageFlags draw_wait_stages    = VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-			subm[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			subm[0].commandBufferCount   = 1;
-			subm[0].signalSemaphoreCount = 1;
-			subm[0].pCommandBuffers    = &gframe->cmd_prepare;
-			subm[0].waitSemaphoreCount = 1;
-			subm[0].pWaitSemaphores    = &gframe->sem_swapchain_image;
-			subm[0].pWaitDstStageMask  = &prepare_wait_stages;
-			subm[0].pSignalSemaphores  = &gframe->sem_prepare;
-			subm[1] = subm[0];
-			subm[1].pCommandBuffers    = &gframe->cmd_draw;
-			subm[1].waitSemaphoreCount = 1;
-			subm[1].pWaitSemaphores    = &gframe->sem_prepare;
-			subm[1].pWaitDstStageMask  = &draw_wait_stages;
-			subm[1].pSignalSemaphores  = &gframe->sem_draw;
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, std::size(subm), subm, gframe->fence_draw);
+			subm->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			subm->commandBufferCount   = 1;
+			subm->signalSemaphoreCount = 1;
+			subm->pCommandBuffers    = &gframe->cmd_prepare;
+			subm->waitSemaphoreCount = 1;
+			subm->pWaitSemaphores    = &gframe->sem_swapchain_image;
+			subm->pWaitDstStageMask  = &prepare_wait_stages;
+			subm->pSignalSemaphores  = &gframe->sem_prepare;
+			VK_CHECK(vkResetFences, e.mDevice,          1,      &gframe->fence_prepare);
+			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_prepare);
+			subm->pCommandBuffers    = &gframe->cmd_draw;
+			subm->waitSemaphoreCount = 1;
+			subm->pWaitSemaphores    = &gframe->sem_prepare;
+			subm->pWaitDstStageMask  = &draw_wait_stages;
+			subm->pSignalSemaphores  = &gframe->sem_draw;
+			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_draw);
 		}
 
-		auto wait_for_prev_frame = e.mLastGframe.exchange(gframe_idx);
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &e.mGframes[wait_for_prev_frame].fence_draw, true, UINT64_MAX);
+		auto prev_frame = e.mLastGframe.exchange(gframe_idx);
+		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+		e.mRendererMutex.unlock();
+		VK_CHECK(vkWaitForFences, e.mDevice, 1, &e.mGframes[prev_frame].fence_draw, true, UINT64_MAX);
 
 		{ // Here's a present!
 			VkResult res;
@@ -334,10 +364,11 @@ namespace SKENGINE_NAME_NS {
 		.phys_device_uuid      = "",
 		.init_present_extent   = { 600, 400 },
 		.max_render_extent     = { 0, 0 },
-		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
-		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
+		.asset_filename_prefix = "",
 		.logger                = { },
 		.log_level             = spdlog::level::info,
+		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
+		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
 		.fov_y            = glm::radians(110.0f),
 		.z_near           = 1.0f / float(1 << 8),
@@ -369,6 +400,8 @@ namespace SKENGINE_NAME_NS {
 			std::max<unsigned>(4, 8),
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			regulator_params ),
+		mGframeCounter(0),
+		mGframeSelector(0),
 		mLogger([&]() {
 			decltype(mLogger) r;
 			if(ep.logger) {
@@ -485,7 +518,9 @@ namespace SKENGINE_NAME_NS {
 
 	scoped_lock Engine::pauseRenderPass() {
 		auto lock = boost::interprocess::scoped_lock<boost::mutex>(mGframeMutex);
-		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw, true, UINT64_MAX);
+		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
+		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
+		VK_CHECK(vkDeviceWaitIdle, mDevice);
 		return lock;
 	}
 
@@ -493,11 +528,12 @@ namespace SKENGINE_NAME_NS {
 	void Engine::setPresentExtent(VkExtent2D ext) {
 		mPrefs.init_present_extent = ext;
 
+		auto lock = pauseRenderPass();
+
 		// Some compositors resize the window as soon as it appears, and this seems to cause problems
 		mGraphicsReg.resetEstimates(mPrefs.target_framerate);
 		mLogicReg.resetEstimates(mPrefs.target_tickrate);
 
-		auto lock = pauseRenderPass();
 		auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 		init->reinit();
 	}

@@ -455,6 +455,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_swapchain_image);
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_prepare);
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_draw);
+			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_prepare);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
 		};
 
@@ -601,6 +602,7 @@ namespace SKENGINE_NAME_NS {
 
 		auto destroy_frame = [&](GframeData& gf) {
 			vkDestroyFence     (mDevice, gf.fence_draw, nullptr);
+			vkDestroyFence     (mDevice, gf.fence_prepare, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_draw, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_prepare, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_swapchain_image, nullptr);

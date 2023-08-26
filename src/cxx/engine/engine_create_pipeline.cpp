@@ -37,19 +37,19 @@ namespace SKENGINE_NAME_NS {
 			ATTRIB_(V_NRM, 0, VK_FORMAT_R32G32B32_SFLOAT,     2, offsetof(fmamdl::Vertex, normal))
 			ATTRIB_(V_TNU, 0, VK_FORMAT_R32G32B32_SFLOAT,     3, offsetof(fmamdl::Vertex, tangent))
 			ATTRIB_(V_TNV, 0, VK_FORMAT_R32G32B32_SFLOAT,     4, offsetof(fmamdl::Vertex, bitangent))
-			ATTRIB_(I_TR0, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  5, (0 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
-			ATTRIB_(I_TR1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  6, (1 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
-			ATTRIB_(I_TR2, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  7, (2 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
-			ATTRIB_(I_TR3, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  8, (3 * vec4_sz) + offsetof(dev::RenderObject, model_transf))
-			ATTRIB_(I_COL, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  9, offsetof(dev::RenderObject, color_mul))
-			ATTRIB_(I_RND, 1, VK_FORMAT_R32_SFLOAT,          10, offsetof(dev::RenderObject, rnd))
+			ATTRIB_(I_TR0, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  5, (0 * vec4_sz) + offsetof(dev::Instance, model_transf))
+			ATTRIB_(I_TR1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  6, (1 * vec4_sz) + offsetof(dev::Instance, model_transf))
+			ATTRIB_(I_TR2, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  7, (2 * vec4_sz) + offsetof(dev::Instance, model_transf))
+			ATTRIB_(I_TR3, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  8, (3 * vec4_sz) + offsetof(dev::Instance, model_transf))
+			ATTRIB_(I_COL, 1, VK_FORMAT_R32G32B32A32_SFLOAT,  9, offsetof(dev::Instance, color_mul))
+			ATTRIB_(I_RND, 1, VK_FORMAT_R32_SFLOAT,          10, offsetof(dev::Instance, rnd))
 			#undef ATTRIB_
 			vtx_bind[0].binding   = 0;
 			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 			vtx_bind[0].stride    = sizeof(fmamdl::Vertex);
 			vtx_bind[1].binding   = 1;
 			vtx_bind[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-			vtx_bind[1].stride    = sizeof(dev::RenderObject);
+			vtx_bind[1].stride    = sizeof(dev::Instance);
 		}
 
 		VkPipelineVertexInputStateCreateInfo vi = { }; {

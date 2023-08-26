@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <type_traits>
 #include <cstdint>
 
@@ -20,17 +21,44 @@
 
 namespace SKENGINE_NAME_NS {
 
-	using render_object_id_e = uint_fast64_t;
-	using material_id_e      = uint_least32_t;
-	using mesh_id_e          = uint_least32_t;
-	enum class RenderObjectId : render_object_id_e { };
-	enum class MaterialId     : material_id_e      { };
-	enum class MeshId         : mesh_id_e          { };
+	using object_id_e         = uint_fast64_t;
+	using model_instance_id_e = uint_fast64_t;
+	using bone_id_e           = uint32_t;
+	using material_id_e       = uint32_t;
+	using model_id_e          = uint32_t;
+	enum class ObjectId        : object_id_e         { };
+	enum class BoneId          : bone_id_e           { };
+	enum class ModelInstanceId : model_instance_id_e { };
+	enum class MaterialId      : material_id_e       { };
+	enum class ModelId         : model_id_e          { };
 
 
-	struct RenderObject {
-		MeshId     mesh_id;
+	struct Object {
+		ModelId model_id;
+		glm::vec3 position_xyz;
+		glm::vec3 direction_ypr;
+		glm::vec3 scale_xyz;
+	};
+
+
+	struct Mesh {
+		uint32_t index_count;
+		uint32_t first_index;
+	};
+
+
+	struct Bone {
+		Mesh mesh;
+		std::string material;
+		glm::vec3 position_xyz;
+		glm::vec3 direction_ypr;
+		glm::vec3 scale_xyz;
+	};
+
+	struct BoneInstance {
+		ModelId    model_id;
 		MaterialId material_id;
+		ObjectId   object_id;
 		glm::vec4 color_rgba;
 		glm::vec3 position_xyz;
 		glm::vec3 direction_ypr;
@@ -39,7 +67,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct DrawBatch {
-		MeshId     mesh_id;
+		ModelId    model_id;
 		MaterialId material_id;
 		uint32_t   vertex_offset;
 		uint32_t   index_count;
@@ -55,7 +83,7 @@ namespace SKENGINE_NAME_NS {
 	///
 	namespace dev {
 
-		struct RenderObject {
+		struct Instance {
 			ALIGNF32(1) glm::mat4 model_transf;
 			ALIGNF32(1) glm::vec4 color_mul;
 			ALIGNF32(1) float     rnd;

@@ -13,6 +13,16 @@
 
 
 
+#ifdef NDEBUG
+	#define assert_not_nullptr_(V_) (V_)
+	#define assert_not_end_(M_, K_) (M_.find((K_)))
+#else
+	#define assert_not_nullptr_(V_) ([&]() { assert(V_ != nullptr); return V_; } ())
+	#define assert_not_end_(M_, K_) ([&]() { auto& m__ = (M_); auto r__ = m__.find((K_)); assert(r__!= m__.end()); return r__; } ())
+#endif
+
+
+
 namespace {
 
 	constexpr size_t OBJECT_MAP_INITIAL_CAPACITY    = 4;
@@ -23,7 +33,7 @@ namespace {
 
 	vkutil::BufferDuplex create_object_buffer(VmaAllocator vma, size_t count) {
 		vkutil::BufferCreateInfo bc_info = { };
-		bc_info.size  = std::bit_ceil(count) * sizeof(SKENGINE_NAME_NS_SHORT::dev::RenderObject);
+		bc_info.size  = std::bit_ceil(count) * sizeof(SKENGINE_NAME_NS_SHORT::dev::Instance);
 		bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 		vkutil::AllocationCreateInfo ac_info = { };
 		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
@@ -55,19 +65,6 @@ namespace {
 		static std::atomic<int_t> last = 0;
 		int_t r = last.fetch_add(1, std::memory_order_relaxed);
 		return T(r);
-	}
-
-
-	auto find_mesh_slot(SKENGINE_NAME_NS_SHORT::Renderer::UnboundBatchMap& map, SKENGINE_NAME_NS_SHORT::MeshId mesh) {
-		auto mesh_slot = map.find(mesh);
-		assert(mesh_slot != map.end() /* Mesh (locator) must be registered inserted beforehand */);
-		return mesh_slot;
-	}
-
-	auto find_mesh(SKENGINE_NAME_NS_SHORT::Renderer::MeshMap& map, SKENGINE_NAME_NS_SHORT::MeshId mesh) {
-		auto mesh_slot = map.find(mesh);
-		assert(mesh_slot != map.end() /* Mesh must exist */);
-		return mesh_slot;
 	}
 
 
@@ -110,7 +107,8 @@ namespace SKENGINE_NAME_NS {
 	Renderer Renderer::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
-			MeshSupplierInterface&     mesh_si,
+			std::string_view filename_prefix,
+			ModelSupplierInterface&    mdl_si,
 			MaterialSupplierInterface& mat_si
 	) {
 		VmaAllocatorInfo vma_info;
@@ -119,17 +117,17 @@ namespace SKENGINE_NAME_NS {
 		r.mDevice = vma_info.device;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
-		r.mMeshSupplier     = &mesh_si;
+		r.mModelSupplier    = &mdl_si;
 		r.mMaterialSupplier = &mat_si;
-		r.mMeshes              = decltype(mMeshes)             (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects             = decltype(mObjects)            (OBJECT_MAP_INITIAL_CAPACITY);
-		r.mMeshLocators        = decltype(mMeshLocators)       (OBJECT_MAP_INITIAL_CAPACITY);
+		r.mModelLocators       = decltype(mModelLocators)      (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mObjectsOod = true;
 		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
+		r.mFilenamePrefix = std::string(filename_prefix);
 		return r;
 	}
 
@@ -149,64 +147,97 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	RenderObjectId Renderer::createObject(const RenderObject& o) {
+	ObjectId Renderer::createObject(const NewObject& ins) {
 		assert(mDevice != nullptr);
 
-		auto new_id    = generate_id<RenderObjectId>();
-		auto mesh_slot = find_mesh_slot(mUnboundDrawBatches, o.mesh_id);
+		auto new_obj_id = generate_id<ObjectId>();
+		auto model_id   = getModelId(ins.model_locator);
+		auto model      = assert_not_nullptr_(getModel(model_id));
 
-		auto iter = mesh_slot->second.find(o.material_id);
-		if(iter == mesh_slot->second.end()) {
-			auto mesh = getMesh(mesh_slot->first);
-			auto ins  = skengine::UnboundDrawBatch {
-				.object_ids    = { new_id },
-				.mesh_id       = o.mesh_id,
-				.material_id   = o.material_id,
-				.vertex_offset = mesh->vertex_offset,
-				.index_count   = mesh->index_count,
-				.first_index   = mesh->first_index };
-			iter = mesh_slot->second.insert(UnboundBatchMap::mapped_type::value_type(o.material_id, ins)).first;
-		} else {
-			auto& batch = iter->second;
-			batch.object_ids.insert(new_id);
-			assert(batch.mesh_id     == o.mesh_id);
-			assert(batch.material_id == o.material_id);
+		++ mModelDepCounters[model_id];
+
+		Object new_obj = {
+			.model_id = model_id,
+			.position_xyz  = ins.position_xyz,
+			.direction_ypr = ins.direction_ypr,
+			.scale_xyz     = ins.scale_xyz };
+
+		std::vector<BoneInstance> bone_instances;
+		bone_instances.reserve(model->bones.size());
+
+		for(bone_id_e i = 0; auto& bone : model->bones) {
+			auto material_id = getMaterialId(bone.material);
+
+			bone_instances.push_back(BoneInstance {
+				.model_id    = model_id,
+				.material_id = material_id,
+				.object_id   = new_obj_id,
+				.color_rgba    = { 1.0f, 1.0f, 1.0f, 1.0f },
+				.position_xyz  = { 0.0f, 0.0f, 0.0f },
+				.direction_ypr = { 0.0f, 0.0f, 0.0f },
+				.scale_xyz     = { 1.0f, 1.0f, 1.0f } });
+
+			auto& model_slot          = assert_not_end_(mUnboundDrawBatches, model_id)->second;
+			auto& bone_slot           = assert_not_end_(model_slot, i)->second;
+			auto  material_batch_iter = bone_slot.find(material_id);
+			if(material_batch_iter == bone_slot.end()) {
+				auto ins = UnboundDrawBatch {
+					.object_refs = { new_obj_id },
+					.material_id = material_id,
+					.model_bone_index = i };
+				bone_slot.insert(UnboundBatchMap::mapped_type::mapped_type::value_type(material_id, ins));
+			} else {
+				auto& batch = material_batch_iter->second;
+				batch.object_refs.push_back(new_obj_id);
+				assert(batch.material_id == material_id);
+			}
+
+			++ i;
 		}
 
-		assert(! mObjects.contains(new_id));
-		mObjects[new_id] = std::move(o);
-
+		assert(! mObjects.contains(new_obj_id));
+		mObjects[new_obj_id] = Objects::mapped_type(std::move(new_obj), std::move(bone_instances));
 		mObjectsOod = true;
-		return new_id;
+		return new_obj_id;
 	}
 
 
-	void Renderer::removeObject(RenderObjectId id) noexcept {
+	void Renderer::removeObject(ObjectId id) noexcept {
 		assert(mDevice != nullptr);
 
-		auto obj = mObjects.find(id);
-		assert(obj != mObjects.end());
+		auto  obj_iter = assert_not_end_(mObjects, id);
+		auto  obj      = std::move(obj_iter->second);
+		auto& model    = assert_not_end_(mModels, obj.first.model_id)->second;
 
-		auto mesh_slot = find_mesh_slot(mUnboundDrawBatches, obj->second.mesh_id);
-		auto batch     = mesh_slot->second.find(obj->second.material_id);
-		assert(batch != mesh_slot->second.end());
-		bool erased = (0 < batch->second.object_ids.erase(id));
-		assert(erased);
+		auto model_dep_counter_iter = assert_not_end_(mModelDepCounters, obj.first.model_id);
+		assert(model_dep_counter_iter->second > 0);
+		-- model_dep_counter_iter->second;
+		mObjects.erase(obj_iter);
 
-		if(batch->second.object_ids.empty()) [[unlikely]] {
-			// No draws left for this mesh and material: erase the batch
-			mesh_slot->second.erase(batch);
-			if(mesh_slot->second.empty()) [[unlikely]] {
-				// Mesh is now unused: erase it
-				auto mesh = find_mesh(mMeshes, mesh_slot->first);
-				std::string locator = mesh->second.locator; // A string here ensures no dangling string_view shenanigans happen
-				mUnboundDrawBatches.erase(mesh_slot);
-				mMeshLocators.erase(locator);
-
-				// These two operations need to be the last, since they may
-				// destroy strings that string_views point to
-				mMeshSupplier->msi_releaseMesh(locator);
-				mMeshes.erase(mesh);
+		if(model_dep_counter_iter->second == 0) {
+			mModelDepCounters.erase(model_dep_counter_iter);
+			assert([&]() {
+				// Check whether there is more than one set of batches for this model
+				for(auto& bone  : assert_not_end_(mUnboundDrawBatches, obj.first.model_id)->second)
+				for(auto& batch : bone.second) {
+					if(batch.second.object_refs.size() != 1) return false; }
+				return true;
+			} ());
+			eraseModelNoObjectCheck(obj.first.model_id);
+		} else {
+			// Remove the references from the unbound draw batches
+			assert(obj.second.size() == model.bones.size() /* The Nth object bone instance refers to the model's Nth bone */);
+			for(bone_id_e i = 0; auto& bone : model.bones) {
+				auto& material_id     = assert_not_end_(mMaterialLocators, bone.material)->second;
+				auto  model_slot_iter = assert_not_end_(mUnboundDrawBatches, obj.first.model_id);
+				auto  bone_iter       = assert_not_end_(model_slot_iter->second, i);
+				auto  batch_iter      = assert_not_end_(bone_iter->second, material_id);
+				auto& obj_refs        = batch_iter->second.object_refs;
+				[[maybe_unused]]
+				std::size_t erased = std::erase(obj_refs, id);
+				assert(erased == 1);
+				assert(! obj_refs.empty() /* The model still has objects refering to it, so it *must* have at least one object for this material */);
+				++ i;
 			}
 		}
 
@@ -215,108 +246,128 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Renderer::clearObjects() noexcept {
-		std::vector<RenderObjectId> ids;
+		std::vector<ObjectId> ids;
 		ids.reserve(mObjects.size());
 
-		for(auto&          obj : mObjects) ids.push_back(obj.first);
-		for(RenderObjectId id  : ids)      removeObject(id);
+		for(auto&    obj : mObjects) ids.push_back(obj.first);
+		for(ObjectId id  : ids)      removeObject(id);
 	}
 
 
-	std::optional<const RenderObject*> Renderer::getObject(RenderObjectId id) const noexcept {
+	std::optional<const Object*> Renderer::getObject(ObjectId id) const noexcept {
 		auto found = mObjects.find(id);
-		if(found != mObjects.end()) return &found->second;
+		if(found != mObjects.end()) return &found->second.first;
 		return { };
 	}
 
 
-	std::optional<RenderObject*> Renderer::modifyObject(RenderObjectId id) noexcept {
+	std::optional<Renderer::ModifiableObject> Renderer::modifyObject(ObjectId id) noexcept {
 		auto found = mObjects.find(id);
 		if(found != mObjects.end()) {
 			mObjectsOod = true;
-			return &found->second;
+			return ModifiableObject {
+				.position_xyz  = found->second.first.position_xyz,
+				.direction_ypr = found->second.first.direction_ypr,
+				.scale_xyz     = found->second.first.scale_xyz };
 		}
 		return { };
 	}
 
 
-	MeshId Renderer::getMeshId(std::string_view locator) {
-		auto found_locator = mMeshLocators.find(locator);
+	ModelId Renderer::getModelId(std::string_view locator) {
+		auto found_locator = mModelLocators.find(locator);
 
-		if(found_locator != mMeshLocators.end()) {
+		if(found_locator != mModelLocators.end()) {
 			return found_locator->second;
 		} else {
-			auto r = setMesh(locator, mMeshSupplier->msi_requestMesh(locator));
+			std::string filename;
+			filename.reserve(mFilenamePrefix.size() + locator.size());
+			filename.append(mFilenamePrefix);
+			filename.append(locator);
+			auto r = setModel(locator, mModelSupplier->msi_requestModel(filename));
 			return r;
 		}
 	}
 
 
-	const DevMesh* Renderer::getMesh(MeshId id) const noexcept {
-		auto found = mMeshes.find(id);
-		if(found == mMeshes.end()) return nullptr;
-		return &found->second.mesh;
+	const Renderer::ModelData* Renderer::getModel(ModelId id) const noexcept {
+		auto found = mModels.find(id);
+		if(found == mModels.end()) return nullptr;
+		return &found->second;
 	}
 
 
-	MeshId Renderer::setMesh(std::string_view locator, DevMesh mesh) {
-		auto   found_locator = mMeshLocators.find(locator);
-		MeshId id;
+	ModelId Renderer::setModel(std::string_view locator, DevModel model) {
+		auto    found_locator = mModelLocators.find(locator);
+		ModelId id;
 
 		// Generate a new ID, or remove the existing one and reassign it
-		if(found_locator != mMeshLocators.end()) {
+		if(found_locator != mModelLocators.end()) { // Remove the existing ID and reassign it
 			id = found_locator->second;
-			mLogger->debug("Renderer: reassigning mesh \"{}\" with ID {}", locator, mesh_id_e(id));
+			mLogger->debug("Renderer: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
-			eraseMesh(found_locator->second);
-			auto ins = mMeshes.insert(MeshMap::value_type(id, MeshData(mesh, locator_s)));
+			eraseModel(found_locator->second);
+			auto ins = mModels.insert_or_assign(id, ModelData(model, locator_s));
 			locator = ins.first->second.locator; // Again, `locator` was dangling
-
-			#warning "TODO: check if deprecating the objects is superfluous"
-			mObjectsOod = true;
 		} else {
-			id = generate_id<MeshId>();
-			mLogger->trace("Renderer: associating mesh \"{}\" with ID {}", locator, mesh_id_e(id));
+			id = generate_id<ModelId>();
+			mLogger->trace("Renderer: associating model \"{}\" with ID {}", locator, model_id_e(id));
 		}
 
-		// Insert the mesh data (with the backing string) first
-		auto  mesh_ins  = mMeshes.insert(MeshMap::value_type(id, { mesh, std::string(locator) }));
-		auto& locator_r = mesh_ins.first->second.locator;
-		mMeshLocators.insert(MeshLookup::value_type(locator_r, id));
+		// Insert the model data (with the backing string) first
+		auto  model_ins = mModels.insert(ModelMap::value_type(id, { model, std::string(locator) }));
+		auto& locator_r = model_ins.first->second.locator;
+		mModelLocators.insert(ModelLookup::value_type(locator_r, id));
 		auto batch_ins = mUnboundDrawBatches.insert(UnboundBatchMap::value_type(id, UnboundBatchMap::mapped_type(BATCH_MAP_INITIAL_CAPACITY)));
 		batch_ins.first->second.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
+
+		auto& bones = model_ins.first->second.bones;
+		for(bone_id_e i = 0; i < bones.size(); ++i) {
+			batch_ins.first->second.insert(UnboundBatchMap::mapped_type::value_type(i, UnboundBatchMap::mapped_type::mapped_type()));
+		}
 
 		return id;
 	}
 
 
-	void Renderer::eraseMesh(MeshId id) noexcept {
-		auto mesh_data = mMeshes.find(id);
-		assert(mesh_data != mMeshes.end());
+	void Renderer::eraseModel(ModelId id) noexcept {
+		auto model_data = mModels.find(id);
+		assert(model_data != mModels.end());
 
-		mMeshLocators.erase(mesh_data->second.locator);
-
-		bool did_remove_objects = false;
 		{
-			std::vector<RenderObjectId> rm_objects;
+			std::vector<ObjectId> rm_objects;
 			for(auto& obj : mObjects) {
-				if(obj.second.mesh_id == id) {
-					did_remove_objects = true;
+				if(obj.second.first.model_id == id) [[unlikely]] {
 					mLogger->warn(
-						"Renderer: removing mesh \"{}\", still in use for object {}",
-						mesh_data->second.locator,
-						render_object_id_e(obj.first) );
+						"Renderer: removing model \"{}\", still in use for object {}",
+						model_data->second.locator,
+						object_id_e(obj.first) );
 					rm_objects.push_back(obj.first);
 				}
 			}
 			for(auto obj : rm_objects) mObjects.erase(obj);
 		}
 
+		eraseModelNoObjectCheck(id);
+	}
+
+
+	void Renderer::eraseModelNoObjectCheck(ModelId id) noexcept {
+		auto model_data = mModels.find(id);
+		assert(model_data != mModels.end());
+
+		std::string mdl_filename;
+		mdl_filename.reserve(mFilenamePrefix.size() + model_data->second.locator.size());
+		mdl_filename.append(mFilenamePrefix);
+		mdl_filename.append(model_data->second.locator);
+
+		mModelLocators.erase(model_data->second.locator);
+
 		mUnboundDrawBatches.erase(id);
-		mMeshSupplier->msi_releaseMesh(mesh_data->second.locator);
-		if(! did_remove_objects) mLogger->trace("Renderer: removed mesh \"{}\"", mesh_data->second.locator);
-		mMeshes.erase(id);
+		mModelSupplier->msi_releaseModel(mdl_filename);
+		mLogger->trace("Renderer: removed model \"{}\"", model_data->second.locator);
+		mModels.erase(id);
 	}
 
 
@@ -326,7 +377,11 @@ namespace SKENGINE_NAME_NS {
 		if(found_locator != mMaterialLocators.end()) {
 			return found_locator->second;
 		} else {
-			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(locator));
+			std::string name;
+			name.reserve(mFilenamePrefix.size() + locator.size());
+			name.append(mFilenamePrefix);
+			name.append(locator);
+			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(name));
 		}
 	}
 
@@ -334,7 +389,7 @@ namespace SKENGINE_NAME_NS {
 	const Material* Renderer::getMaterial(MaterialId id) const noexcept {
 		auto found = mMaterials.find(id);
 		if(found == mMaterials.end()) return nullptr;
-		return &found->second.material;
+		return &found->second;
 	}
 
 
@@ -371,39 +426,39 @@ namespace SKENGINE_NAME_NS {
 		auto mat_data = mMaterials.find(id);
 		assert(mat_data != mMaterials.end());
 
-		{ // Check if any object is using the material, eventually return prematurely
-			std::vector<RenderObjectId> rm_objects;
-			for(auto& obj : mObjects) {
-				if(obj.second.material_id == id) {
-					mLogger->warn(
-						"Renderer: removing material \"{}\", still in use for object {}",
-						mat_data->second.locator,
-						render_object_id_e(obj.first) );
-					return;
-				}
-			}
+		#ifndef NDEBUG
+		// Assert that no object is using the material: this function is only called internally when this is the case
+		for(auto& obj  : mObjects)
+		for(auto& bone : obj.second.second) {
+			assert(bone.material_id != id);
 		}
+		#endif
 
 		mMaterialLocators.erase(mat_data->second.locator);
 
-		mMaterialSupplier->msi_releaseMaterial(mat_data->second.locator);
+		std::string mat_filename;
+		mat_filename.reserve(mFilenamePrefix.size() + mat_data->second.locator.size());
+		mat_filename.append(mFilenamePrefix);
+		mat_filename.append(mat_data->second.locator);
+		mMaterialSupplier->msi_releaseMaterial(mat_filename);
 		mMaterials.erase(id);
 	}
 
 
-	void Renderer::commitObjects(VkCommandBuffer cmd) {
-		if(! mObjectsOod) return;
+	bool Renderer::commitObjects(VkCommandBuffer cmd) {
+		if(! mObjectsOod) return false;
 
 		std::size_t new_instance_count = [&]() {
 			std::size_t i = 0;
-			for(auto& mesh_batches : mUnboundDrawBatches)
-			for(auto& batch        : mesh_batches.second) {
-				i += batch.second.object_ids.size();
+			for(auto& model_batches    : mUnboundDrawBatches)
+			for(auto& bone_batches     : model_batches.second)
+			for(auto& material_batches : bone_batches.second) {
+				i += material_batches.second.object_refs.size();
 			}
 			return i;
 		} ();
 
-		std::size_t    new_size   = new_instance_count * sizeof(dev::RenderObject);
+		std::size_t    new_size   = new_instance_count * sizeof(dev::Instance);
 		constexpr auto shrink_fac = OBJECT_MAP_INITIAL_CAPACITY;
 
 		{ // Ensure the object buffer is big enough
@@ -417,48 +472,78 @@ namespace SKENGINE_NAME_NS {
 
 		std::mt19937 rng;
 		auto         dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
-		auto* objects = mObjectBuffer.mappedPtr<dev::RenderObject>();
+		auto* objects = mObjectBuffer.mappedPtr<dev::Instance>();
 		mDrawBatchList.clear();
-		for(size_t first_object = 0; auto& mesh_batches : mUnboundDrawBatches) {
-			for(size_t object_offset = 0; auto& ubatch : mesh_batches.second) {
-				for(auto obj_id : ubatch.second.object_ids) {
-					rng.seed(render_object_id_e(obj_id));
-					auto src_obj = mObjects.find(obj_id);
-					if(src_obj == mObjects.end()) {
-						mLogger->error("Trying to enqueue non-existent object {}", render_object_id_e(obj_id));
-						continue;
-					}
-					auto& obj = objects[first_object + object_offset];
-					auto& mat = obj.model_transf;
-					obj.rnd       = dist(rng);
-					obj.color_mul = src_obj->second.color_rgba;
-					constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
-					constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
-					constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
-					constexpr glm::mat4 identity = glm::mat4(1.0f);
-					glm::mat4 translate = glm::translate(identity, src_obj->second.position_xyz);
-					glm::mat4 rot0      = glm::rotate(identity, src_obj->second.direction_ypr.y, x);
-					glm::mat4 rot1      = glm::rotate(identity, src_obj->second.direction_ypr.x, y);
-					glm::mat4 rot2      = glm::rotate(identity, src_obj->second.direction_ypr.z, z);
-					glm::mat4 scale     = glm::scale(identity, src_obj->second.scale_xyz);
-					mat = translate * rot0 * rot1 * rot2 * scale;
-					++ object_offset;
+
+		// Returns the number of objects set
+		auto set_objects = [&](UnboundDrawBatch& ubatch, Bone& bone, uint32_t first_object) {
+			uint32_t object_offset = 0;
+			for(auto obj_ref : ubatch.object_refs) { // Update/set the instances, while indirectly sorting the buffer
+				auto src_obj_iter = mObjects.find(obj_ref);
+				if(src_obj_iter == mObjects.end()) {
+					mLogger->error("Trying to enqueue non-existent object {}", object_id_e(obj_ref));
+					continue;
 				}
-				DrawBatch batch;
-				batch.mesh_id        = ubatch.second.mesh_id;
-				batch.material_id    = ubatch.second.material_id;
-				batch.vertex_offset  = ubatch.second.vertex_offset;
-				batch.first_index    = ubatch.second.first_index;
-				batch.index_count    = ubatch.second.index_count;
-				batch.first_instance = first_object;
-				batch.instance_count = object_offset;
-				mDrawBatchList.push_back(batch);
-				first_object += object_offset;
+				auto& src_obj = src_obj_iter->second;
+
+				auto& bone_instance = src_obj.second[ubatch.model_bone_index];
+				constexpr auto bone_id_digits = std::numeric_limits<bone_id_e>::digits;
+				rng.seed(object_id_e(obj_ref) ^ std::rotl(ubatch.model_bone_index, bone_id_digits / 2));
+
+				auto& obj = objects[first_object + object_offset];
+				auto& mat = obj.model_transf;
+				obj.rnd       = dist(rng);
+				obj.color_mul = bone_instance.color_rgba;
+				constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+				constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+				constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+				constexpr glm::mat4 identity = glm::mat4(1.0f);
+				auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
+					glm::mat4 translate = glm::translate (identity, pos);
+					glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
+					glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
+					glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
+					glm::mat4 scale     = glm::scale     (identity, scl);
+					return translate * rot0 * rot1 * rot2 * scale;
+				};
+				auto mat0 = mk_transf(src_obj.first.position_xyz, src_obj.first.direction_ypr, src_obj.first.scale_xyz);
+				auto mat1 = mk_transf(bone.position_xyz,          bone.direction_ypr,          bone.scale_xyz);
+				auto mat2 = mk_transf(bone_instance.position_xyz, bone_instance.direction_ypr, bone_instance.scale_xyz);
+				mat = mat2 * mat1 * mat0;
+				++ object_offset;
+			}
+
+			return object_offset;
+		};
+
+		for(uint32_t first_object = 0; auto& model_batches : mUnboundDrawBatches) {
+			auto& model = assert_not_end_(mModels, model_batches.first)->second;
+			for(auto& bone_batches : model_batches.second) {
+				auto& bone = model.bones[bone_batches.first];
+				for(auto& ubatch : bone_batches.second) { // Create the (bound) draw batch
+					auto object_set_count = set_objects(ubatch.second, bone, first_object);
+					mDrawBatchList.push_back(DrawBatch {
+						.model_id       = model_batches.first,
+						.material_id    = ubatch.first,
+						.vertex_offset  = 0,
+						.index_count    = bone.mesh.index_count,
+						.first_index    = bone.mesh.first_index,
+						.instance_count = object_set_count,
+						.first_instance = first_object });
+					first_object += mDrawBatchList.back().instance_count;
+				}
 			}
 		}
 
 		mObjectBuffer.flush(cmd, mVma);
 		commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
+
+		return true;
 	}
 
 }
+
+
+
+#undef assert_not_end_
+#undef assert_not_nullptr_
