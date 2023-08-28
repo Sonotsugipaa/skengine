@@ -99,8 +99,9 @@ namespace {
 	}
 
 
-	void erase_objects_with_model(
+	bool erase_objects_with_model(
 			SKENGINE_NAME_NS_SHORT::Renderer::Objects& objects,
+			SKENGINE_NAME_NS_SHORT::Renderer::ObjectUpdates& object_updates,
 			spdlog::logger& log,
 			SKENGINE_NAME_NS_SHORT::ModelId id,
 			std::string_view locator
@@ -116,7 +117,11 @@ namespace {
 				rm_objects.push_back(obj.first);
 			}
 		}
-		for(auto obj : rm_objects) objects.erase(obj);
+		for(auto obj : rm_objects) {
+			objects.erase(obj);
+			object_updates.erase(obj);
+		}
+		return ! rm_objects.empty();
 	}
 
 }
@@ -145,7 +150,9 @@ namespace SKENGINE_NAME_NS {
 		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
-		r.mObjectsOod = true;
+		r.mBatchesNeedUpdate  = true;
+		r.mObjectsNeedRebuild = true;
+		r.mObjectsNeedFlush   = true;
 		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
 		r.mFilenamePrefix = std::string(filename_prefix);
@@ -218,7 +225,9 @@ namespace SKENGINE_NAME_NS {
 
 		assert(! mObjects.contains(new_obj_id));
 		mObjects[new_obj_id] = Objects::mapped_type(std::move(new_obj), std::move(bone_instances));
-		mObjectsOod = true;
+		mObjectUpdates.insert(new_obj_id);
+		mBatchesNeedUpdate = true;
+		mObjectsNeedFlush = true;
 		return new_obj_id;
 	}
 
@@ -234,6 +243,7 @@ namespace SKENGINE_NAME_NS {
 		assert(model_dep_counter_iter->second > 0);
 		-- model_dep_counter_iter->second;
 		mObjects.erase(obj_iter);
+		mObjectUpdates.erase(id);
 
 		if(model_dep_counter_iter->second == 0) {
 			mModelDepCounters.erase(model_dep_counter_iter);
@@ -262,7 +272,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mObjectsOod = true;
+		mBatchesNeedUpdate = true;
 	}
 
 
@@ -285,7 +295,8 @@ namespace SKENGINE_NAME_NS {
 	std::optional<Renderer::ModifiableObject> Renderer::modifyObject(ObjectId id) noexcept {
 		auto found = mObjects.find(id);
 		if(found != mObjects.end()) {
-			mObjectsOod = true;
+			mObjectUpdates.insert(id);
+			mObjectsNeedFlush = true;
 			return ModifiableObject {
 				.position_xyz  = found->second.first.position_xyz,
 				.direction_ypr = found->second.first.direction_ypr,
@@ -354,9 +365,9 @@ namespace SKENGINE_NAME_NS {
 
 	void Renderer::eraseModel(ModelId id) noexcept {
 		auto& model_data = assert_not_end_(mModels, id)->second;
-
-		erase_objects_with_model(mObjects, *mLogger, id, model_data.locator);
-
+		if(erase_objects_with_model(mObjects, mObjectUpdates, *mLogger, id, model_data.locator)) {
+			mBatchesNeedUpdate = true;
+		}
 		eraseModelNoObjectCheck(id, model_data);
 	}
 
@@ -479,7 +490,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	bool Renderer::commitObjects(VkCommandBuffer cmd) {
-		if(! mObjectsOod) return false;
+		if(! (mBatchesNeedUpdate || mObjectsNeedRebuild || mObjectsNeedFlush )) {
+			return false; }
+
+		assert(mObjectsNeedFlush || ! mObjectsNeedRebuild);
 
 		std::size_t new_instance_count = [&]() {
 			std::size_t i = 0;
@@ -498,6 +512,8 @@ namespace SKENGINE_NAME_NS {
 			bool size_too_small = (new_size > mObjectBuffer.size());
 			bool size_too_big   = (new_size < mObjectBuffer.size() / shrink_fac);
 			if(size_too_small || size_too_big) {
+				mObjectsNeedRebuild = true;
+				mObjectsNeedFlush   = true;
 				vkutil::BufferDuplex::destroy(mVma, mObjectBuffer);
 				mObjectBuffer = create_object_buffer(mVma, std::bit_ceil(new_instance_count));
 			}
@@ -508,8 +524,46 @@ namespace SKENGINE_NAME_NS {
 		auto* objects = mObjectBuffer.mappedPtr<dev::Instance>();
 		mDrawBatchList.clear();
 
+		auto set_object = [&](
+				const Objects::iterator& obj_iter, ObjectId  obj_id,
+				const Bone&              bone,     bone_id_e bone_idx,
+				uint32_t obj_buffer_index
+		) {
+			bool erased_from_updates = mObjectUpdates.erase(obj_id);
+			if(! mObjectsNeedRebuild) { // Check if the object update is needed, but rebuild it anyway if the buffer is OOD
+				if(0 == erased_from_updates) return;
+			}
+
+			auto& src_obj = obj_iter->second;
+
+			auto& bone_instance = src_obj.second[bone_idx];
+			constexpr auto bone_id_digits = std::numeric_limits<bone_id_e>::digits;
+			rng.seed(object_id_e(obj_id) ^ std::rotl(bone_idx, bone_id_digits / 2));
+
+			auto& obj = objects[obj_buffer_index];
+			auto& mat = obj.model_transf;
+			obj.rnd       = dist(rng);
+			obj.color_mul = bone_instance.color_rgba;
+			constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+			constexpr glm::mat4 identity = glm::mat4(1.0f);
+			auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
+				glm::mat4 translate = glm::translate (identity, pos);
+				glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
+				glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
+				glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
+				glm::mat4 scale     = glm::scale     (identity, scl);
+				return translate * rot0 * rot1 * rot2 * scale;
+			};
+			auto mat0 = mk_transf(src_obj.first.position_xyz, src_obj.first.direction_ypr, src_obj.first.scale_xyz);
+			auto mat1 = mk_transf(bone.position_xyz,          bone.direction_ypr,          bone.scale_xyz);
+			auto mat2 = mk_transf(bone_instance.position_xyz, bone_instance.direction_ypr, bone_instance.scale_xyz);
+			mat = mat2 * mat1 * mat0;
+		};
+
 		// Returns the number of objects set
-		auto set_objects = [&](UnboundDrawBatch& ubatch, Bone& bone, uint32_t first_object) {
+		auto set_objects = [&](UnboundDrawBatch& ubatch, const Bone& bone, uint32_t first_object) {
 			uint32_t object_offset = 0;
 			for(auto obj_ref : ubatch.object_refs) { // Update/set the instances, while indirectly sorting the buffer
 				auto src_obj_iter = mObjects.find(obj_ref);
@@ -517,59 +571,41 @@ namespace SKENGINE_NAME_NS {
 					mLogger->error("Renderer: trying to enqueue non-existent object {}", object_id_e(obj_ref));
 					continue;
 				}
-				auto& src_obj = src_obj_iter->second;
 
-				auto& bone_instance = src_obj.second[ubatch.model_bone_index];
-				constexpr auto bone_id_digits = std::numeric_limits<bone_id_e>::digits;
-				rng.seed(object_id_e(obj_ref) ^ std::rotl(ubatch.model_bone_index, bone_id_digits / 2));
+				set_object(src_obj_iter, obj_ref, bone, ubatch.model_bone_index, first_object + object_offset);
 
-				auto& obj = objects[first_object + object_offset];
-				auto& mat = obj.model_transf;
-				obj.rnd       = dist(rng);
-				obj.color_mul = bone_instance.color_rgba;
-				constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
-				constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
-				constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
-				constexpr glm::mat4 identity = glm::mat4(1.0f);
-				auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
-					glm::mat4 translate = glm::translate (identity, pos);
-					glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
-					glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
-					glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
-					glm::mat4 scale     = glm::scale     (identity, scl);
-					return translate * rot0 * rot1 * rot2 * scale;
-				};
-				auto mat0 = mk_transf(src_obj.first.position_xyz, src_obj.first.direction_ypr, src_obj.first.scale_xyz);
-				auto mat1 = mk_transf(bone.position_xyz,          bone.direction_ypr,          bone.scale_xyz);
-				auto mat2 = mk_transf(bone_instance.position_xyz, bone_instance.direction_ypr, bone_instance.scale_xyz);
-				mat = mat2 * mat1 * mat0;
 				++ object_offset;
 			}
 
 			return object_offset;
 		};
 
-		for(uint32_t first_object = 0; auto& model_batches : mUnboundDrawBatches) {
-			auto& model = assert_not_end_(mModels, model_batches.first)->second;
-			for(auto& bone_batches : model_batches.second) {
-				auto& bone = model.bones[bone_batches.first];
-				for(auto& ubatch : bone_batches.second) { // Create the (bound) draw batch
-					auto object_set_count = set_objects(ubatch.second, bone, first_object);
-					mDrawBatchList.push_back(DrawBatch {
-						.model_id       = model_batches.first,
-						.material_id    = ubatch.first,
-						.vertex_offset  = 0,
-						.index_count    = bone.mesh.index_count,
-						.first_index    = bone.mesh.first_index,
-						.instance_count = object_set_count,
-						.first_instance = first_object });
-					first_object += mDrawBatchList.back().instance_count;
+		if(mBatchesNeedUpdate || mObjectsNeedFlush) {
+			for(uint32_t first_object = 0; auto& model_batches : mUnboundDrawBatches) {
+				auto& model = assert_not_end_(mModels, model_batches.first)->second;
+				for(auto& bone_batches : model_batches.second) {
+					auto& bone = model.bones[bone_batches.first];
+					for(auto& ubatch : bone_batches.second) { // Create the (bound) draw batch
+						auto object_set_count = set_objects(ubatch.second, bone, first_object);
+						mDrawBatchList.push_back(DrawBatch {
+							.model_id       = model_batches.first,
+							.material_id    = ubatch.first,
+							.vertex_offset  = 0,
+							.index_count    = bone.mesh.index_count,
+							.first_index    = bone.mesh.first_index,
+							.instance_count = object_set_count,
+							.first_instance = first_object });
+						first_object += mDrawBatchList.back().instance_count;
+					}
 				}
 			}
+			mObjectsNeedRebuild = false;
+			commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
+			mBatchesNeedUpdate = false;
 		}
 
-		mObjectBuffer.flush(cmd, mVma);
-		commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
+		if(mObjectsNeedFlush) mObjectBuffer.flush(cmd, mVma);
+		mObjectsNeedFlush = false;
 
 		return true;
 	}

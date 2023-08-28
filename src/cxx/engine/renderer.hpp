@@ -132,11 +132,13 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
+		template <typename T>             using Uset = std::unordered_set<T>;
 		using ModelLookup       = Umap<std::string_view, ModelId>;
 		using MaterialLookup    = Umap<std::string_view, MaterialId>;
 		using ModelMap          = Umap<ModelId,          ModelData>;
 		using MaterialMap       = Umap<MaterialId,       MaterialData>;
 		using Objects           = Umap<ObjectId,         std::pair<Object, std::vector<BoneInstance>>>;
+		using ObjectUpdates     = Uset<ObjectId>;
 		using UnboundBatchMap   = Umap<ModelId,          Umap<bone_id_e, Umap<MaterialId, UnboundDrawBatch>>>;
 		using ModelDepCounters  = Umap<ModelId,          object_id_e>;
 		using BatchList         = std::vector<DrawBatch>;
@@ -188,6 +190,7 @@ namespace SKENGINE_NAME_NS {
 		ModelMap         mModels;
 		MaterialMap      mMaterials;
 		Objects          mObjects;
+		ObjectUpdates    mObjectUpdates;
 		UnboundBatchMap  mUnboundDrawBatches;
 		BatchList        mDrawBatchList;
 		ModelDepCounters mModelDepCounters;
@@ -195,7 +198,9 @@ namespace SKENGINE_NAME_NS {
 		vkutil::BufferDuplex mBatchBuffer;
 		std::string mFilenamePrefix;
 
-		bool mObjectsOod;
+		bool   mBatchesNeedUpdate  : 1; // `true` when objects have been added or removed
+		bool   mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
+		bool   mObjectsNeedFlush   : 1; // `true` when the object buffer needs to be uploaded, but all objects already exist in it
 
 		ModelId    setModel      (std::string_view locator, DevModel);
 		MaterialId setMaterial   (std::string_view locator, Material);
