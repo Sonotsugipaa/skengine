@@ -393,21 +393,27 @@ namespace SKENGINE_NAME_NS {
 			auto dev = e.getDevice();
 			VkDescriptorSetLayout layout = e.getMaterialDsetLayout();
 
+			// -- 0- +-
+			// -0 00 +0
+			// -+ 0+ ++
+			constexpr uint8_t nrm0 = 0x7f-0x70;
+			constexpr uint8_t nrm1 = 0x7f;
+			constexpr uint8_t nrm2 = 0x7f+0x70;
+
 			uint8_t texels_col[4][4] = {
 				{ 0xff, 0x00, 0x4c, 0xff },
 				{ 0x10, 0x13, 0x13, 0xff },
 				{ 0x10, 0x13, 0x13, 0xff },
 				{ 0xff, 0x00, 0x4c, 0xff } };
-			uint8_t texels_nrm[4][4] = {
-				{ 0x7f-0x20, 0x7f-0x20, 0xfe, 0xff },
-				{ 0x7f+0x20, 0x7f-0x20, 0xfe, 0xff },
-				{ 0x7f-0x20, 0x7f+0x20, 0xfe, 0xff },
-				{ 0x7f+0x20, 0x7f+0x20, 0xfe, 0xff } };
+			uint8_t texels_nrm[9][4] = {
+				{ nrm0, nrm0, 0xfe, 0xff }, { nrm1, nrm0, 0xfe, 0xff }, { nrm2, nrm0, 0xfe, 0xff },
+				{ nrm0, nrm1, 0xfe, 0xff }, { nrm1, nrm1, 0xfe, 0xff }, { nrm2, nrm1, 0xfe, 0xff },
+				{ nrm0, nrm2, 0xfe, 0xff }, { nrm1, nrm2, 0xfe, 0xff }, { nrm2, nrm2, 0xfe, 0xff } };
 			uint8_t texels_spc[4] = { 0xff, 0xff, 0xff, 0x00 };
 			uint8_t texels_emi[4] = { 0xff, 0xff, 0xff, 0x02 };
 
 			create_texture_from_pixels(e, &dst->texture_diffuse,  texels_col, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
-			create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
+			create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 3, 3);
 			create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 			create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 
@@ -675,7 +681,7 @@ namespace SKENGINE_NAME_NS {
 			};
 			#define LOAD_(T_, F_, S_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, S_, h.T_ ## Texture(), #T_);
 			LOAD_(diffuse,  mf_ec::eDiffuseInlinePixel,  false)
-			LOAD_(normal,   mf_ec::eNormalInlinePixel,   true)
+			LOAD_(normal,   mf_ec::eNormalInlinePixel,   false)
 			LOAD_(specular, mf_ec::eSpecularInlinePixel, false)
 			LOAD_(emissive, mf_ec::eEmissiveInlinePixel, false)
 			#undef LOAD_

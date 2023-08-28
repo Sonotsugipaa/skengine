@@ -7,12 +7,11 @@
     - As things are currently, texture filenames **will** be relative to
       the working directory and nothing else.
   - Integrate cleanup queues
-  - Asynchronous one-time transfer commands
-    - Make them use the transfer queue
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation
   - Optimize object buffer update procedure for simple object modifications
     - Multithreaded `Renderer` object buffer generation (mostly for matrices)
     - `VkPhysicalDeviceLimits::maxSamplerAllocationCount`
+  - Optimize vertex shader with the gram-shmidt(?) process
   - Implement `WorldRenderer::rotate` and `WorldRenderer::rotateTowards`
     - Optimize `WorldRenderer` rotation functions by doing old fashioned,
       matrix-on-paper math.
@@ -25,6 +24,8 @@
   - Make `vkQueuePresentKHR` wait for swapchain images instead of gframes
     - It is probably not needed to have an acquired image in order to
       draw a gframe
+  - Asynchronous one-time transfer commands
+    - Make them use the transfer queue
   - `Renderer::setModel` has a dubious, prematurely optimized way of dealing
      with reassignment; test it
   - Seek a way not to construct a string from a string_view for

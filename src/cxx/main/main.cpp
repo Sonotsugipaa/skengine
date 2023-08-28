@@ -44,7 +44,7 @@ namespace {
 			wr.setViewRotation(dir);
 			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
 			o.model_locator = "test-model.fma";
-			o.scale_xyz = { 0.3f, 0.3f, 0.3f };
+			o.scale_xyz = { 0.6f, 0.6f, 0.6f };
 			for(s_object_id_e x = -obj_count_sq; x < obj_count_sq; ++x)
 			for(s_object_id_e y = -obj_count_sq; y < obj_count_sq; ++y) {
 				float ox = x;
@@ -60,7 +60,7 @@ namespace {
 		}
 
 
-		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
+		void loop_processEvents(tickreg::delta_t, tickreg::delta_t) override {
 			SDL_Event ev;
 
 			// Consume events, but only the last one of each type; discard the rest
@@ -77,25 +77,6 @@ namespace {
 					} break;
 				}
 			}
-
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca->world_renderer;
-
-			{ // Rotate the view
-				auto  pos  = wr.getViewPosition();
-				auto  dir  = wr.getViewRotation();
-				float dist = 1.0f;
-				float sin  = std::sin(dir.x);
-				dir.x += glm::radians(15.0 * delta);
-				dir.y  = glm::radians(20.0f) + (glm::radians(20.0f) * sin);
-				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
-				wr.setViewRotation(dir);
-			}
-
-			{ // Rotate the object at the center
-				auto o = wr.modifyObject(objects[obj_count_sq][obj_count_sq]).value();
-				o.direction_ypr.x += glm::radians(93.0 * delta);
-			}
 		}
 
 		SKENGINE_NAME_NS_SHORT::LoopInterface::LoopState loop_pollState() const noexcept override {
@@ -104,7 +85,28 @@ namespace {
 
 		void loop_async_preRender(tickreg::delta_t, tickreg::delta_t) override { }
 
-		void loop_async_postRender(tickreg::delta_t, tickreg::delta_t) override { }
+		void loop_async_postRender(tickreg::delta_t avg_delta, tickreg::delta_t last_delta) override {
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca->world_renderer;
+
+			avg_delta = std::min(avg_delta, last_delta);
+
+			{ // Rotate the view
+				auto  pos  = wr.getViewPosition();
+				auto  dir  = wr.getViewRotation();
+				float dist = 1.0f;
+				float sin  = std::sin(dir.x);
+				dir.x += glm::radians(15.0 * avg_delta);
+				dir.y  = glm::radians(20.0f) + (glm::radians(20.0f) * sin);
+				wr.setViewPosition({ dist * sin, pos.y, dist * std::cos(dir.x) });
+				wr.setViewRotation(dir);
+			}
+
+			{ // Rotate the object at the center
+				auto o = wr.modifyObject(objects[obj_count_sq][obj_count_sq]).value();
+				o.direction_ypr.x -= glm::radians(71.0 * avg_delta);
+			}
+		}
 	};
 
 }}
