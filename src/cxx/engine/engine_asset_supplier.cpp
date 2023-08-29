@@ -15,121 +15,6 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
-		[[nodiscard]]
-		size_t reserve_mat_dpool(
-				VkDevice dev,
-				VkDescriptorPool* dst,
-				size_t            req_cap,
-				size_t            cur_cap
-		) {
-			assert(req_cap > 0);
-
-			req_cap = std::bit_ceil(req_cap);
-			bool size_too_small = req_cap > cur_cap;
-
-			if(req_cap <= 0) {
-				assert(*dst != nullptr);
-				if(cur_cap > 0) vkDestroyDescriptorPool(dev, *dst, nullptr);
-				return 0;
-			}
-			else if(size_too_small) {
-				if(cur_cap > 0) {
-					assert(*dst != nullptr);
-					if(cur_cap > 0) vkDestroyDescriptorPool(dev, *dst, nullptr);
-				}
-				VkDescriptorPoolSize sizes[] = {
-					{
-						.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-						.descriptorCount = uint32_t(4 * req_cap) } };
-				VkDescriptorPoolCreateInfo dpc_info = { };
-				dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-				dpc_info.maxSets = 0;
-				dpc_info.flags   = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-				dpc_info.poolSizeCount = std::size(sizes);
-				dpc_info.pPoolSizes    = sizes;
-				for(auto& size : sizes) dpc_info.maxSets += size.descriptorCount;
-				VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, dst);
-				return req_cap;
-			}
-
-			return cur_cap;
-		}
-
-
-		void create_mat_dset(
-				VkDevice dev,
-				VkDescriptorPool*     dpool,
-				VkDescriptorSetLayout layout,
-				AssetSupplier::Materials& active_materials,
-				AssetSupplier::Materials& inactive_materials,
-				Material&                 fallback_material,
-				size_t*   size,
-				size_t*   capacity,
-				Material* dst
-		) {
-			auto create_dset = [&](Material* dst) {
-				{ // Create the dset
-					VkDescriptorSetAllocateInfo dsa_info = { };
-					dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-					dsa_info.descriptorPool = *dpool;
-					dsa_info.descriptorSetCount = 1;
-					dsa_info.pSetLayouts        = &layout;
-					VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &dst->dset);
-				}
-
-				{ // Update it
-					constexpr auto& DFS = Engine::DIFFUSE_TEX_BINDING;
-					constexpr auto& NRM = Engine::NORMAL_TEX_BINDING;
-					constexpr auto& SPC = Engine::SPECULAR_TEX_BINDING;
-					constexpr auto& EMI = Engine::EMISSIVE_TEX_BINDING;
-					VkDescriptorImageInfo di_info[4] = { };
-					di_info[DFS].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					di_info[DFS].sampler     = dst->texture_diffuse.sampler;
-					di_info[DFS].imageView   = dst->texture_diffuse.image_view;
-					di_info[NRM] = di_info[DFS];
-					di_info[NRM].sampler     = dst->texture_normal.sampler;
-					di_info[NRM].imageView   = dst->texture_normal.image_view;
-					di_info[SPC] = di_info[DFS];
-					di_info[SPC].sampler     = dst->texture_specular.sampler;
-					di_info[SPC].imageView   = dst->texture_specular.image_view;
-					di_info[EMI] = di_info[DFS];
-					di_info[EMI].sampler     = dst->texture_emissive.sampler;
-					di_info[EMI].imageView   = dst->texture_emissive.image_view;
-					VkWriteDescriptorSet wr[4] = { };
-					wr[DFS].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-					wr[DFS].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-					wr[DFS].dstSet          = dst->dset;
-					wr[DFS].descriptorCount = 1;
-					wr[DFS].dstBinding      = DFS;
-					wr[DFS].pImageInfo      = di_info + DFS;
-					wr[NRM] = wr[DFS];
-					wr[NRM].dstBinding = NRM;
-					wr[NRM].pImageInfo = di_info + NRM;
-					wr[SPC] = wr[DFS];
-					wr[SPC].dstBinding = SPC;
-					wr[SPC].pImageInfo = di_info + SPC;
-					wr[EMI] = wr[DFS];
-					wr[EMI].dstBinding = EMI;
-					wr[EMI].pImageInfo = di_info + EMI;
-					vkUpdateDescriptorSets(dev, std::size(wr), wr, 0, nullptr);
-				}
-			};
-
-			{ // Resize the pool, if necessary
-				size_t new_cap = reserve_mat_dpool(dev, dpool, (*size) + 1, *capacity);
-				if(new_cap != *capacity) { // All existing dsets need to be recreated
-					*capacity = new_cap;
-					for(auto& mat : active_materials)   create_dset(&mat.second);
-					for(auto& mat : inactive_materials) create_dset(&mat.second);
-					create_dset(&fallback_material);
-				}
-			}
-
-			if(dst != &fallback_material) [[likely]] create_dset(dst);
-			++ *size;
-		}
-
-
 		VkFormat format_from_locator(std::string_view locator, bool use_signed_fmt) {
 			#define SIGN_(F_) (use_signed_fmt? F_ ## _SNORM : F_ ## _UNORM)
 			size_t sz = locator.size();
@@ -308,7 +193,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		bool create_texture_from_file(
+		auto create_texture_from_file(
 				Engine& e,
 				Material::Texture* dst,
 				bool               use_signed_fmt,
@@ -318,12 +203,19 @@ namespace SKENGINE_NAME_NS {
 			using posixfio::MemMapFlags;
 			#define FAILED_PRE_ "Failed to load texture \"{}\": "
 
+			struct Return {
+				bool success;
+				size_t width;
+				size_t height;
+			};
+			constexpr auto fail = Return { false, 0, 0 };
+
 			std::string_view locator_sv = locator;
 
 			VkFormat fmt = format_from_locator(locator_sv, use_signed_fmt);
 			if(fmt == VK_FORMAT_UNDEFINED) {
 				e.logger().error(FAILED_PRE_ "bad format/extension", locator_sv);
-				return false;
+				return fail;
 			}
 			size_t block_size = vk::blockSize(vk::Format(fmt));
 
@@ -332,7 +224,7 @@ namespace SKENGINE_NAME_NS {
 				file = posixfio::File::open(locator, O_RDONLY);
 			} catch(posixfio::Errcode& ex) {
 				e.logger().error(FAILED_PRE_ "errno {}", locator_sv, ex.errcode);
-				return false;
+				return fail;
 			}
 
 			auto file_len = std::make_unsigned_t<posixfio::off_t>(file.lseek(0, SEEK_END));
@@ -345,21 +237,17 @@ namespace SKENGINE_NAME_NS {
 
 			if(pixel_n * block_size > file_len) {
 				e.logger().error(FAILED_PRE_ "bad image size ({}x{} > {})", locator_sv, w, h, file_len / block_size);
-				return false;
+				return fail;
 			}
 
 			create_texture_from_pixels(e, dst, ptr, fmt, w, h);
-			return true;
+			return Return { true, w, h };
 
 			#undef FAILED_PRE_
 		}
 
 
-		void destroy_material(VkDevice dev, VmaAllocator vma, VkDescriptorPool dpool, Material& mat) {
-			VK_CHECK(vkFreeDescriptorSets, dev, dpool, 1, &mat.dset);
-			#ifndef NDEBUG
-				mat.dset = nullptr;
-			#endif
+		void destroy_material(VkDevice dev, VmaAllocator vma, Material& mat) {
 			auto destroy_texture = [&](Material::Texture& tex) {
 				if(! tex.is_copy) {
 					vkDestroySampler(dev, tex.sampler, nullptr);
@@ -381,18 +269,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		void create_fallback_mat(
-				Engine&               e,
-				VkDescriptorPool*     dpool,
-				AssetSupplier::Materials& active_materials,
-				AssetSupplier::Materials& inactive_materials,
-				size_t*   size,
-				size_t*   capacity,
-				Material* dst
-		) {
-			auto dev = e.getDevice();
-			VkDescriptorSetLayout layout = e.getMaterialDsetLayout();
-
+		void create_fallback_mat(Engine& e, Material* dst) {
 			// -- 0- +-
 			// -0 00 +0
 			// -+ 0+ ++
@@ -416,12 +293,6 @@ namespace SKENGINE_NAME_NS {
 			create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 3, 3);
 			create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 			create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
-
-			create_mat_dset(
-				dev, dpool, layout,
-				active_materials, inactive_materials, *dst,
-				size, capacity,
-				dst );
 		}
 
 	}
@@ -429,22 +300,15 @@ namespace SKENGINE_NAME_NS {
 
 	AssetSupplier::AssetSupplier(Engine& e, float max_inactive_ratio):
 			as_engine(&e),
-			as_dpoolSize(0),
-			as_dpoolCapacity(0),
 			as_maxInactiveRatio(max_inactive_ratio)
 	{
-		create_fallback_mat(
-			e,
-			&as_dpool, as_activeMaterials, as_inactiveMaterials, &as_dpoolSize, &as_dpoolCapacity, &as_fallbackMaterial);
+		create_fallback_mat(e, &as_fallbackMaterial);
 	}
 
 
 	AssetSupplier::AssetSupplier(AssetSupplier&& mv):
 			#define MV_(M_) M_(std::move(mv.M_))
 			MV_(as_engine),
-			MV_(as_dpool),
-			MV_(as_dpoolSize),
-			MV_(as_dpoolCapacity),
 			MV_(as_activeModels),
 			MV_(as_inactiveModels),
 			MV_(as_activeMaterials),
@@ -473,14 +337,11 @@ namespace SKENGINE_NAME_NS {
 		for(auto& model : as_inactiveModels) destroy_model(model);
 		as_inactiveModels.clear();
 
-		for(auto& mat : as_inactiveMaterials) destroy_material(dev, vma, as_dpool, mat.second);
+		for(auto& mat : as_inactiveMaterials) destroy_material(dev, vma, mat.second);
 		as_inactiveMaterials.clear();
-		destroy_material(dev, vma, as_dpool, as_fallbackMaterial);
+		destroy_material(dev, vma, as_fallbackMaterial);
 
-		vkDestroyDescriptorPool(dev, as_dpool, nullptr);
-
-		as_dpoolCapacity = 0;
-		as_engine        = nullptr;
+		as_engine = nullptr;
 	}
 
 
@@ -599,7 +460,6 @@ namespace SKENGINE_NAME_NS {
 	Material AssetSupplier::msi_requestMaterial(std::string_view locator) {
 		std::string locator_s = std::string(locator);
 		auto        existing  = as_activeMaterials.find(locator_s);
-		auto        dev       = as_engine->getDevice();
 
 		if(existing != as_activeMaterials.end()) {
 			return existing->second;
@@ -617,14 +477,6 @@ namespace SKENGINE_NAME_NS {
 			using mf_ec = fmamdl::MaterialFlags;
 
 			Material r;
-
-			auto create_dset = [&](Material& mat) {
-				create_mat_dset(
-					dev, &as_dpool, as_engine->getMaterialDsetLayout(),
-					as_activeMaterials, as_inactiveMaterials, as_fallbackMaterial,
-					&as_dpoolSize, &as_dpoolCapacity,
-					&mat );
-			};
 
 			auto& log = as_engine->logger();
 			posixfio::File file;
@@ -660,22 +512,21 @@ namespace SKENGINE_NAME_NS {
 						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
 					create_texture_from_pixels(*as_engine, &dst, &value4, fmt, 1, 1);
 					log.info(
-						"Loaded {} texture for \"{}\" as a single texel ({:02x}{:02x}{:02x}{:02x})",
+						"Loaded {} texture as a single texel ({:02x}{:02x}{:02x}{:02x})",
 						name,
-						locator_s,
 						(value4 >> u4_t( 0)) & u4_t(0xff),
 						(value4 >> u4_t( 8)) & u4_t(0xff),
 						(value4 >> u4_t(16)) & u4_t(0xff),
 						(value4 >> u4_t(24)) & u4_t(0xff) );
 				} else {
 					auto texture_file = h.getCstring(fma_value);
-					bool success = create_texture_from_file(*as_engine, &dst, use_signed_fmt, texture_file);
-					if(success) {
-						log.info("Loaded {} texture for \"{}\" from \"{}\"", name, locator_s, texture_file);
+					auto res = create_texture_from_file(*as_engine, &dst, use_signed_fmt, texture_file);
+					if(res.success) {
+						log.info("Loaded {} texture from \"{}\" ({}x{})", name, texture_file, res.width, res.height);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
-						log.warn("Failed to load {} texture \"{}\" for \"{}\", using fallback", name, texture_file, locator_s);
+						log.warn("Failed to load {} texture \"{}\", using fallback", name, texture_file);
 					}
 				}
 			};
@@ -685,9 +536,6 @@ namespace SKENGINE_NAME_NS {
 			LOAD_(specular, mf_ec::eSpecularInlinePixel, false)
 			LOAD_(emissive, mf_ec::eEmissiveInlinePixel, false)
 			#undef LOAD_
-
-			// Allocate and update the material's dset
-			create_dset(r);
 
 			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
 			double size_kib[4] = {
@@ -718,7 +566,7 @@ namespace SKENGINE_NAME_NS {
 			as_activeMaterials.erase(existing);
 			if(as_maxInactiveRatio < float(as_inactiveMaterials.size()) / float(as_activeMaterials.size())) {
 				auto victim = as_inactiveMaterials.begin();
-				destroy_material(dev, vma, as_dpool, victim->second);
+				destroy_material(dev, vma, victim->second);
 				as_inactiveMaterials.erase(victim);
 			}
 			as_engine->logger().info("Released material \"{}\"", locator);

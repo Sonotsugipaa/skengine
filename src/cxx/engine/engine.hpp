@@ -200,9 +200,6 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		Engine* as_engine;
-		VkDescriptorPool as_dpool;
-		size_t           as_dpoolSize;
-		size_t           as_dpoolCapacity;
 		Models    as_activeModels;
 		Models    as_inactiveModels;
 		Materials as_activeMaterials;

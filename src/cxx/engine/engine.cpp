@@ -46,7 +46,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	static void recordRendererDrawCommands(
 			Engine& e,
 			VkCommandBuffer cmd,
-			uint_fast32_t   frame_counter,
 			size_t          gf_index,
 			Renderer&       renderer
 	) {
@@ -74,13 +73,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				dsets[MATERIAL_DSET_LOC] = mat->dset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			}
-			e.mLogger->trace(
-				"[{:09}] Drawing batch #{} {}:{} with {} instances",
-				frame_counter % 1000'000'000,
-				i,
-				model_id_e(batch.model_id),
-				model_id_e(batch.material_id),
-				batch.instance_count );
 			vkCmdDrawIndexedIndirect(
 				cmd, batch_buffer,
 				i * sizeof(VkDrawIndexedIndirectCommand), 1,
@@ -129,7 +121,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			sc_img = e.mSwapchainImages[sc_img_idx].image;
 		}
 
-		auto frame_counter = e.mGframeCounter.fetch_add(1, std::memory_order_relaxed);
+		e.mGframeCounter.fetch_add(1, std::memory_order_relaxed);
 
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -200,7 +192,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			recordRendererDrawCommands(e, cmd, frame_counter, gframe_idx, e.mWorldRenderer);
+			recordRendererDrawCommands(e, cmd, gframe_idx, e.mWorldRenderer);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -371,8 +363,8 @@ namespace SKENGINE_NAME_NS {
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
 		.fov_y            = glm::radians(110.0f),
-		.z_near           = 1.0f / float(1 << 8),
-		.z_far            = float(1 << 16),
+		.z_near           = 1.0f / float(1 << 4),
+		.z_far            = float(1 << 10),
 		.upscale_factor   = 1.0f,
 		.target_framerate = 60.0f,
 		.target_tickrate  = 60.0f,

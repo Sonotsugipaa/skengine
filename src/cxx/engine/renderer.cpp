@@ -11,6 +11,8 @@
 
 #include <glm/ext/matrix_transform.hpp>
 
+#include <vk-util/error.hpp>
+
 
 
 #ifdef NDEBUG
@@ -23,116 +25,223 @@
 
 
 
-namespace {
+namespace SKENGINE_NAME_NS {
 
-	constexpr size_t OBJECT_MAP_INITIAL_CAPACITY    = 4;
-	constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = OBJECT_MAP_INITIAL_CAPACITY;
-	constexpr size_t BATCH_MAP_INITIAL_CAPACITY     = 16;
-	constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 2.0;
+	namespace {
 
-
-	vkutil::BufferDuplex create_object_buffer(VmaAllocator vma, size_t count) {
-		vkutil::BufferCreateInfo bc_info = { };
-		bc_info.size  = std::bit_ceil(count) * sizeof(SKENGINE_NAME_NS_SHORT::dev::Instance);
-		bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-		vkutil::AllocationCreateInfo ac_info = { };
-		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-		return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
-	}
+		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY    = 4;
+		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = OBJECT_MAP_INITIAL_CAPACITY;
+		constexpr size_t BATCH_MAP_INITIAL_CAPACITY     = 16;
+		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 2.0;
 
 
-	vkutil::BufferDuplex create_draw_buffer(VmaAllocator vma, size_t count) {
-		vkutil::BufferCreateInfo bc_info = { };
-		bc_info.size  = std::bit_ceil(count) * sizeof(VkDrawIndexedIndirectCommand);
-		bc_info.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-		vkutil::AllocationCreateInfo ac_info = { };
-		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-		return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
-	}
+		[[nodiscard]]
+		size_t reserve_mat_dpool(
+				VkDevice dev,
+				VkDescriptorPool* dst,
+				size_t            req_cap,
+				size_t            cur_cap
+		) {
+			assert(req_cap > 0);
 
+			req_cap = std::bit_ceil(req_cap);
 
-	template <typename T>
-	concept ScopedEnum = requires(T t) {
-		requires std::integral<std::underlying_type_t<T>>;
-	};
+			if(req_cap != cur_cap) {
+				if(cur_cap > 0) {
+					assert(*dst != nullptr);
+					vkDestroyDescriptorPool(dev, *dst, nullptr);
+				}
+				VkDescriptorPoolSize sizes[] = {
+					{
+						.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+						.descriptorCount = uint32_t(4 * req_cap) } };
+				VkDescriptorPoolCreateInfo dpc_info = { };
+				dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+				dpc_info.maxSets = req_cap;
+				dpc_info.flags   = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+				dpc_info.poolSizeCount = std::size(sizes);
+				dpc_info.pPoolSizes    = sizes;
+				VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, dst);
+				return req_cap;
+			}
 
-
-	template <typename T>
-	T generate_id() {
-		using int_t = std::underlying_type_t<T>;
-		static std::atomic<int_t> last = 0;
-		int_t r = last.fetch_add(1, std::memory_order_relaxed);
-		return T(r);
-	}
-
-
-	void commit_draw_batches(
-			VmaAllocator vma,
-			VkCommandBuffer cmd,
-			const SKENGINE_NAME_NS_SHORT::Renderer::BatchList& batches,
-			vkutil::BufferDuplex& buffer
-	) {
-		using namespace SKENGINE_NAME_NS_SHORT;
-		using namespace vkutil;
-
-		if(batches.empty()) return;
-
-		if(batches.size() * sizeof(DrawBatch) > buffer.size()) {
-			BufferDuplex::destroy(vma, buffer);
-			buffer = create_draw_buffer(vma, batches.size());
+			return cur_cap;
 		}
 
-		auto buffer_batches = buffer.mappedPtr<VkDrawIndexedIndirectCommand>();
-		for(size_t i = 0; i < batches.size(); ++i) {
-			auto& h_batch = batches[i];
-			auto& b_batch = buffer_batches[i];
-			b_batch.firstIndex    = h_batch.first_index;
-			b_batch.firstInstance = h_batch.first_instance;
-			b_batch.indexCount    = h_batch.index_count;
-			b_batch.instanceCount = h_batch.instance_count;
-			b_batch.vertexOffset  = h_batch.vertex_offset;
-		}
 
-		buffer.flush(cmd, vma);
-	}
+		void update_mat_dset(
+				VkDevice dev, VkDescriptorPool dpool, VkDescriptorSetLayout layout,
+				bool do_allocate,
+				Renderer::MaterialData* mat
+		) {
+			if(do_allocate) { // Create the dset
+				VkDescriptorSetAllocateInfo dsa_info = { };
+				dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				dsa_info.descriptorPool = dpool;
+				dsa_info.descriptorSetCount = 1;
+				dsa_info.pSetLayouts        = &layout;
+				VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &mat->dset);
+			}
 
-
-	bool erase_objects_with_model(
-			SKENGINE_NAME_NS_SHORT::Renderer::Objects& objects,
-			SKENGINE_NAME_NS_SHORT::Renderer::ObjectUpdates& object_updates,
-			spdlog::logger& log,
-			SKENGINE_NAME_NS_SHORT::ModelId id,
-			std::string_view locator
-	) {
-		using namespace SKENGINE_NAME_NS_SHORT;
-		std::vector<ObjectId> rm_objects;
-		for(auto& obj : objects) {
-			if(obj.second.first.model_id == id) [[unlikely]] {
-				log.warn(
-					"Renderer: removing model \"{}\", still in use for object {}",
-					locator,
-					object_id_e(obj.first) );
-				rm_objects.push_back(obj.first);
+			{ // Update it
+				constexpr auto& DFS = Engine::DIFFUSE_TEX_BINDING;
+				constexpr auto& NRM = Engine::NORMAL_TEX_BINDING;
+				constexpr auto& SPC = Engine::SPECULAR_TEX_BINDING;
+				constexpr auto& EMI = Engine::EMISSIVE_TEX_BINDING;
+				VkDescriptorImageInfo di_info[4] = { };
+				di_info[DFS].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				di_info[DFS].sampler     = mat->texture_diffuse.sampler;
+				di_info[DFS].imageView   = mat->texture_diffuse.image_view;
+				di_info[NRM] = di_info[DFS];
+				di_info[NRM].sampler     = mat->texture_normal.sampler;
+				di_info[NRM].imageView   = mat->texture_normal.image_view;
+				di_info[SPC] = di_info[DFS];
+				di_info[SPC].sampler     = mat->texture_specular.sampler;
+				di_info[SPC].imageView   = mat->texture_specular.image_view;
+				di_info[EMI] = di_info[DFS];
+				di_info[EMI].sampler     = mat->texture_emissive.sampler;
+				di_info[EMI].imageView   = mat->texture_emissive.image_view;
+				VkWriteDescriptorSet wr[4] = { };
+				wr[DFS].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				wr[DFS].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				wr[DFS].dstSet          = mat->dset;
+				wr[DFS].descriptorCount = 1;
+				wr[DFS].dstBinding      = DFS;
+				wr[DFS].pImageInfo      = di_info + DFS;
+				wr[NRM] = wr[DFS];
+				wr[NRM].dstBinding = NRM;
+				wr[NRM].pImageInfo = di_info + NRM;
+				wr[SPC] = wr[DFS];
+				wr[SPC].dstBinding = SPC;
+				wr[SPC].pImageInfo = di_info + SPC;
+				wr[EMI] = wr[DFS];
+				wr[EMI].dstBinding = EMI;
+				wr[EMI].pImageInfo = di_info + EMI;
+				vkUpdateDescriptorSets(dev, std::size(wr), wr, 0, nullptr);
 			}
 		}
-		for(auto obj : rm_objects) {
-			objects.erase(obj);
-			object_updates.erase(obj);
+
+
+		void create_mat_dset(
+				VkDevice dev,
+				VkDescriptorPool*      dpool,
+				VkDescriptorSetLayout  layout,
+				Renderer::MaterialMap& materials,
+				size_t* size,
+				size_t* capacity,
+				Renderer::MaterialData* dst
+		) {
+			++ *size;
+			size_t new_cap  = reserve_mat_dpool(dev, dpool, *size, *capacity);
+			if(new_cap != *capacity) { // All existing dsets need to be recreated
+				*capacity = new_cap;
+				for(auto& mat : materials) update_mat_dset(dev, *dpool, layout, true, &mat.second);
+			} else {
+				assert(*size <= *capacity);
+				update_mat_dset(dev, *dpool, layout, true, dst);
+			}
 		}
-		return ! rm_objects.empty();
+
+
+		vkutil::BufferDuplex create_object_buffer(VmaAllocator vma, size_t count) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Instance);
+			bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+		}
+
+
+		vkutil::BufferDuplex create_draw_buffer(VmaAllocator vma, size_t count) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = std::bit_ceil(count) * sizeof(VkDrawIndexedIndirectCommand);
+			bc_info.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+		}
+
+
+		template <typename T>
+		concept ScopedEnum = requires(T t) {
+			requires std::integral<std::underlying_type_t<T>>;
+		};
+
+
+		template <typename T>
+		T generate_id() {
+			using int_t = std::underlying_type_t<T>;
+			static std::atomic<int_t> last = 0;
+			int_t r = last.fetch_add(1, std::memory_order_relaxed);
+			return T(r);
+		}
+
+
+		void commit_draw_batches(
+				VmaAllocator vma,
+				VkCommandBuffer cmd,
+				const Renderer::BatchList& batches,
+				vkutil::BufferDuplex& buffer
+		) {
+			using namespace vkutil;
+
+			if(batches.empty()) return;
+
+			if(batches.size() * sizeof(DrawBatch) > buffer.size()) {
+				BufferDuplex::destroy(vma, buffer);
+				buffer = create_draw_buffer(vma, batches.size());
+			}
+
+			auto buffer_batches = buffer.mappedPtr<VkDrawIndexedIndirectCommand>();
+			for(size_t i = 0; i < batches.size(); ++i) {
+				auto& h_batch = batches[i];
+				auto& b_batch = buffer_batches[i];
+				b_batch.firstIndex    = h_batch.first_index;
+				b_batch.firstInstance = h_batch.first_instance;
+				b_batch.indexCount    = h_batch.index_count;
+				b_batch.instanceCount = h_batch.instance_count;
+				b_batch.vertexOffset  = h_batch.vertex_offset;
+			}
+
+			buffer.flush(cmd, vma);
+		}
+
+
+		bool erase_objects_with_model(
+				Renderer::Objects& objects,
+				Renderer::ObjectUpdates& object_updates,
+				spdlog::logger& log,
+				ModelId id,
+				std::string_view locator
+		) {
+			std::vector<ObjectId> rm_objects;
+			for(auto& obj : objects) {
+				if(obj.second.first.model_id == id) [[unlikely]] {
+					log.warn(
+						"Renderer: removing model \"{}\", still in use for object {}",
+						locator,
+						object_id_e(obj.first) );
+					rm_objects.push_back(obj.first);
+				}
+			}
+			for(auto obj : rm_objects) {
+				objects.erase(obj);
+				object_updates.erase(obj);
+			}
+			return ! rm_objects.empty();
+		}
+
 	}
 
-}
 
-
-
-namespace SKENGINE_NAME_NS {
 
 	Renderer Renderer::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
+			DsetLayout dset_layout,
 			std::string_view filename_prefix,
 			ModelSupplierInterface&    mdl_si,
 			MaterialSupplierInterface& mat_si
@@ -150,6 +259,9 @@ namespace SKENGINE_NAME_NS {
 		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
+		r.mDsetLayout    = dset_layout;
+		r.mDpoolCapacity = 0;
+		r.mDpoolSize     = 0;
 		r.mBatchesNeedUpdate  = true;
 		r.mObjectsNeedRebuild = true;
 		r.mObjectsNeedFlush   = true;
@@ -168,6 +280,8 @@ namespace SKENGINE_NAME_NS {
 		r.clearObjects();
 		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
 		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
+
+		vkDestroyDescriptorPool(r.mDevice, r.mDpool, nullptr);
 
 		#ifndef NDEBUG
 			r.mDevice = nullptr;
@@ -433,7 +547,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	const Material* Renderer::getMaterial(MaterialId id) const noexcept {
+	const Renderer::MaterialData* Renderer::getMaterial(MaterialId id) const noexcept {
 		auto found = mMaterials.find(id);
 		if(found == mMaterials.end()) return nullptr;
 		return &found->second;
@@ -444,6 +558,8 @@ namespace SKENGINE_NAME_NS {
 		auto found_locator = mMaterialLocators.find(locator);
 		MaterialId id;
 
+		MaterialMap::iterator material_ins;
+
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mMaterialLocators.end()) {
 			id = found_locator->second;
@@ -451,16 +567,18 @@ namespace SKENGINE_NAME_NS {
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseMaterial(found_locator->second);
-			auto ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, locator_s)));
-			locator = ins.first->second.locator; // Again, `locator` was dangling
+			material_ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, { }, locator_s))).first;
+			locator = material_ins->second.locator; // Again, `locator` was dangling
 		} else {
 			id = generate_id<MaterialId>();
 			mLogger->trace("Renderer: associating material \"{}\" with ID {}", locator, material_id_e(id));
+			material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, { }, std::string(locator) })).first;
 		}
 
 		// Insert the material data (with the backing string) first
-		auto  material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, std::string(locator) }));
-		auto& locator_r    = material_ins.first->second.locator;
+		auto& locator_r = material_ins->second.locator;
+		create_mat_dset(mDevice, &mDpool, mDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
+
 		mMaterialLocators.insert(MaterialLookup::value_type(locator_r, id));
 
 		return id;
@@ -477,6 +595,8 @@ namespace SKENGINE_NAME_NS {
 			assert(bone.material_id != id);
 		}
 		#endif
+
+		VK_CHECK(vkFreeDescriptorSets, mDevice, mDpool, 1, &mat_data.dset);
 
 		mMaterialLocators.erase(mat_data.locator);
 

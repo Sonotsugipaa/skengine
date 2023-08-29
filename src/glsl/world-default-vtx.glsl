@@ -42,9 +42,9 @@ void main() {
 	mat3 view3       = inverse(transpose(mat3(frame_ubo.view_transf)));
 	mat3 obj_transf3 = inverse(transpose(mat3(in_obj_transf)));
 
-	vec3 worldspace_tanu = obj_transf3 * in_tanu;
-	vec3 worldspace_tanv = obj_transf3 * in_tanv;
-	vec3 worldspace_tanw = obj_transf3 * in_nrm;
+	vec3 worldspace_tanu = obj_transf3 * +in_tanu;
+	vec3 worldspace_tanv = obj_transf3 * -in_tanv;
+	vec3 worldspace_tanw = obj_transf3 * +in_nrm;
 	vec3 viewspace_tanu  = normalize(view3 * worldspace_tanu);
 	vec3 viewspace_tanv  = normalize(view3 * worldspace_tanv);
 	vec3 viewspace_tanw  = normalize(view3 * worldspace_tanw);

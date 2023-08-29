@@ -11,11 +11,12 @@ namespace SKENGINE_NAME_NS {
 	WorldRenderer WorldRenderer::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
+			DsetLayout dset_layout,
 			std::string_view filename_prefix,
 			ModelSupplierInterface&    model_supplier,
 			MaterialSupplierInterface& mat_supplier
 	) {
-		WorldRenderer r = Renderer::create(std::move(logger), vma, filename_prefix, model_supplier, mat_supplier);
+		WorldRenderer r = Renderer::create(std::move(logger), vma, dset_layout, filename_prefix, model_supplier, mat_supplier);
 		r.mViewPosXyz = { };
 		r.mViewDirYpr = { };
 		r.mViewTransfCacheOod = true;

@@ -250,6 +250,7 @@ namespace SKENGINE_NAME_NS {
 		mWorldRenderer = WorldRenderer::create(
 			std::make_shared<spdlog::logger>(logger()),
 			mVma,
+			mMaterialDsetLayout,
 			mPrefs.asset_filename_prefix,
 			mAssetSupplier,
 			mAssetSupplier );
@@ -309,6 +310,7 @@ namespace SKENGINE_NAME_NS {
 		assert(sdl_init_counter > 0);
 		-- sdl_init_counter;
 		if(sdl_init_counter == 0) {
+			SDL_QuitSubSystem(SDL_INIT_VIDEO);
 			SDL_Quit();
 		}
 	}

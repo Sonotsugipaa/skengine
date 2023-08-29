@@ -22,17 +22,28 @@ namespace {
 
 	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
 	public:
-		static constexpr ssize_t obj_count_sq = 7;
+		static constexpr ssize_t obj_count_sqrt = 7;
 
 		Engine*  engine;
-		ObjectId objects[obj_count_sq+obj_count_sq+1][obj_count_sq+obj_count_sq+1];
+		ObjectId objects[obj_count_sqrt+obj_count_sqrt+1][obj_count_sqrt+obj_count_sqrt+1];
+		ObjectId floor;
 		bool active;
 
 
-		explicit Loop(Engine& e):
-			engine(&e),
-			active(true)
-		{
+		void createGround() {
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca->world_renderer;
+
+			Renderer::NewObject o = { };
+			o.model_locator = "ground.fma";
+			o.position_xyz  = { 0.0f, -0.3f, 0.0f };
+			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
+
+			floor = wr.createObject(o);
+		}
+
+
+		void createTestObjects() {
 			using s_object_id_e = std::make_signed_t<object_id_e>;
 
 			auto  ca = engine->getConcurrentAccess();
@@ -45,18 +56,27 @@ namespace {
 			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
 			o.model_locator = "test-model.fma";
 			o.scale_xyz = { 0.6f, 0.6f, 0.6f };
-			for(s_object_id_e x = -obj_count_sq; x < obj_count_sq; ++x)
-			for(s_object_id_e y = -obj_count_sq; y < obj_count_sq; ++y) {
+			for(s_object_id_e x = -obj_count_sqrt; x < obj_count_sqrt; ++x)
+			for(s_object_id_e y = -obj_count_sqrt; y < obj_count_sqrt; ++y) {
 				float ox = x;
 				float oz = y;
 				o.position_xyz.x = ox;
 				o.position_xyz.z = oz;
-				o.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (obj_count_sq * obj_count_sq);
-				size_t xi = x + obj_count_sq;
-				size_t yi = y + obj_count_sq;
+				o.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (obj_count_sqrt * obj_count_sqrt);
+				size_t xi = x + obj_count_sqrt;
+				size_t yi = y + obj_count_sqrt;
 				assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
 				objects[yi][xi] = wr.createObject(o);
 			}
+		}
+
+
+		explicit Loop(Engine& e):
+			engine(&e),
+			active(true)
+		{
+			createGround();
+			createTestObjects();
 		}
 
 
@@ -103,7 +123,7 @@ namespace {
 			}
 
 			{ // Rotate the object at the center
-				auto o = wr.modifyObject(objects[obj_count_sq][obj_count_sq]).value();
+				auto o = wr.modifyObject(objects[obj_count_sqrt][obj_count_sqrt]).value();
 				o.direction_ypr.x -= glm::radians(71.0 * avg_delta);
 			}
 		}

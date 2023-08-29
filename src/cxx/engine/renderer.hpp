@@ -68,7 +68,6 @@ namespace SKENGINE_NAME_NS {
 			VkSampler            sampler;
 			bool                 is_copy;
 		};
-		VkDescriptorSet dset;
 		Texture texture_diffuse;
 		Texture texture_normal;
 		Texture texture_specular;
@@ -120,6 +119,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct MaterialData : Material {
+			VkDescriptorSet dset;
 			std::string locator;
 		};
 
@@ -133,6 +133,7 @@ namespace SKENGINE_NAME_NS {
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		template <typename T>             using Uset = std::unordered_set<T>;
+		using DsetLayout = VkDescriptorSetLayout;
 		using ModelLookup       = Umap<std::string_view, ModelId>;
 		using MaterialLookup    = Umap<std::string_view, MaterialId>;
 		using ModelMap          = Umap<ModelId,          ModelData>;
@@ -148,6 +149,7 @@ namespace SKENGINE_NAME_NS {
 		static Renderer create(
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
+			DsetLayout material_dset_layout,
 			std::string_view filename_prefix,
 			ModelSupplierInterface&,
 			MaterialSupplierInterface& );
@@ -164,8 +166,8 @@ namespace SKENGINE_NAME_NS {
 		const ModelData* getModel   (ModelId) const noexcept;
 		void             eraseModel (ModelId) noexcept;
 
-		MaterialId      getMaterialId (std::string_view locator);
-		const Material* getMaterial   (MaterialId) const noexcept;
+		MaterialId          getMaterialId (std::string_view locator);
+		const MaterialData* getMaterial   (MaterialId) const noexcept;
 
 		auto     getDrawBatches       () const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
 		VkBuffer getInstanceBuffer    () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
@@ -194,6 +196,10 @@ namespace SKENGINE_NAME_NS {
 		UnboundBatchMap  mUnboundDrawBatches;
 		BatchList        mDrawBatchList;
 		ModelDepCounters mModelDepCounters;
+		DsetLayout       mDsetLayout;
+		VkDescriptorPool mDpool;
+		size_t           mDpoolSize;
+		size_t           mDpoolCapacity;
 		vkutil::BufferDuplex mObjectBuffer;
 		vkutil::BufferDuplex mBatchBuffer;
 		std::string mFilenamePrefix;
@@ -220,6 +226,7 @@ namespace SKENGINE_NAME_NS {
 		static WorldRenderer create(
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
+			DsetLayout material_dset_layout,
 			std::string_view filename_prefix,
 			ModelSupplierInterface&,
 			MaterialSupplierInterface& );
