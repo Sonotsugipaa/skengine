@@ -124,11 +124,10 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct ModifiableObject {
-			#define MK_REF_(M_) decltype(Object::M_)& M_;
-			MK_REF_(position_xyz)
-			MK_REF_(direction_ypr)
-			MK_REF_(scale_xyz)
-			#undef MK_REF_
+			std::span<BoneInstance> bones;
+			glm::vec3& position_xyz;
+			glm::vec3& direction_ypr;
+			glm::vec3& scale_xyz;
 		};
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;

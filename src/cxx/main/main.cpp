@@ -99,11 +99,14 @@ namespace {
 			}
 		}
 
+
 		SKENGINE_NAME_NS_SHORT::LoopInterface::LoopState loop_pollState() const noexcept override {
 			return active? LoopState::eShouldContinue : LoopState::eShouldStop;
 		}
 
+
 		void loop_async_preRender(tickreg::delta_t, tickreg::delta_t) override { }
+
 
 		void loop_async_postRender(tickreg::delta_t avg_delta, tickreg::delta_t last_delta) override {
 			auto  ca = engine->getConcurrentAccess();

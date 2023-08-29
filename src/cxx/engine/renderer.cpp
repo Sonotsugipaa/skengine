@@ -412,11 +412,12 @@ namespace SKENGINE_NAME_NS {
 			mObjectUpdates.insert(id);
 			mObjectsNeedFlush = true;
 			return ModifiableObject {
+				.bones = std::span<BoneInstance>(found->second.second),
 				.position_xyz  = found->second.first.position_xyz,
 				.direction_ypr = found->second.first.direction_ypr,
 				.scale_xyz     = found->second.first.scale_xyz };
 		}
-		return { };
+		return std::nullopt;
 	}
 
 
