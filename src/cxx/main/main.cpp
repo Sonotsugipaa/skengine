@@ -120,7 +120,7 @@ int main() {
 
 	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
 	prefs.init_present_extent   = { 700, 700 };
-	prefs.max_render_extent     = { 0, 200 };
+	prefs.max_render_extent     = { 0, 300 };
 	prefs.asset_filename_prefix = "assets/";
 	prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
 	prefs.target_framerate      = 60.0;

@@ -23,6 +23,7 @@ layout(location = 0) in vec4 frg_col;
 layout(location = 1) in vec2 frg_tex;
 layout(location = 2) in mat3 frg_tbn;
 layout(location = 5) in vec3 frg_viewspace_lightdir;
+layout(location = 6) in vec3 frg_nrm;
 
 layout(location = 0) out vec4 out_col;
 
@@ -39,8 +40,9 @@ void main() {
 	vec3 tex_nrm_viewspace = frg_tbn * tex_nrm;
 
 	float lighting = dot(tex_nrm_viewspace, frg_viewspace_lightdir);
+	if(0.0 > dot(frg_nrm, frg_viewspace_lightdir)) lighting = 0;
 	//lighting = round(lighting * 12) / 12;
-	lighting = min(lighting, 1);
+	lighting = clamp(lighting, 0, 1);
 
 	out_col.rgb =
 		(tex_dfs.rgb * frg_col.rgb * lighting) +

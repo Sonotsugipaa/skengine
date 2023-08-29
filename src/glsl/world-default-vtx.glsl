@@ -27,6 +27,7 @@ layout(location = 0) out vec4 frg_col;
 layout(location = 1) out vec2 frg_tex;
 layout(location = 2) out mat3 frg_tbn;
 layout(location = 5) out vec3 frg_viewspace_lightdir;
+layout(location = 6) out vec3 frg_nrm;
 
 
 
@@ -52,6 +53,8 @@ void main() {
 		viewspace_tanu,
 		viewspace_tanv,
 		viewspace_tanw )));
+
+	frg_nrm = normalize(view3 * obj_transf3 * in_nrm);
 
 	vec3 worldspace_lightpos = vec3(2, 1, 5);
 	vec3 viewspace_lightpos  = view3 * worldspace_lightpos;
