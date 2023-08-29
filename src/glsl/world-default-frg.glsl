@@ -40,8 +40,11 @@ void main() {
 
 	float lighting = dot(tex_nrm_viewspace, frg_viewspace_lightdir);
 	//lighting = round(lighting * 12) / 12;
+	lighting = min(lighting, 1);
 
-	out_col.rgb = tex_dfs.rgb * frg_col.rgb * lighting;
+	out_col.rgb =
+		(tex_dfs.rgb * frg_col.rgb * lighting) +
+		(tex_emi.rgb * (1 - lighting));
 	out_col.a   = frg_col.a;
 }
 
