@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include "engine.hpp"
+#include "enum_class_gen.inl.hpp"
 
 #include <bit>
 #include <cassert>
@@ -162,21 +163,6 @@ namespace SKENGINE_NAME_NS {
 			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
 			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
-		}
-
-
-		template <typename T>
-		concept ScopedEnum = requires(T t) {
-			requires std::integral<std::underlying_type_t<T>>;
-		};
-
-
-		template <typename T>
-		T generate_id() {
-			using int_t = std::underlying_type_t<T>;
-			static std::atomic<int_t> last = 0;
-			int_t r = last.fetch_add(1, std::memory_order_relaxed);
-			return T(r);
 		}
 
 
@@ -640,8 +626,8 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		std::mt19937 rng;
-		auto         dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
+		std::minstd_rand rng;
+		auto             dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
 		auto* objects = mObjectBuffer.mappedPtr<dev::Instance>();
 		mDrawBatchList.clear();
 
@@ -650,7 +636,7 @@ namespace SKENGINE_NAME_NS {
 				const Bone&              bone,     bone_id_e bone_idx,
 				uint32_t obj_buffer_index
 		) {
-			bool erased_from_updates = mObjectUpdates.erase(obj_id);
+			auto erased_from_updates = mObjectUpdates.erase(obj_id);
 			if(! mObjectsNeedRebuild) { // Check if the object update is needed, but rebuild it anyway if the buffer is OOD
 				if(0 == erased_from_updates) return;
 			}

@@ -149,10 +149,19 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void validate_prefs(EnginePreferences& prefs) {
+		#define MAX_(M_, MAX_) { prefs.M_ = std::max<decltype(EnginePreferences::M_)>(MAX_, prefs.M_); }
+		MAX_(shade_step_count,      0)
+		MAX_(shade_step_smoothness, 0)
+		#undef MAX_
+	}
+
+
 	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
 	void Engine::RpassInitializer::init(const RpassConfig& rc) {
 		mRpassConfig = rc;
 		mSwapchainOod = false;
+		validate_prefs(mPrefs);
 		State state = { };
 		initSurface();
 		initSwapchain(state);
@@ -168,6 +177,8 @@ namespace SKENGINE_NAME_NS {
 
 		State state = { };
 		state.reinit = true;
+
+		validate_prefs(mPrefs);
 
 		VkExtent2D old_render_xt  = mRenderExtent;
 		VkExtent2D old_present_xt = mPresentExtent;
@@ -268,7 +279,7 @@ namespace SKENGINE_NAME_NS {
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
 
-		mProjTransf = glm::perspective(
+		mProjTransf = glm::perspective<float>(
 			mPrefs.fov_y,
 			float(mRenderExtent.width) / float(mRenderExtent.height),
 			mPrefs.z_near, mPrefs.z_far );
@@ -370,13 +381,15 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::initGframes(State& state) {
+		uint32_t light_storage_capacity = mWorldRenderer.lightStorage().bufferCapacity;
+
 		vkutil::BufferCreateInfo ubo_bc_info = {
 			.size  = sizeof(dev::FrameUniform),
 			.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			.qfamSharing = { } };
 		vkutil::BufferCreateInfo light_storage_bc_info = {
-			.size  = 1 /* tmp */ * sizeof(dev::RayLight),
-			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			.size  = light_storage_capacity * sizeof(dev::Light),
+			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			.qfamSharing = { } };
 
 		ssize_t missing = ssize_t(mPrefs.max_concurrent_frames) - ssize_t(mGframes.size());
@@ -400,6 +413,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorBufferInfo frame_db_info = { };
 		frame_db_info.range = VK_WHOLE_SIZE;
 		VkDescriptorBufferInfo light_db_info = frame_db_info;
+		light_db_info.range = light_storage_bc_info.size;
 		VkWriteDescriptorSet dset_wr[2];
 		dset_wr[FRAME_UBO_BINDING] = { };
 		dset_wr[FRAME_UBO_BINDING].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -417,7 +431,7 @@ namespace SKENGINE_NAME_NS {
 		ic_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		ic_info.samples = VK_SAMPLE_COUNT_1_BIT;
 		ic_info.tiling  = VK_IMAGE_TILING_OPTIMAL;
-		ic_info.qfamSharing  = { };
+		ic_info.qfamSharing = { };
 		ic_info.arrayLayers = 1;
 		ic_info.mipLevels   = 1;
 		vkutil::AllocationCreateInfo ac_info = { };
@@ -437,7 +451,9 @@ namespace SKENGINE_NAME_NS {
 			gf.cmd_draw    = cmd[1];
 
 			gf.frame_ubo     = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
-			gf.light_storage = vkutil::BufferDuplex::createStorageBuffer(mVma, light_storage_bc_info, vkutil::HostAccess::eWr);
+			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(mVma, light_storage_bc_info);
+			gf.light_storage_capacity = light_storage_capacity;
+			gf.light_storage_last_update_counter = mWorldRenderer.lightStorage().updateCounter;
 
 			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
 			for(auto& wr : dset_wr) wr.dstSet = gf.frame_dset;
@@ -611,7 +627,7 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
 
 			VK_CHECK(vkFreeDescriptorSets, mDevice, mGframeDescPool, 1, &gf.frame_dset);
-			vkutil::BufferDuplex::destroy(mVma, gf.light_storage);
+			vkutil::ManagedBuffer::destroy(mVma, gf.light_storage);
 			vkutil::BufferDuplex::destroy(mVma, gf.frame_ubo);
 
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);

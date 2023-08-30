@@ -43,6 +43,43 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
+	static void prepareLightStorage(Engine& e, VkCommandBuffer cmd, GframeData& gf) {
+		auto& ls = e.mWorldRenderer.lightStorage();
+
+		bool buffer_resized = gf.light_storage_capacity != ls.bufferCapacity;
+		if(buffer_resized) {
+			vkutil::ManagedBuffer::destroy(e.mVma, gf.light_storage);
+			gf.light_storage_capacity = 0;
+
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
+			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(e.mVma, bc_info);
+
+			VkDescriptorBufferInfo db_info = { };
+			db_info.buffer = gf.light_storage;
+			db_info.range  = bc_info.size;
+			VkWriteDescriptorSet wr = { };
+			wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			wr.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			wr.descriptorCount = 1;
+			wr.dstSet     = gf.frame_dset;
+			wr.dstBinding = LIGHT_STORAGE_BINDING;
+			wr.pBufferInfo = &db_info;
+			vkUpdateDescriptorSets(e.mDevice, 1, &wr, 0, nullptr);
+
+			gf.light_storage_capacity = bc_info.size;
+		}
+
+		if(buffer_resized || (ls.updateCounter != gf.light_storage_last_update_counter)) {
+			VkBufferCopy cp = { };
+			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
+			vkCmdCopyBuffer(cmd, ls.buffer.value, gf.light_storage, 1, &cp);
+			gf.light_storage_last_update_counter = ls.updateCounter;
+		}
+	}
+
+
 	static void recordRendererDrawCommands(
 			Engine& e,
 			VkCommandBuffer cmd,
@@ -133,18 +170,26 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		{ // Prepare the gframe buffers
 			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
+			auto& ls   = e.mWorldRenderer.lightStorage();
 			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
 			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
-			ubo.proj_transf     = e.mProjTransf;
-			ubo.view_transf     = e.mWorldRenderer.getViewTransf();
-			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
-			ubo.rnd             = dist(rng);
-			ubo.time_delta      = e.mGraphicsReg.lastDelta();
+			ubo.proj_transf       = e.mProjTransf;
+			ubo.view_transf       = e.mWorldRenderer.getViewTransf();
+			ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
+			ubo.shade_step_count  = e.mPrefs.shade_step_count;
+			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
+			ubo.shade_step_exp    = e.mPrefs.shade_step_exponent;
+			ubo.rnd               = dist(rng);
+			ubo.time_delta        = std::float32_t(e.mGraphicsReg.lastDelta());
+			ubo.ray_light_count   = ls.rayCount;
+			ubo.point_light_count = ls.pointCount;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			{ // Synchronously commit the renderers
 				e.mRendererMutex.lock();
 				e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
 			}
+			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 		}
 
 		VkImageMemoryBarrier imb[2] = { };
@@ -362,13 +407,16 @@ namespace SKENGINE_NAME_NS {
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
-		.fov_y            = glm::radians(110.0f),
-		.z_near           = 1.0f / float(1 << 4),
-		.z_far            = float(1 << 10),
-		.upscale_factor   = 1.0f,
-		.target_framerate = 60.0f,
-		.target_tickrate  = 60.0f,
-		.fullscreen       = false
+		.fov_y                 = glm::radians(110.0f),
+		.z_near                = 1.0f / float(1 << 6),
+		.z_far                 = float(1 << 10),
+		.shade_step_count      = 0,
+		.shade_step_smoothness = 0.0f,
+		.shade_step_exponent   = 1.0f,
+		.upscale_factor        = 1.0f,
+		.target_framerate      = 60.0f,
+		.target_tickrate       = 60.0f,
+		.fullscreen            = false
 	};
 
 

@@ -3,6 +3,7 @@
 #include <vector>
 #include <type_traits>
 #include <cstdint>
+#include <stdfloat>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -86,33 +87,49 @@ namespace SKENGINE_NAME_NS {
 		struct Instance {
 			ALIGNF32(1) glm::mat4 model_transf;
 			ALIGNF32(1) glm::vec4 color_mul;
-			ALIGNF32(1) float     rnd;
+			ALIGNF32(1) std::float32_t rnd;
 		};
 
+
+		struct Light {
+			ALIGNF32(4) glm::vec4 m0;
+			ALIGNF32(1) std::float32_t m1;
+			ALIGNF32(1) std::float32_t m2;
+			ALIGNF32(1) std::float32_t m3;
+			ALIGNF32(1) std::float32_t m4;
+		};
 
 		struct RayLight {
-			ALIGNF32(1) glm::vec4 direction;
-			ALIGNF32(1) float     intensity;
-			ALIGNF32(1) float     falloff_exp;
+			ALIGNF32(4) glm::vec4 direction;
+			ALIGNF32(1) std::float32_t intensity;
+			ALIGNF32(1) std::float32_t m2_unused;
+			ALIGNF32(1) std::float32_t m3_unused;
+			ALIGNF32(1) std::float32_t m4_unused;
 		};
+		static_assert(std::is_layout_compatible_v<Light, RayLight> && sizeof(Light) == sizeof(RayLight));
 
 		struct PointLight {
-			ALIGNF32(1) glm::vec4 position;
-			ALIGNF32(1) float     intensity;
-			ALIGNF32(1) float     falloff_exp;
+			ALIGNF32(4) glm::vec4 position;
+			ALIGNF32(1) std::float32_t intensity;
+			ALIGNF32(1) std::float32_t falloff_exp;
+			ALIGNF32(1) std::float32_t m3_unused;
+			ALIGNF32(1) std::float32_t m4_unused;
 		};
-
-		static_assert(std::is_layout_compatible_v<RayLight, PointLight>);
+		static_assert(std::is_layout_compatible_v<Light, PointLight> && sizeof(Light) == sizeof(PointLight));
 
 
 		struct FrameUniform {
 			ALIGNF32(1) glm::mat4 projview_transf;
 			ALIGNF32(1) glm::mat4 proj_transf;
 			ALIGNF32(1) glm::mat4 view_transf;
+			ALIGNF32(1) glm::vec4 view_pos;
 			ALIGNI32(1) uint32_t  ray_light_count;
 			ALIGNI32(1) uint32_t  point_light_count;
-			ALIGNF32(1) float     rnd;
-			ALIGNF32(1) float     time_delta;
+			ALIGNF32(1) uint32_t  shade_step_count;
+			ALIGNF32(1) std::float32_t shade_step_smooth;
+			ALIGNF32(1) std::float32_t shade_step_exp;
+			ALIGNF32(1) std::float32_t rnd;
+			ALIGNF32(1) std::float32_t time_delta;
 		};
 
 

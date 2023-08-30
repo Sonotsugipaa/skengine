@@ -245,8 +245,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initRenderer() {
-		#warning "make the mesh cache configurable"
-		mAssetSupplier = AssetSupplier(*this, 0.2f);
+		mAssetSupplier = AssetSupplier(*this, 0.125f);
 		mWorldRenderer = WorldRenderer::create(
 			std::make_shared<spdlog::logger>(logger()),
 			mVma,

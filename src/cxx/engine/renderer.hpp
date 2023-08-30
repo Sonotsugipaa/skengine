@@ -155,9 +155,9 @@ namespace SKENGINE_NAME_NS {
 
 		static void destroy(Renderer&);
 
-		ObjectId createObject (const NewObject&);
-		void     removeObject (ObjectId) noexcept;
-		void     clearObjects () noexcept;
+		[[nodiscard]] ObjectId createObject (const NewObject&);
+		void                   removeObject (ObjectId) noexcept;
+		void                   clearObjects () noexcept;
 		std::optional<const Object*>    getObject    (ObjectId) const noexcept;
 		std::optional<ModifiableObject> modifyObject (ObjectId) noexcept;
 
@@ -174,7 +174,7 @@ namespace SKENGINE_NAME_NS {
 
 		/// \returns `true` only if any command was recorded into the command buffer parameter.
 		///
-		bool commitObjects(VkCommandBuffer);
+		virtual bool commitObjects(VkCommandBuffer);
 
 		void reserve(size_t capacity);
 		void shrinkToFit();
@@ -219,8 +219,31 @@ namespace SKENGINE_NAME_NS {
 	///
 	class WorldRenderer : public Renderer {
 	public:
-		WorldRenderer() = default;
+		struct LightStorage {
+			vkutil::ManagedBuffer buffer;
+			dev::Light*           mappedPtr;
+			uint_fast32_t updateCounter;
+			uint32_t      bufferCapacity;
+			uint32_t      rayCount;
+			uint32_t      pointCount;
+		};
 
+		struct NewRayLight {
+			glm::vec3 direction;
+			float     intensity;
+		};
+
+		struct NewPointLight {
+			glm::vec3 position;
+			float     intensity;
+			float     falloffExponent;
+		};
+
+		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
+		using RayLights   = Umap<ObjectId, dev::RayLight>;
+		using PointLights = Umap<ObjectId, dev::PointLight>;
+
+		WorldRenderer() = default;
 
 		static WorldRenderer create(
 			std::shared_ptr<spdlog::logger>,
@@ -242,11 +265,27 @@ namespace SKENGINE_NAME_NS {
 		void rotate           (const glm::vec3& ypr) noexcept; ///< Similar to `WorldRenderer::setViewRotation`, but it's relative to the current position and rotation.
 		void rotateTowards    (const glm::vec3& xyz) noexcept; ///< Similar to `WorldRenderer::setViewDirection`, but it's relative to the current position.
 
+		[[nodiscard]] ObjectId createRayLight   (const NewRayLight&);
+		[[nodiscard]] ObjectId createPointLight (const NewPointLight&);
+		void                   removeLight      (ObjectId);
+		const dev::RayLight&   getRayLight      (ObjectId) const;
+		const dev::PointLight& getPointLight    (ObjectId) const;
+		dev::RayLight&         modifyRayLight   (ObjectId);
+		dev::PointLight&       modifyPointLight (ObjectId);
+
+		const LightStorage& lightStorage() const noexcept { return mLightStorage; };
+
+		bool commitObjects(VkCommandBuffer) override;
+
 	private:
+		RayLights    mRayLights;
+		PointLights  mPointLights;
+		LightStorage mLightStorage;
 		glm::mat4 mViewTransfCache;
 		glm::vec3 mViewPosXyz;
 		glm::vec3 mViewDirYpr;
-		bool      mViewTransfCacheOod;
+		bool      mViewTransfCacheOod : 1;
+		bool      mLightStorageOod    : 1;
 
 		WorldRenderer(Renderer&&);
 	};

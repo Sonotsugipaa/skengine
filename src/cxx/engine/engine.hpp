@@ -92,14 +92,17 @@ namespace SKENGINE_NAME_NS {
 		spdlog::level::level_enum       log_level;
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
-		uint32_t max_concurrent_frames;
-		float    fov_y;
-		float    z_near;
-		float    z_far;
-		float    upscale_factor;
-		float    target_framerate;
-		float    target_tickrate;
-		bool     fullscreen;
+		uint32_t       max_concurrent_frames;
+		std::float32_t fov_y;
+		std::float32_t z_near;
+		std::float32_t z_far;
+		uint32_t       shade_step_count;
+		std::float32_t shade_step_smoothness;
+		std::float32_t shade_step_exponent;
+		std::float32_t upscale_factor;
+		std::float32_t target_framerate;
+		std::float32_t target_tickrate;
+		bool           fullscreen;
 	};
 
 
@@ -133,9 +136,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct GframeData {
-		VkDescriptorSet      frame_dset;
-		vkutil::BufferDuplex frame_ubo;
-		vkutil::BufferDuplex light_storage;
+		VkDescriptorSet       frame_dset;
+		vkutil::BufferDuplex  frame_ubo;
+		vkutil::ManagedBuffer light_storage;
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
 		VkImageView atch_color_view;
@@ -149,6 +152,8 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_draw;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
+		uint_fast32_t light_storage_last_update_counter;
+		uint32_t      light_storage_capacity;
 	};
 
 
