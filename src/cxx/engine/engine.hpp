@@ -189,7 +189,7 @@ namespace SKENGINE_NAME_NS {
 		using MissingMaterials = std::unordered_set<std::string>;
 
 		AssetSupplier(): as_engine(nullptr) { }
-		AssetSupplier(Engine& engine, float max_inactive_ratio);
+		AssetSupplier(Engine& engine, std::string_view filename_prefix, float max_inactive_ratio);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy();
@@ -211,7 +211,8 @@ namespace SKENGINE_NAME_NS {
 		Materials as_inactiveMaterials;
 		Material  as_fallbackMaterial;
 		MissingMaterials as_missingMaterials;
-		float as_maxInactiveRatio;
+		std::string as_filenamePrefix;
+		float       as_maxInactiveRatio;
 	};
 
 

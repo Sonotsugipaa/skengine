@@ -245,12 +245,11 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initRenderer() {
-		mAssetSupplier = AssetSupplier(*this, 0.125f);
+		mAssetSupplier = AssetSupplier(*this, mPrefs.asset_filename_prefix, 0.125f);
 		mWorldRenderer = WorldRenderer::create(
 			std::make_shared<spdlog::logger>(logger()),
 			mVma,
 			mMaterialDsetLayout,
-			mPrefs.asset_filename_prefix,
 			mAssetSupplier,
 			mAssetSupplier );
 	}

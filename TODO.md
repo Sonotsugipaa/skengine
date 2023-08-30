@@ -8,9 +8,6 @@
       a sensible vec3
   - Make `WorldRenderer::modifyLight` like `WorldRenderer::modifyObject`,
     and similar stuff (this is easy)
-  - Make materials share textures instead of loading the same one multiple times
-    - As things are currently, texture filenames **will** be relative to
-      the working directory and nothing else.
   - Fragment shader point light computations are highly unoptimized
   - Integrate cleanup queues
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation

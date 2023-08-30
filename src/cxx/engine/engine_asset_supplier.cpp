@@ -15,17 +15,15 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
-		VkFormat format_from_locator(std::string_view locator, bool use_signed_fmt) {
-			#define SIGN_(F_) (use_signed_fmt? F_ ## _SNORM : F_ ## _UNORM)
+		VkFormat format_from_locator(std::string_view locator) {
 			size_t sz = locator.size();
-			if(0 == locator.compare(sz-9,  9,  ".fmat.r8u"))     return SIGN_(VK_FORMAT_R8);
-			if(0 == locator.compare(sz-10, 10, ".fmat.ra8u"))    return SIGN_(VK_FORMAT_R8G8);
-			if(0 == locator.compare(sz-11, 11, ".fmat.rgb8u"))   return SIGN_(VK_FORMAT_R8G8B8);
-			if(0 == locator.compare(sz-12, 12, ".fmat.rgba8u"))  return SIGN_(VK_FORMAT_R8G8B8A8);
-			if(0 == locator.compare(sz-13, 13, ".fmat.rgba16u")) return SIGN_(VK_FORMAT_R16G16B16A16);
+			if(0 == locator.compare(sz-9,  9,  ".fmat.r8u"))     return VK_FORMAT_R8_UNORM;
+			if(0 == locator.compare(sz-10, 10, ".fmat.ra8u"))    return VK_FORMAT_R8G8_UNORM;
+			if(0 == locator.compare(sz-11, 11, ".fmat.rgb8u"))   return VK_FORMAT_R8G8B8_UNORM;
+			if(0 == locator.compare(sz-12, 12, ".fmat.rgba8u"))  return VK_FORMAT_R8G8B8A8_UNORM;
+			if(0 == locator.compare(sz-13, 13, ".fmat.rgba16u")) return VK_FORMAT_R16G16B16A16_UNORM;
 			if(0 == locator.compare(sz-13, 13, ".fmat.rgba16f")) return VK_FORMAT_R16G16B16A16_SFLOAT;
 			if(0 == locator.compare(sz-13, 13, ".fmat.rgba32u")) return VK_FORMAT_R32G32B32A32_SFLOAT;
-			#undef SIGN_
 			return VK_FORMAT_UNDEFINED;
 		}
 
@@ -146,7 +144,6 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // End and submit the buffer
-				#warning "TODO: try and remove the fences, barriers should synchronize anyway"
 				VK_CHECK(vkEndCommandBuffer, cmd);
 				VkFence fence;
 				VkFenceCreateInfo fc_info = { };
@@ -196,7 +193,6 @@ namespace SKENGINE_NAME_NS {
 		auto create_texture_from_file(
 				Engine& e,
 				Material::Texture* dst,
-				bool               use_signed_fmt,
 				const char*        locator
 		) {
 			using posixfio::MemProtFlags;
@@ -212,7 +208,7 @@ namespace SKENGINE_NAME_NS {
 
 			std::string_view locator_sv = locator;
 
-			VkFormat fmt = format_from_locator(locator_sv, use_signed_fmt);
+			VkFormat fmt = format_from_locator(locator_sv);
 			if(fmt == VK_FORMAT_UNDEFINED) {
 				e.logger().error(FAILED_PRE_ "bad format/extension", locator_sv);
 				return fail;
@@ -298,8 +294,9 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	AssetSupplier::AssetSupplier(Engine& e, float max_inactive_ratio):
+	AssetSupplier::AssetSupplier(Engine& e, std::string_view filename_prefix, float max_inactive_ratio):
 			as_engine(&e),
+			as_filenamePrefix(filename_prefix),
 			as_maxInactiveRatio(max_inactive_ratio)
 	{
 		create_fallback_mat(e, &as_fallbackMaterial);
@@ -315,6 +312,7 @@ namespace SKENGINE_NAME_NS {
 			MV_(as_inactiveMaterials),
 			MV_(as_fallbackMaterial),
 			MV_(as_missingMaterials),
+			MV_(as_filenamePrefix),
 			MV_(as_maxInactiveRatio)
 			#undef MV_
 	{
@@ -351,10 +349,14 @@ namespace SKENGINE_NAME_NS {
 
 
 	DevModel AssetSupplier::msi_requestModel(std::string_view locator) {
-		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeModels.find(locator_s);
-		auto        vma       = as_engine->getVmaAllocator();
+		auto vma = as_engine->getVmaAllocator();
 
+		std::string locator_s;
+		locator_s.reserve(as_filenamePrefix.size() + locator.size());
+		locator_s.append(as_filenamePrefix);
+		locator_s.append(locator);
+
+		auto existing = as_activeModels.find(locator_s);
 		if(existing != as_activeModels.end()) {
 			return existing->second;
 		}
@@ -428,10 +430,14 @@ namespace SKENGINE_NAME_NS {
 
 
 	void AssetSupplier::msi_releaseModel(std::string_view locator) noexcept {
-		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeModels.find(locator_s);
-		auto        vma       = as_engine->getVmaAllocator();
+		auto vma = as_engine->getVmaAllocator();
 
+		std::string locator_s;
+		locator_s.reserve(as_filenamePrefix.size() + locator.size());
+		locator_s.append(as_filenamePrefix);
+		locator_s.append(locator);
+
+		auto existing = as_activeModels.find(locator_s);
 		if(existing != as_activeModels.end()) {
 			// Move to the inactive map
 			as_inactiveModels.insert(*existing);
@@ -458,9 +464,12 @@ namespace SKENGINE_NAME_NS {
 
 
 	Material AssetSupplier::msi_requestMaterial(std::string_view locator) {
-		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeMaterials.find(locator_s);
+		std::string locator_s;
+		locator_s.reserve(as_filenamePrefix.size() + locator.size());
+		locator_s.append(as_filenamePrefix);
+		locator_s.append(locator);
 
+		auto existing = as_activeMaterials.find(locator_s);
 		if(existing != as_activeMaterials.end()) {
 			return existing->second;
 		}
@@ -497,14 +506,13 @@ namespace SKENGINE_NAME_NS {
 					Material::Texture& dst,
 					const Material::Texture& fallback,
 					mf_ec        flag,
-					bool         use_signed_fmt,
 					fmamdl::u8_t fma_value,
 					const char*  name
 			) {
 				if(flags & mf_e(flag)) {
 					using fmamdl::u4_t;
 					using fmamdl::u8_t;
-					auto fmt    = use_signed_fmt? VK_FORMAT_R8G8B8A8_SNORM : VK_FORMAT_R8G8B8A8_UNORM;
+					auto fmt    = VK_FORMAT_R8G8B8A8_UNORM;
 					auto value4 = // Convert from P1111U1111 to U1111, since type punning is not a valid option here
 						((u4_t(fma_value >> u8_t(24)) & u4_t(0xff)) << u4_t(24)) |
 						((u4_t(fma_value >> u8_t(16)) & u4_t(0xff)) << u4_t(16)) |
@@ -519,22 +527,26 @@ namespace SKENGINE_NAME_NS {
 						(value4 >> u4_t(16)) & u4_t(0xff),
 						(value4 >> u4_t(24)) & u4_t(0xff) );
 				} else {
-					auto texture_file = h.getCstring(fma_value);
-					auto res = create_texture_from_file(*as_engine, &dst, use_signed_fmt, texture_file);
+					auto texture_name = h.getStringView(fma_value);
+					std::string texture_filename;
+					texture_filename.reserve(as_filenamePrefix.size() + texture_name.size());
+					texture_filename.append(as_filenamePrefix);
+					texture_filename.append(texture_name);
+					auto res = create_texture_from_file(*as_engine, &dst, texture_filename.c_str());
 					if(res.success) {
-						log.info("Loaded {} texture from \"{}\" ({}x{})", name, texture_file, res.width, res.height);
+						log.info("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, res.width, res.height);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
-						log.warn("Failed to load {} texture \"{}\", using fallback", name, texture_file);
+						log.warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
 					}
 				}
 			};
-			#define LOAD_(T_, F_, S_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, S_, h.T_ ## Texture(), #T_);
-			LOAD_(diffuse,  mf_ec::eDiffuseInlinePixel,  false)
-			LOAD_(normal,   mf_ec::eNormalInlinePixel,   false)
-			LOAD_(specular, mf_ec::eSpecularInlinePixel, false)
-			LOAD_(emissive, mf_ec::eEmissiveInlinePixel, false)
+			#define LOAD_(T_, F_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, h.T_ ## Texture(), #T_);
+			LOAD_(diffuse,  mf_ec::eDiffuseInlinePixel)
+			LOAD_(normal,   mf_ec::eNormalInlinePixel)
+			LOAD_(specular, mf_ec::eSpecularInlinePixel)
+			LOAD_(emissive, mf_ec::eEmissiveInlinePixel)
 			#undef LOAD_
 
 			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
@@ -554,12 +566,16 @@ namespace SKENGINE_NAME_NS {
 
 
 	void AssetSupplier::msi_releaseMaterial(std::string_view locator) noexcept {
-		std::string locator_s = std::string(locator);
-		auto        existing  = as_activeMaterials.find(locator_s);
-		auto        missing   = decltype(as_missingMaterials)::iterator();
-		auto        dev       = as_engine->getDevice();
-		auto        vma       = as_engine->getVmaAllocator();
+		auto missing = decltype(as_missingMaterials)::iterator();
+		auto dev     = as_engine->getDevice();
+		auto vma     = as_engine->getVmaAllocator();
 
+		std::string locator_s;
+		locator_s.reserve(as_filenamePrefix.size() + locator.size());
+		locator_s.append(as_filenamePrefix);
+		locator_s.append(locator);
+
+		auto existing = as_activeMaterials.find(locator_s);
 		if(existing != as_activeMaterials.end()) {
 			// Move to the inactive map
 			as_inactiveMaterials.insert(*existing);

@@ -149,7 +149,6 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
 			DsetLayout material_dset_layout,
-			std::string_view filename_prefix,
 			ModelSupplierInterface&,
 			MaterialSupplierInterface& );
 
@@ -201,7 +200,6 @@ namespace SKENGINE_NAME_NS {
 		size_t           mDpoolCapacity;
 		vkutil::BufferDuplex mObjectBuffer;
 		vkutil::BufferDuplex mBatchBuffer;
-		std::string mFilenamePrefix;
 
 		bool   mBatchesNeedUpdate  : 1; // `true` when objects have been added or removed
 		bool   mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
@@ -249,7 +247,6 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
 			DsetLayout material_dset_layout,
-			std::string_view filename_prefix,
 			ModelSupplierInterface&,
 			MaterialSupplierInterface& );
 

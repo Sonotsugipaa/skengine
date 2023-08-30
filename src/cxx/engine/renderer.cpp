@@ -228,7 +228,6 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
 			DsetLayout dset_layout,
-			std::string_view filename_prefix,
 			ModelSupplierInterface&    mdl_si,
 			MaterialSupplierInterface& mat_si
 	) {
@@ -253,7 +252,6 @@ namespace SKENGINE_NAME_NS {
 		r.mObjectsNeedFlush   = true;
 		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
-		r.mFilenamePrefix = std::string(filename_prefix);
 		return r;
 	}
 
@@ -413,11 +411,7 @@ namespace SKENGINE_NAME_NS {
 		if(found_locator != mModelLocators.end()) {
 			return found_locator->second;
 		} else {
-			std::string filename;
-			filename.reserve(mFilenamePrefix.size() + locator.size());
-			filename.append(mFilenamePrefix);
-			filename.append(locator);
-			auto r = setModel(locator, mModelSupplier->msi_requestModel(filename));
+			auto r = setModel(locator, mModelSupplier->msi_requestModel(locator));
 			return r;
 		}
 	}
@@ -505,15 +499,10 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		std::string mdl_filename;
-		mdl_filename.reserve(mFilenamePrefix.size() + model_locator.size());
-		mdl_filename.append(mFilenamePrefix);
-		mdl_filename.append(model_locator);
-
 		mModelLocators.erase(model_locator);
 
 		mUnboundDrawBatches.erase(id);
-		mModelSupplier->msi_releaseModel(mdl_filename);
+		mModelSupplier->msi_releaseModel(model_locator);
 		mLogger->trace("Renderer: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 	}
@@ -525,11 +514,7 @@ namespace SKENGINE_NAME_NS {
 		if(found_locator != mMaterialLocators.end()) {
 			return found_locator->second;
 		} else {
-			std::string name;
-			name.reserve(mFilenamePrefix.size() + locator.size());
-			name.append(mFilenamePrefix);
-			name.append(locator);
-			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(name));
+			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(locator));
 		}
 	}
 
@@ -587,11 +572,7 @@ namespace SKENGINE_NAME_NS {
 
 		mMaterialLocators.erase(mat_data.locator);
 
-		std::string mat_filename;
-		mat_filename.reserve(mFilenamePrefix.size() + mat_data.locator.size());
-		mat_filename.append(mFilenamePrefix);
-		mat_filename.append(mat_data.locator);
-		mMaterialSupplier->msi_releaseMaterial(mat_filename);
+		mMaterialSupplier->msi_releaseMaterial(mat_data.locator);
 		mMaterials.erase(id);
 	}
 
