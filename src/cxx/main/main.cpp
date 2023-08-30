@@ -69,8 +69,8 @@ namespace {
 			o.scale_xyz = { 0.6f, 0.6f, 0.6f };
 			for(s_object_id_e x = -obj_count_sqrt; x < obj_count_sqrt; ++x)
 			for(s_object_id_e y = -obj_count_sqrt; y < obj_count_sqrt; ++y) {
-				float ox = x;
-				float oz = y;
+				float ox = x * 1.3f;
+				float oz = y * 1.3f;
 				o.position_xyz.x = ox;
 				o.position_xyz.z = oz;
 				o.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (obj_count_sqrt * obj_count_sqrt);

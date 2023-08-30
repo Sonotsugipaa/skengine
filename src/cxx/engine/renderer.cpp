@@ -631,12 +631,26 @@ namespace SKENGINE_NAME_NS {
 		auto* objects = mObjectBuffer.mappedPtr<dev::Instance>();
 		mDrawBatchList.clear();
 
+		std::vector<VkBufferCopy> copies;
+		if(mObjectsNeedFlush) {
+			copies.reserve(mObjectUpdates.size());
+		}
+
 		auto set_object = [&](
 				const Objects::iterator& obj_iter, ObjectId  obj_id,
 				const Bone&              bone,     bone_id_e bone_idx,
 				uint32_t obj_buffer_index
 		) {
 			auto erased_from_updates = mObjectUpdates.erase(obj_id);
+			if(0 == erased_from_updates) {
+				if(! mObjectsNeedRebuild) return;
+			} else {
+				VkDeviceSize offset = VkDeviceSize(obj_buffer_index) * sizeof(dev::Instance);
+				copies.push_back(VkBufferCopy {
+					.srcOffset = offset, .dstOffset = offset,
+					.size = sizeof(dev::Instance) });
+			}
+
 			if(! mObjectsNeedRebuild) { // Check if the object update is needed, but rebuild it anyway if the buffer is OOD
 				if(0 == erased_from_updates) return;
 			}
@@ -711,7 +725,9 @@ namespace SKENGINE_NAME_NS {
 			mBatchesNeedUpdate = false;
 		}
 
-		if(mObjectsNeedFlush) mObjectBuffer.flush(cmd, mVma);
+		if(mObjectsNeedFlush) {
+			mObjectBuffer.flush(cmd, mVma, std::span(copies));
+		}
 		mObjectsNeedFlush = false;
 
 		return true;

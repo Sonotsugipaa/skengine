@@ -3,7 +3,6 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
-  - Investigate what's up with view directions and signs and stuff
   - Separate the `dev::Light` types to obtain user-modifiable types
     - For example, `dev::PointLight` has a vec4 position instead of
       a sensible vec3
@@ -24,6 +23,7 @@
   - Implement `WorldRenderer::rotate` and `WorldRenderer::rotateTowards`
     - Optimize `WorldRenderer` rotation functions by doing old fashioned,
       matrix-on-paper math.
+  - Investigate what's up with view directions and signs and stuff
   - Try and simplify `AssetSupplier::msi_requestMaterial`
   - `WorldRenderer::getViewTransf` inverts the Z axis, because the
     glm clip-space is weird and Y is also inverted; find a way to do that
