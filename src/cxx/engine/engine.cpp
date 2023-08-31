@@ -423,7 +423,8 @@ namespace SKENGINE_NAME_NS {
 	constexpr auto regulator_params = tickreg::RegulatorParams {
 		.deltaTolerance     = 0.2,
 		.burstTolerance     = 0.05,
-		.compensationFactor = 0.0 };
+		.compensationFactor = 0.0,
+		.strategyMask       = tickreg::strategy_flag_t(tickreg::WaitStrategyFlags::eSleepUntil) };
 
 
 	Engine::Engine(
@@ -435,10 +436,12 @@ namespace SKENGINE_NAME_NS {
 		mGraphicsReg(
 			std::max<unsigned>(4, 8),
 			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
+			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
 		mLogicReg(
 			std::max<unsigned>(4, 8),
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
+			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
 		mGframeCounter(0),
 		mGframeSelector(0),

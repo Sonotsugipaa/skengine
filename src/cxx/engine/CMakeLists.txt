@@ -13,6 +13,8 @@ add_library(engine
 	engine_buffer.cpp
 	engine_create_pipeline.cpp
 	engine_asset_supplier.cpp
+	engine_asset_supplier_material.cpp
+	engine_asset_supplier_texture.cpp
 	engine_shader_cache.cpp )
 
 target_link_libraries(engine
