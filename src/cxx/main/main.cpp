@@ -129,6 +129,12 @@ namespace {
 		void loop_processEvents(tickreg::delta_t, tickreg::delta_t) override {
 			SDL_Event ev;
 
+			struct ResizeEvent {
+				uint32_t width;
+				uint32_t height;
+				bool triggered = false;
+			} resize_event;
+
 			// Consume events, but only the last one of each type; discard the rest
 			while(1 == SDL_PollEvent(&ev)) {
 				switch(ev.type) {
@@ -138,11 +144,13 @@ namespace {
 					case SDL_EventType::SDL_WINDOWEVENT:
 					switch(ev.window.event) {
 						case SDL_WINDOWEVENT_RESIZED:
-							engine->setPresentExtent({ uint32_t(ev.window.data1), uint32_t(ev.window.data2) });
+							resize_event = { uint32_t(ev.window.data1), uint32_t(ev.window.data2), true };
 							break;
 					} break;
 				}
 			}
+
+			if(resize_event.triggered) engine->setPresentExtent({ resize_event.width, resize_event.height });
 		}
 
 
@@ -159,8 +167,8 @@ namespace {
 			auto& wr = ca->world_renderer;
 
 			avg_delta = std::min(avg_delta, last_delta);
-			auto& pos  = wr.getViewPosition();
-			auto  dir  = wr.getViewRotation();
+			auto& pos = wr.getViewPosition();
+			auto  dir = wr.getViewRotation();
 
 			{ // Rotate the view
 				float sin = std::sin(dir.x);

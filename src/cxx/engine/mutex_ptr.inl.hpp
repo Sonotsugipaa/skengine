@@ -2,9 +2,6 @@
 
 #include <skengine_fwd.hpp>
 
-#include <boost/thread/mutex.hpp>
-#include <boost/interprocess/sync/scoped_lock.hpp>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -12,7 +9,7 @@ namespace SKENGINE_NAME_NS {
 	template <typename T>
 	class MutexAccess {
 	public:
-		using Lock = boost::interprocess::scoped_lock<boost::mutex>;
+		using Lock = std::unique_lock<std::mutex>;
 
 		MutexAccess() = default;
 		MutexAccess(T value, Lock::mutex_type& mutex): mp_value(std::move(value)), mp_lock(mutex) { }

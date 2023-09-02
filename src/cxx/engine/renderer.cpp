@@ -6,7 +6,7 @@
 #include <bit>
 #include <cassert>
 #include <atomic>
-#include <utility>
+#include <tuple>
 #include <type_traits>
 #include <random>
 
@@ -30,10 +30,11 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
-		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY    = 4;
-		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = OBJECT_MAP_INITIAL_CAPACITY;
-		constexpr size_t BATCH_MAP_INITIAL_CAPACITY     = 16;
-		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 2.0;
+		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY = 4;
+		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR  = OBJECT_MAP_INITIAL_CAPACITY;
+		constexpr size_t BATCH_MAP_INITIAL_CAPACITY  = 16;
+		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 2.0;
+		constexpr size_t MATRIX_WORKER_COUNT         = 4;
 
 
 		[[nodiscard]]
@@ -150,6 +151,7 @@ namespace SKENGINE_NAME_NS {
 			bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 			vkutil::AllocationCreateInfo ac_info = { };
 			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaFlags          = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
 			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
 		}
@@ -252,14 +254,59 @@ namespace SKENGINE_NAME_NS {
 		r.mObjectsNeedFlush   = true;
 		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
 		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
+
+		{ // Initialize the matrix assembler
+			auto thread_fn = [](decltype(r.mMatrixAssembler) ma, size_t thread_index) {
+				auto& worker = ma->workers[thread_index];
+				auto  lock   = std::unique_lock(worker.cond->mutex);
+
+				begin:
+				if(worker.queue.empty()) [[unlikely]] {
+					lock.unlock();
+					return;
+				}
+
+				for(auto& job : worker.queue) {
+					constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+					constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+					constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+					constexpr glm::mat4 identity = glm::mat4(1.0f);
+					auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
+						glm::mat4 translate = glm::translate (identity, pos);
+						glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
+						glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
+						glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
+						glm::mat4 scale     = glm::scale     (identity, scl);
+						return translate * rot0 * rot1 * rot2 * scale;
+					};
+					auto mat0 = mk_transf(job.positions[0], job.directions[0], job.scales[0]);
+					auto mat1 = mk_transf(job.positions[1], job.directions[1], job.scales[1]);
+					auto mat2 = mk_transf(job.positions[2], job.directions[2], job.scales[2]);
+					*job.dst = mat2 * mat1 * mat0;
+				}
+				worker.queue.clear();
+
+				worker.cond->consume_cond.notify_one();
+				worker.cond->produce_cond.wait(lock);
+
+				goto begin;
+			};
+
+			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
+			r.mMatrixAssembler->workers.reserve(MATRIX_WORKER_COUNT);
+			for(size_t i = 0; i < MATRIX_WORKER_COUNT; ++i) {
+				r.mMatrixAssembler->workers.emplace_back();
+				r.mMatrixAssembler->workers.back().cond->mutex.lock();
+				r.mMatrixAssembler->workers.back().thread = std::thread(thread_fn, r.mMatrixAssembler, i);
+			}
+		}
+
 		return r;
 	}
 
 
 	void Renderer::destroy(Renderer& r) {
-		#ifndef NDEBUG
-			assert(r.mDevice != nullptr);
-		#endif
+		assert(r.mDevice != nullptr);
 
 		r.clearObjects();
 		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
@@ -267,9 +314,17 @@ namespace SKENGINE_NAME_NS {
 
 		vkDestroyDescriptorPool(r.mDevice, r.mDpool, nullptr);
 
-		#ifndef NDEBUG
-			r.mDevice = nullptr;
-		#endif
+		{
+			for(auto& worker : r.mMatrixAssembler->workers) {
+				assert(worker.queue.empty());
+				worker.cond->produce_cond.notify_one();
+				worker.cond->mutex.unlock();
+			}
+			for(auto& worker : r.mMatrixAssembler->workers) worker.thread.join();
+			r.mMatrixAssembler = { };
+		}
+
+		r.mDevice = nullptr;
 	}
 
 
@@ -643,25 +698,18 @@ namespace SKENGINE_NAME_NS {
 			rng.seed(object_id_e(obj_id) ^ std::rotl(bone_idx, bone_id_digits / 2));
 
 			auto& obj = objects[obj_buffer_index];
-			auto& mat = obj.model_transf;
 			obj.rnd       = dist(rng);
 			obj.color_mul = bone_instance.color_rgba;
-			constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
-			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
-			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
-			constexpr glm::mat4 identity = glm::mat4(1.0f);
-			auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
-				glm::mat4 translate = glm::translate (identity, pos);
-				glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
-				glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
-				glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
-				glm::mat4 scale     = glm::scale     (identity, scl);
-				return translate * rot0 * rot1 * rot2 * scale;
-			};
-			auto mat0 = mk_transf(src_obj.first.position_xyz, src_obj.first.direction_ypr, src_obj.first.scale_xyz);
-			auto mat1 = mk_transf(bone.position_xyz,          bone.direction_ypr,          bone.scale_xyz);
-			auto mat2 = mk_transf(bone_instance.position_xyz, bone_instance.direction_ypr, bone_instance.scale_xyz);
-			mat = mat2 * mat1 * mat0;
+
+			{ // Enqueue a matrix assembly job
+				MatrixAssembler::Job job;
+				job.positions [0] = src_obj.first.position_xyz;  job.positions [1] = bone.position_xyz;  job.positions [2] = bone_instance.position_xyz;
+				job.directions[0] = src_obj.first.direction_ypr; job.directions[1] = bone.direction_ypr; job.directions[2] = bone_instance.direction_ypr;
+				job.scales    [0] = src_obj.first.scale_xyz;     job.scales    [1] = bone.scale_xyz;     job.scales    [2] = bone_instance.scale_xyz;
+				job.dst = &obj.model_transf;
+				auto& worker = mMatrixAssembler->workers[object_id_e(obj_id) % mMatrixAssembler->workers.size()];
+				worker.queue.push_back(job);
+			}
 		};
 
 		// Returns the number of objects set
@@ -701,6 +749,18 @@ namespace SKENGINE_NAME_NS {
 					}
 				}
 			}
+
+			{ // Wait for the matrix assembler
+				for(auto& worker : mMatrixAssembler->workers) {
+					if(! worker.queue.empty()) {
+						auto lock = std::unique_lock(worker.cond->mutex, std::adopt_lock_t());
+						worker.cond->produce_cond.notify_one();
+						worker.cond->consume_cond.wait(lock);
+						lock.release(); // The consumer thread always holds the mutex, unless waiting
+					}
+				}
+			}
+
 			mObjectsNeedRebuild = false;
 			commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
 			mBatchesNeedUpdate = false;

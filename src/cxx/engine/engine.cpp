@@ -126,7 +126,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
 		VkImage     sc_img;
-		auto        delta_avg = e.mGraphicsReg.estDelta();
+		auto        delta_avg  = e.mGraphicsReg.estDelta();
+		auto        delta_last = e.mGraphicsReg.lastDelta();
 
 		e.mGraphicsReg.beginCycle();
 
@@ -145,8 +146,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				case VK_SUCCESS:
 					break;
 				case VK_ERROR_OUT_OF_DATE_KHR:
+					e.logger().trace("Swapchain is  out of date");
+					return false;
 				case VK_SUBOPTIMAL_KHR:
-					e.logger().trace("Swapchain is suboptimal or out of date");
+					e.logger().trace("Swapchain is suboptimal");
 					return false;
 				case VK_TIMEOUT:
 					e.logger().trace("Swapchain image request timed out");
@@ -163,7 +166,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		loop.loop_async_preRender(delta_avg, e.mGraphicsReg.lastDelta());
+		loop.loop_async_preRender(delta_avg, delta_last);
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
@@ -181,7 +184,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
 			ubo.shade_step_exp    = e.mPrefs.shade_step_exponent;
 			ubo.rnd               = dist(rng);
-			ubo.time_delta        = std::float32_t(e.mGraphicsReg.lastDelta());
+			ubo.time_delta        = std::float32_t(delta_last);
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
@@ -360,33 +363,22 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		loop.loop_async_postRender(delta_avg, e.mGraphicsReg.lastDelta());
 
 		e.mGraphicsReg.endCycle();
-		e.mGraphicsReg.awaitNextTick();
 
 		return true;
 	}
 
 
-	static LoopInterface::LoopState runIteration(Engine& e, LoopInterface& loop) {
+	static LoopInterface::LoopState runLogicIteration(Engine& e, LoopInterface& loop) {
 		auto delta_avg = e.mLogicReg.estDelta();
 
 		e.mLogicReg.beginCycle();
 		loop.loop_processEvents(delta_avg, e.mLogicReg.lastDelta());
-
-		if(e.mGframeMutex.try_lock()) {
-			e.mLogicReg.beginCycle();
-			try {
-				draw(e, loop);
-				e.mGframeMutex.unlock();
-			} catch(...) {
-				e.mGframeMutex.unlock();
-				std::rethrow_exception(std::current_exception());
-			}
-			e.mLogicReg.endCycle();
-		}
-
 		e.mLogicReg.endCycle();
 
 		auto r = loop.loop_pollState();
+
+		e.mGframeResumeCond.notify_one();
+
 		e.mLogicReg.awaitNextTick();
 		return r;
 	}
@@ -544,23 +536,66 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::run(LoopInterface& loop) {
 		auto loop_state = loop.loop_pollState();
-		while(loop_state != LoopInterface::LoopState::eShouldStop) {
-			if(loop_state == LoopInterface::LoopState::eShouldDelay) {
-				logger().warn("Engine instructed to delay the loop, but the functionality isn't implemented yet");
-				std::this_thread::yield();
+		auto exception  = std::exception_ptr(nullptr);
+
+		auto handle_exception = [&]() {
+			auto lock = std::unique_lock(mGframeMutex);
+			loop_state = LoopInterface::LoopState::eShouldStop;
+			exception = std::current_exception();
+		};
+
+		auto graphics_thread = std::thread([&]() {
+			while(loop_state != LoopInterface::LoopState::eShouldStop) {
+				try {
+					{
+						auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
+						if(mGframePriorityOverride.exchange(false, std::memory_order_seq_cst)) [[unlikely]] {
+							lock.lock();
+							mGframeResumeCond.wait(lock);
+						} else {
+							lock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
+						}
+						bool swapchain_ood = ! Implementation::draw(*this, loop);
+						if(swapchain_ood) {
+							// Some compositors resize the window as soon as it appears, and this seems to cause problems
+							auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
+							init->reinit();
+						}
+						#warning "superfluous?"
+						lock.unlock();
+					}
+					mGraphicsReg.awaitNextTick();
+				} catch(...) {
+					handle_exception();
+				}
 			}
+		});
 
-			loop_state = Implementation::runIteration(*this, loop);
-
-			loop_state = loop.loop_pollState();
+		while(loop_state != LoopInterface::LoopState::eShouldStop) {
+			try {
+				loop_state = Implementation::runLogicIteration(*this, loop);
+			} catch(...) {
+				handle_exception();
+			}
 		}
 
+		assert(graphics_thread.joinable());
 		auto lock = pauseRenderPass();
+		mGframePriorityOverride.store(false, std::memory_order_seq_cst);
+		mGframeResumeCond.notify_one();
+		lock.unlock();
+		graphics_thread.join();
+
+		if(exception) {
+			std::rethrow_exception(exception);
+		}
 	}
 
 
-	scoped_lock Engine::pauseRenderPass() {
-		auto lock = boost::interprocess::scoped_lock<boost::mutex>(mGframeMutex);
+	std::unique_lock<std::mutex> Engine::pauseRenderPass() {
+		mGframePriorityOverride.store(true, std::memory_order_seq_cst);
+		auto lock = std::unique_lock(mGframeMutex);
+		mGframeResumeCond.notify_one();
 		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
 		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
 		VK_CHECK(vkDeviceWaitIdle, mDevice);
@@ -569,9 +604,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::setPresentExtent(VkExtent2D ext) {
-		mPrefs.init_present_extent = ext;
-
 		auto lock = pauseRenderPass();
+		mPrefs.init_present_extent = ext;
 
 		// Some compositors resize the window as soon as it appears, and this seems to cause problems
 		mGraphicsReg.resetEstimates(mPrefs.target_framerate);

@@ -8,6 +8,7 @@
       a sensible vec3
   - Make `WorldRenderer::modifyLight` like `WorldRenderer::modifyObject`,
     and similar stuff (this is easy)
+  - Break down big functions in `renderer.cpp`
   - Fragment shader point light computations are highly unoptimized
   - Integrate cleanup queues
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation

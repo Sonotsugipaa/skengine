@@ -29,7 +29,10 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
+#include <thread>
+#include <memory>
 #include <optional>
+#include <condition_variable>
 #include <unordered_set>
 #include <unordered_map>
 
@@ -130,6 +133,28 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3& scale_xyz;
 		};
 
+		struct MatrixAssembler {
+			struct Job {
+				glm::vec3  positions[3];
+				glm::vec3  directions[3];
+				glm::vec3  scales[3];
+				glm::mat4* dst;
+			};
+			using JobQueue = std::deque<Job>;
+			struct Worker {
+				struct LockSet {
+					std::mutex mutex;
+					std::condition_variable produce_cond;
+					std::condition_variable consume_cond;
+				};
+				std::unique_ptr<LockSet> cond;
+				std::thread thread;
+				JobQueue    queue;
+				Worker(): cond(std::make_unique<decltype(cond)::element_type>()) { }
+			};
+			std::vector<Worker> workers;
+		};
+
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		template <typename T>             using Uset = std::unordered_set<T>;
 		using DsetLayout = VkDescriptorSetLayout;
@@ -200,6 +225,8 @@ namespace SKENGINE_NAME_NS {
 		size_t           mDpoolCapacity;
 		vkutil::BufferDuplex mObjectBuffer;
 		vkutil::BufferDuplex mBatchBuffer;
+
+		std::shared_ptr<MatrixAssembler> mMatrixAssembler;
 
 		bool   mBatchesNeedUpdate  : 1; // `true` when objects have been added or removed
 		bool   mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date

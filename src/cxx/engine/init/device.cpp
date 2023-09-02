@@ -46,8 +46,17 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		if(! sdl_init_counter) {
-			SDL_InitSubSystem(SDL_INIT_VIDEO);
-			SDL_Vulkan_LoadLibrary(nullptr);
+			if(0 != SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+				using namespace std::string_literals;
+				const char* err = SDL_GetError();
+				throw std::runtime_error(("failed initialize the SDL Video subsystem ("s + err) + ")");
+			}
+
+			if(0 != SDL_Vulkan_LoadLibrary(nullptr)) {
+				using namespace std::string_literals;
+				const char* err = SDL_GetError();
+				throw std::runtime_error(("failed to load a Vulkan library ("s + err) + ")");
+			}
 		}
 		++ sdl_init_counter;
 
@@ -308,6 +317,7 @@ namespace SKENGINE_NAME_NS {
 		assert(sdl_init_counter > 0);
 		-- sdl_init_counter;
 		if(sdl_init_counter == 0) {
+			SDL_Vulkan_UnloadLibrary();
 			SDL_QuitSubSystem(SDL_INIT_VIDEO);
 			SDL_Quit();
 		}

@@ -11,15 +11,14 @@
 
 #include <stdexcept>
 #include <memory>
+#include <mutex>
+#include <condition_variable>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
 
 #include <glm/mat4x4.hpp>
 #include <glm/trigonometric.hpp>
-
-#include <boost/thread/mutex.hpp>
-#include <boost/interprocess/sync/scoped_lock.hpp>
 
 #include "mutex_ptr.inl.hpp"
 
@@ -65,9 +64,6 @@
 
 
 namespace SKENGINE_NAME_NS {
-
-	using scoped_lock = boost::interprocess::scoped_lock<boost::mutex>;
-
 
 	class EngineRuntimeError : public std::runtime_error {
 	public:
@@ -172,7 +168,6 @@ namespace SKENGINE_NAME_NS {
 		enum class LoopState {
 			eShouldContinue, ///< The engine should continue running.
 			eShouldStop,     ///< The engine should stop running.
-			eShouldDelay     ///< The engine should stop rendering for one lframe, then continue running.
 		};
 
 		virtual void      loop_processEvents (tickreg::delta_t delta_avg, tickreg::delta_t delta) = 0;
@@ -244,7 +239,7 @@ namespace SKENGINE_NAME_NS {
 		bool isRunning() const noexcept;
 
 		[[nodiscard]]
-		scoped_lock pauseRenderPass();
+		std::unique_lock<std::mutex> pauseRenderPass();
 
 		/// \brief Hints the Engine that large numbers of deallocations
 		///        or removals are performed, or about to be.
@@ -308,6 +303,7 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceKHR       mSurface          = nullptr;
 		QfamIndex          mPresentQfamIndex = QfamIndex::eInvalid;
 		VkQueue            mPresentQueue     = nullptr;
+		VkSwapchainKHR     mSwapchainOld     = nullptr;
 		VkSwapchainKHR     mSwapchain        = nullptr;
 		VkSurfaceCapabilitiesKHR mSurfaceCapabs = { };
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
@@ -319,7 +315,9 @@ namespace SKENGINE_NAME_NS {
 		tickreg::Regulator mGraphicsReg;
 		tickreg::Regulator mLogicReg;
 
-		boost::mutex mGframeMutex = boost::mutex();
+		std::mutex                mGframeMutex = std::mutex();
+		std::condition_variable   mGframeResumeCond;
+		std::atomic_bool          mGframePriorityOverride = false;
 		std::atomic_uint_fast32_t mGframeCounter;
 		uint_fast32_t             mGframeSelector;
 		std::vector<GframeData>   mGframes;
@@ -337,7 +335,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGframeDsetLayout;
 		VkDescriptorSetLayout mMaterialDsetLayout;
 
-		boost::mutex  mRendererMutex = boost::mutex();
+		std::mutex    mRendererMutex = std::mutex();
 		AssetSupplier mAssetSupplier;
 		WorldRenderer mWorldRenderer;
 		Renderer      mUiRenderer;

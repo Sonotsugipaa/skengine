@@ -16,7 +16,6 @@
 namespace SKENGINE_NAME_NS {
 
 	struct Engine::RpassInitializer::State {
-		VkSwapchainKHR oldSwapchain;
 		bool reinit           : 1;
 		bool createdGframes   : 1;
 		bool destroyedGframes : 1;
@@ -184,7 +183,6 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_present_xt = mPresentExtent;
 
 		destroySwapchain(state);
-		state.oldSwapchain = nullptr; // idk how to cache yet
 		initSwapchain(state);
 
 		bool render_xt_changed =
@@ -289,6 +287,14 @@ namespace SKENGINE_NAME_NS {
 			mQueues.families.graphicsIndex,
 			uint32_t(mPresentQfamIndex) };
 
+		mPrefs.init_present_extent = {
+			std::clamp(mPrefs.init_present_extent.width,  mSurfaceCapabs.minImageExtent.width,  mSurfaceCapabs.maxImageExtent.width),
+			std::clamp(mPrefs.init_present_extent.height, mSurfaceCapabs.minImageExtent.height, mSurfaceCapabs.maxImageExtent.height) };
+
+		if(mSwapchainOld != nullptr) {
+			vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
+		}
+
 		VkSwapchainCreateInfoKHR s_info = { };
 		s_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 		s_info.surface          = mSurface;
@@ -301,7 +307,7 @@ namespace SKENGINE_NAME_NS {
 		s_info.compositeAlpha   = select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
 		s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
 		s_info.clipped          = VK_TRUE;
-		s_info.oldSwapchain     = state.oldSwapchain;
+		s_info.oldSwapchain     = mSwapchain;
 		s_info.pQueueFamilyIndices   = concurrent_qfams;
 		s_info.queueFamilyIndexCount = 2;
 		s_info.imageSharingMode      =
@@ -322,7 +328,9 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		if(s_info.oldSwapchain == nullptr) [[unlikely]] {
+		mSwapchainOld = mSwapchain;
+
+		if(mSwapchainOld == nullptr) [[unlikely]] {
 			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &mSwapchain);
 		} else {
 			// The old swapchain is retired, but still exists:
@@ -331,10 +339,11 @@ namespace SKENGINE_NAME_NS {
 			try {
 				VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &mSwapchain);
 			} catch(vkutil::VulkanError& e) {
-				vkDestroySwapchainKHR(mDevice, state.oldSwapchain, nullptr);
+				if(mSwapchainOld != nullptr) {
+					vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
+				}
 				throw e;
 			}
-			vkDestroySwapchainKHR(mDevice, state.oldSwapchain, nullptr);
 		}
 
 		{ // Acquire swapchain images
@@ -657,11 +666,8 @@ namespace SKENGINE_NAME_NS {
 
 		mSwapchainImages.clear();
 
-		if(state.reinit) {
-			state.oldSwapchain = mSwapchain;
-			#warning "delete next line for swapchain salvage"
-			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
-		} else {
+		if(! state.reinit) [[unlikely]] {
+			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 		}
 
