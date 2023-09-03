@@ -65,6 +65,9 @@
 
 namespace SKENGINE_NAME_NS {
 
+	class Engine;
+
+
 	class EngineRuntimeError : public std::runtime_error {
 	public:
 		template <typename... Args>
@@ -99,6 +102,12 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
 		bool           fullscreen;
+	};
+
+
+	struct ViewportPosition {
+		float x;
+		float y;
 	};
 
 
@@ -153,8 +162,16 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	struct ConcurrentAccess {
-		WorldRenderer& world_renderer;
+	class ConcurrentAccess {
+	public:
+		friend Engine;
+
+		WorldRenderer& getWorldRenderer() noexcept;
+
+		void setPresentExtent(VkExtent2D);
+
+	private:
+		Engine* ca_engine;
 	};
 
 
@@ -213,6 +230,8 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine {
 	public:
+		friend ConcurrentAccess;
+
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
 		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
@@ -254,7 +273,6 @@ namespace SKENGINE_NAME_NS {
 		void setDesiredFramerate (float) noexcept;
 		void setDesiredTickrate  (float) noexcept;
 		void setRenderExtent     (VkExtent2D);
-		void setPresentExtent    (VkExtent2D);
 		void setUpscaleFactor    (float pixels_per_fragment);
 		void setFullscreen       (bool should_be_fullscreen);
 
@@ -274,12 +292,7 @@ namespace SKENGINE_NAME_NS {
 
 		auto& logger() const { return *mLogger; }
 
-		auto getConcurrentAccess() noexcept {
-			return MutexAccess(
-				ConcurrentAccess {
-					mWorldRenderer },
-				mRendererMutex );
-		}
+		ConcurrentAccess getConcurrentAccess() noexcept;
 
 	private:
 		class Implementation;
@@ -356,5 +369,8 @@ namespace SKENGINE_NAME_NS {
 
 	template <>
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
+
+
+	inline WorldRenderer& ConcurrentAccess::getWorldRenderer() noexcept { return ca_engine->mWorldRenderer; }
 
 }

@@ -33,9 +33,9 @@ namespace SKENGINE_NAME_NS::input {
 	///
 	enum class InputState : uint_least8_t {
 		eInactive    = 0b000,
-		eDeactivated = 0b010,
-		eActivated   = 0b011,
+		eDeactivated = 0b001,
 		eActive      = 0b010,
+		eActivated   = 0b011,
 		eAnalog      = 0b110
 	};
 

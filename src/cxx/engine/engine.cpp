@@ -419,6 +419,21 @@ namespace SKENGINE_NAME_NS {
 		.strategyMask       = tickreg::strategy_flag_t(tickreg::WaitStrategyFlags::eSleepUntil) };
 
 
+
+	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
+		auto lock = ca_engine->pauseRenderPass();
+		ca_engine->mPrefs.init_present_extent = ext;
+
+		// Some compositors resize the window as soon as it appears, and this seems to cause problems
+		ca_engine->mGraphicsReg.resetEstimates(ca_engine->mPrefs.target_framerate);
+		ca_engine->mLogicReg.resetEstimates(ca_engine->mPrefs.target_tickrate);
+
+		auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
+		init->reinit();
+	}
+
+
+
 	Engine::Engine(
 			const DeviceInitInfo&    di,
 			const EnginePreferences& ep,
@@ -561,8 +576,6 @@ namespace SKENGINE_NAME_NS {
 							auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 							init->reinit();
 						}
-						#warning "superfluous?"
-						lock.unlock();
 					}
 					mGraphicsReg.awaitNextTick();
 				} catch(...) {
@@ -595,6 +608,8 @@ namespace SKENGINE_NAME_NS {
 	std::unique_lock<std::mutex> Engine::pauseRenderPass() {
 		mGframePriorityOverride.store(true, std::memory_order_seq_cst);
 		auto lock = std::unique_lock(mGframeMutex);
+		auto lock_renderer = std::unique_lock(mRendererMutex); // Possible deadlock with the gframe mutex
+		lock_renderer.unlock();
 		mGframeResumeCond.notify_one();
 		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
 		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
@@ -603,16 +618,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::setPresentExtent(VkExtent2D ext) {
-		auto lock = pauseRenderPass();
-		mPrefs.init_present_extent = ext;
+	ConcurrentAccess Engine::getConcurrentAccess() noexcept {
+		ConcurrentAccess ca;
+		ca.ca_engine = this;
 
-		// Some compositors resize the window as soon as it appears, and this seems to cause problems
-		mGraphicsReg.resetEstimates(mPrefs.target_framerate);
-		mLogicReg.resetEstimates(mPrefs.target_tickrate);
-
-		auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-		init->reinit();
+		return MutexAccess(std::move(ca), mRendererMutex);
 	}
 
 }
