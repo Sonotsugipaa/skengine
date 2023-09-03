@@ -3,6 +3,8 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Make `Renderer` objects not get fully recomputed every time an object
+    is added
   - Separate the `dev::Light` types to obtain user-modifiable types
     - For example, `dev::PointLight` has a vec4 position instead of
       a sensible vec3

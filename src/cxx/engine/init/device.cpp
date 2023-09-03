@@ -232,10 +232,10 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Material dset layout
-			VkDescriptorSetLayoutBinding dslb[4] = { { }, { }, { }, { } };
+			VkDescriptorSetLayoutBinding dslb[5] = { };
 			dslb[0].binding = DIFFUSE_TEX_BINDING;
-			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			dslb[0].descriptorCount = 1;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 			dslb[1] = dslb[0];
 			dslb[1].binding = NORMAL_TEX_BINDING;
@@ -243,6 +243,9 @@ namespace SKENGINE_NAME_NS {
 			dslb[2].binding = SPECULAR_TEX_BINDING;
 			dslb[3] = dslb[0];
 			dslb[3].binding = EMISSIVE_TEX_BINDING;
+			dslb[4] = dslb[0];
+			dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			dslb[4].binding = MATERIAL_UBO_BINDING;
 
 			VkDescriptorSetLayoutCreateInfo dslc_info = { };
 			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;

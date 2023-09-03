@@ -56,7 +56,10 @@ namespace SKENGINE_NAME_NS {
 				VkDescriptorPoolSize sizes[] = {
 					{
 						.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-						.descriptorCount = uint32_t(4 * req_cap) } };
+						.descriptorCount = uint32_t(4 * req_cap) },
+					{
+						.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+						.descriptorCount = uint32_t(1 * req_cap) } };
 				VkDescriptorPoolCreateInfo dpc_info = { };
 				dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 				dpc_info.maxSets = req_cap;
@@ -90,20 +93,24 @@ namespace SKENGINE_NAME_NS {
 				constexpr auto& NRM = Engine::NORMAL_TEX_BINDING;
 				constexpr auto& SPC = Engine::SPECULAR_TEX_BINDING;
 				constexpr auto& EMI = Engine::EMISSIVE_TEX_BINDING;
+				constexpr auto& UBO = Engine::MATERIAL_UBO_BINDING;
 				VkDescriptorImageInfo di_info[4] = { };
-				di_info[DFS].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				di_info[DFS].sampler     = mat->texture_diffuse.sampler;
-				di_info[DFS].imageView   = mat->texture_diffuse.image_view;
-				di_info[NRM] = di_info[DFS];
-				di_info[NRM].sampler     = mat->texture_normal.sampler;
-				di_info[NRM].imageView   = mat->texture_normal.image_view;
-				di_info[SPC] = di_info[DFS];
-				di_info[SPC].sampler     = mat->texture_specular.sampler;
-				di_info[SPC].imageView   = mat->texture_specular.image_view;
-				di_info[EMI] = di_info[DFS];
-				di_info[EMI].sampler     = mat->texture_emissive.sampler;
-				di_info[EMI].imageView   = mat->texture_emissive.image_view;
-				VkWriteDescriptorSet wr[4] = { };
+				di_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				di_info[0].sampler   = mat->texture_diffuse.sampler;
+				di_info[0].imageView = mat->texture_diffuse.image_view;
+				di_info[1] = di_info[0];
+				di_info[1].sampler   = mat->texture_normal.sampler;
+				di_info[1].imageView = mat->texture_normal.image_view;
+				di_info[2] = di_info[0];
+				di_info[2].sampler   = mat->texture_specular.sampler;
+				di_info[2].imageView = mat->texture_specular.image_view;
+				di_info[3] = di_info[0];
+				di_info[3].sampler   = mat->texture_emissive.sampler;
+				di_info[3].imageView = mat->texture_emissive.image_view;
+				VkDescriptorBufferInfo db_info[1] = { };
+				db_info[0].buffer = mat->mat_uniform;
+				db_info[0].range  = sizeof(dev::MaterialUniform);
+				VkWriteDescriptorSet wr[5] = { };
 				wr[DFS].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				wr[DFS].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 				wr[DFS].dstSet          = mat->dset;
@@ -119,6 +126,12 @@ namespace SKENGINE_NAME_NS {
 				wr[EMI] = wr[DFS];
 				wr[EMI].dstBinding = EMI;
 				wr[EMI].pImageInfo = di_info + EMI;
+				wr[UBO].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				wr[UBO].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				wr[UBO].dstSet          = mat->dset;
+				wr[UBO].descriptorCount = 1;
+				wr[UBO].dstBinding      = UBO;
+				wr[UBO].pBufferInfo     = db_info;
 				vkUpdateDescriptorSets(dev, std::size(wr), wr, 0, nullptr);
 			}
 		}
@@ -379,8 +392,9 @@ namespace SKENGINE_NAME_NS {
 		assert(! mObjects.contains(new_obj_id));
 		mObjects[new_obj_id] = Objects::mapped_type(std::move(new_obj), std::move(bone_instances));
 		mObjectUpdates.insert(new_obj_id);
-		mBatchesNeedUpdate = true;
-		mObjectsNeedFlush = true;
+		mBatchesNeedUpdate  = true;
+		mObjectsNeedRebuild = true;
+		mObjectsNeedFlush   = true;
 		return new_obj_id;
 	}
 
@@ -425,7 +439,9 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mBatchesNeedUpdate = true;
+		mBatchesNeedUpdate  = true;
+		mObjectsNeedRebuild = true;
+		mObjectsNeedFlush   = true;
 	}
 
 
@@ -449,7 +465,8 @@ namespace SKENGINE_NAME_NS {
 		auto found = mObjects.find(id);
 		if(found != mObjects.end()) {
 			mObjectUpdates.insert(id);
-			mObjectsNeedFlush = true;
+			mBatchesNeedUpdate = true;
+			mObjectsNeedFlush  = true;
 			return ModifiableObject {
 				.bones = std::span<BoneInstance>(found->second.second),
 				.position_xyz  = found->second.first.position_xyz,
@@ -685,10 +702,6 @@ namespace SKENGINE_NAME_NS {
 				copies.push_back(VkBufferCopy {
 					.srcOffset = offset, .dstOffset = offset,
 					.size = sizeof(dev::Instance) });
-			}
-
-			if(! mObjectsNeedRebuild) { // Check if the object update is needed, but rebuild it anyway if the buffer is OOD
-				if(0 == erased_from_updates) return;
 			}
 
 			auto& src_obj = obj_iter->second;

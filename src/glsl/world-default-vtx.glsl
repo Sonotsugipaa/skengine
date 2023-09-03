@@ -3,9 +3,9 @@
 
 
 layout(set = 0, binding = 0) uniform FrameUbo {
-	mat4 projview_transf;
-	mat4 proj_transf;
-	mat4 view_transf;
+	mat4 projview_transf4;
+	mat4 proj_transf4;
+	mat4 view_transf4;
 	vec4 view_pos;
 	uint ray_light_count;
 	uint point_light_count;
@@ -38,14 +38,14 @@ layout(location = 7) out mat3 frg_view3;
 
 void main() {
 	vec4 worldspace_pos = in_obj_transf * vec4(in_pos, 1.0);
-	vec4 viewspace_pos  = frame_ubo.view_transf * worldspace_pos;
+	vec4 viewspace_pos  = frame_ubo.view_transf4 * worldspace_pos;
 
-	gl_Position = frame_ubo.proj_transf * viewspace_pos;
+	gl_Position = frame_ubo.proj_transf4 * viewspace_pos;
 	frg_pos     = worldspace_pos;
 	frg_col     = in_col;
 	frg_tex     = in_tex;
 
-	mat3 iview3      = inverse(mat3(frame_ubo.view_transf));
+	mat3 iview3      = inverse(mat3(frame_ubo.view_transf4));
 	mat3 view3       = transpose(iview3);
 	mat3 obj_transf3 = transpose(inverse(mat3(in_obj_transf)));
 	frg_view3        = view3;

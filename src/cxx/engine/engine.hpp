@@ -240,6 +240,7 @@ namespace SKENGINE_NAME_NS {
 		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
 		static constexpr uint32_t SPECULAR_TEX_BINDING  = 2;
 		static constexpr uint32_t EMISSIVE_TEX_BINDING  = 3;
+		static constexpr uint32_t MATERIAL_UBO_BINDING  = 4;
 
 		Engine() = default;
 		Engine(const DeviceInitInfo&, const EnginePreferences&, std::unique_ptr<ShaderCacheInterface>);

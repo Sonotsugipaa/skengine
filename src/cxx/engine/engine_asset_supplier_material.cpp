@@ -33,6 +33,7 @@ namespace SKENGINE_NAME_NS {
 		destroy_texture(mat.texture_normal);
 		destroy_texture(mat.texture_specular);
 		destroy_texture(mat.texture_emissive);
+		vkutil::BufferDuplex::destroy(vma, mat.mat_uniform);
 	}
 
 
@@ -60,6 +61,17 @@ namespace SKENGINE_NAME_NS {
 		create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 3, 3);
 		create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 		create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
+
+		{ // Create the material uniform buffer
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = sizeof(dev::MaterialUniform);
+			bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+			dst->mat_uniform = vkutil::BufferDuplex::createUniformBuffer(e.getVmaAllocator(), bc_info);
+		}
+
+		[&](dev::MaterialUniform& uni) {
+			uni.shininess = 2.0f;
+		} (* dst->mat_uniform.mappedPtr<dev::MaterialUniform>());
 	}
 
 
@@ -150,6 +162,17 @@ namespace SKENGINE_NAME_NS {
 			LOAD_(specular, mf_ec::eSpecularInlinePixel)
 			LOAD_(emissive, mf_ec::eEmissiveInlinePixel)
 			#undef LOAD_
+
+			{ // Create the material uniform buffer
+				vkutil::BufferCreateInfo bc_info = { };
+				bc_info.size  = sizeof(dev::MaterialUniform);
+				bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+				r.mat_uniform = vkutil::BufferDuplex::createUniformBuffer(as_engine->getVmaAllocator(), bc_info);
+			}
+
+			[&](dev::MaterialUniform& uni) {
+				uni.shininess = h.specularExponent();
+			} (* r.mat_uniform.mappedPtr<dev::MaterialUniform>());
 
 			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
 			double size_kib[4] = {

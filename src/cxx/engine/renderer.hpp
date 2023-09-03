@@ -71,10 +71,12 @@ namespace SKENGINE_NAME_NS {
 			VkSampler            sampler;
 			bool                 is_copy;
 		};
+
 		Texture texture_diffuse;
 		Texture texture_normal;
 		Texture texture_specular;
 		Texture texture_emissive;
+		vkutil::BufferDuplex mat_uniform;
 	};
 
 

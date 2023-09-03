@@ -134,9 +134,7 @@ namespace SKENGINE_NAME_NS {
 
 
 		struct MaterialUniform {
-			ALIGNF32(1) float emissive_mul;
-			ALIGNF32(1) float diffuse_mul;
-			ALIGNF32(1) float specular_exp;
+			ALIGNF32(1) float shininess;
 		};
 
 	}
