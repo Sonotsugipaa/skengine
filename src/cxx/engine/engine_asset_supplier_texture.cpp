@@ -59,6 +59,15 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	uint32_t mip_level_count(size_t width, size_t height) {
+		assert(width > 0); assert(height > 0);
+		float r;
+		r = std::max(width, height);
+		r = std::log2(r) + 1;
+		return r;
+	}
+
+
 	void create_texture_from_pixels(
 			Engine& e,
 			Material::Texture* dst,
@@ -75,6 +84,8 @@ namespace SKENGINE_NAME_NS {
 		auto dev = e.getDevice();
 		auto vma = e.getVmaAllocator();
 
+		auto mip_levels = mip_level_count(width, height);
+
 		auto staging_buffer_info = vkutil::BufferCreateInfo {
 			.size  = fmt_block_size * width * height,
 			.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -84,8 +95,6 @@ namespace SKENGINE_NAME_NS {
 		VkDependencyInfo      bar_dep = { };
 		VkImageMemoryBarrier2 bar     = { }; {
 			bar_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-			bar_dep.imageMemoryBarrierCount = 1;
-			bar_dep.pImageMemoryBarriers    = &bar;
 			bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			bar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			bar.subresourceRange.layerCount = 1;
@@ -94,7 +103,7 @@ namespace SKENGINE_NAME_NS {
 
 		vkutil::ImageCreateInfo ic_info = {
 			.flags         = { },
-			.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			.extent        = { uint32_t(width), uint32_t(height), 1 },
 			.format        = fmt,
 			.type          = VK_IMAGE_TYPE_2D,
@@ -103,7 +112,7 @@ namespace SKENGINE_NAME_NS {
 			.tiling        = VK_IMAGE_TILING_LINEAR,
 			.qfamSharing   = { },
 			.arrayLayers   = 1,
-			.mipLevels     = 1 };
+			.mipLevels     = mip_levels };
 		vkutil::AllocationCreateInfo ac_info = { };
 		ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 		ac_info.vmaUsage = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
@@ -129,7 +138,11 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Record the copy-to-image operation
+			bar_dep.imageMemoryBarrierCount = 1;
+			bar_dep.pImageMemoryBarriers    = &bar;
 			bar.image = dst->image;
+			bar.subresourceRange.baseMipLevel = 0;
+			bar.subresourceRange.levelCount   = mip_levels;
 			bar.oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 			bar.srcAccessMask = VK_ACCESS_2_NONE;
 			bar.srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
@@ -144,13 +157,77 @@ namespace SKENGINE_NAME_NS {
 			cp.imageSubresource.layerCount = 1;
 			cp.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			vkCmdCopyBufferToImage(cmd, staging_buffer, dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
-			bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-			bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-			vkCmdPipelineBarrier2(cmd, &bar_dep);
+
+			if(mip_levels > 1) {
+				bar.subresourceRange.baseMipLevel = 0;
+				bar.subresourceRange.levelCount   = 1;
+				bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bar.newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				bar.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				bar.dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				vkCmdPipelineBarrier2(cmd, &bar_dep);
+
+				VkImageBlit blit_template = { };
+				blit_template.srcSubresource.layerCount = 1;
+				blit_template.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				blit_template.srcSubresource.mipLevel = 0;
+				blit_template.srcOffsets[1].x = width;
+				blit_template.srcOffsets[1].y = height;
+				blit_template.srcOffsets[1].z = 1;
+				blit_template.dstOffsets[1].x = std::max<int32_t>(1, width  / 2);
+				blit_template.dstOffsets[1].y = std::max<int32_t>(1, height / 2);
+				blit_template.dstOffsets[1].z = 1;
+				blit_template.dstSubresource = blit_template.srcSubresource;
+
+				auto  blits = std::vector<VkImageBlit>(size_t(mip_levels - 1), blit_template);
+				auto& first_blit = blits.front();
+				first_blit.dstSubresource.mipLevel = 1;
+				for(uint32_t i = 1; i < blits.size(); ++i) {
+					auto& blit      = blits[i];
+					auto& prev_blit = blits[i-1];
+					blit.dstSubresource.mipLevel = i+1;
+					blit.dstOffsets[1].x = std::max<int32_t>(1, prev_blit.dstOffsets[1].x / 2);
+					blit.dstOffsets[1].y = std::max<int32_t>(1, prev_blit.dstOffsets[1].y / 2);
+				}
+				vkCmdBlitImage(
+					cmd,
+					dst->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					blits.size(), blits.data(),
+					VK_FILTER_LINEAR );
+
+				bar.subresourceRange.baseMipLevel = 0;
+				bar.subresourceRange.levelCount   = 1;
+				bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+				vkCmdPipelineBarrier2(cmd, &bar_dep);
+
+				bar.subresourceRange.baseMipLevel = 1;
+				bar.subresourceRange.levelCount   = mip_levels-1;
+				bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+				vkCmdPipelineBarrier2(cmd, &bar_dep);
+			} else {
+				bar.subresourceRange.baseMipLevel = 0;
+				bar.subresourceRange.levelCount   = 1;
+				bar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+				vkCmdPipelineBarrier2(cmd, &bar_dep);
+			}
 		}
 
 		{ // End and submit the buffer

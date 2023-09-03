@@ -668,8 +668,8 @@ namespace SKENGINE_NAME_NS {
 
 		if(! state.reinit) [[unlikely]] {
 			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
-			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 		}
+		vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 
 		mSwapchain = nullptr;
 	}

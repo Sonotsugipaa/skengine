@@ -24,7 +24,7 @@ namespace {
 	public:
 		static constexpr ssize_t obj_count_sqrt    = 7;
 		static constexpr float   object_spacing    = 0.85f;
-		static constexpr float   mouse_sensitivity = 2.0f;
+		static constexpr float   mouse_sensitivity = 3.0f;
 
 		Engine*   engine;
 		ObjectId  objects[obj_count_sqrt+obj_count_sqrt+1][obj_count_sqrt+obj_count_sqrt+1];
