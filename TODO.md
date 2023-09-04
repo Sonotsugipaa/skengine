@@ -3,9 +3,6 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
-  - Make `Renderer` objects hideable
-    - A hidden object would be "rendered" with 0 indices, but have its
-      instance fully up-to-date
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
   - Separate the `dev::Light` types to obtain user-modifiable types
@@ -15,6 +12,9 @@
     and similar stuff (this is easy)
   - Break down big functions in `renderer.cpp`
   - Fragment shader point light computations are highly unoptimized
+  - The NVidia best practices validation layer suggests using memory
+    priority hints along with `VK_EXT_pageable_device_local_memory`,
+    so do that I guess
   - Integrate cleanup queues
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation
   - Optimize object buffer update procedure for simple object modifications

@@ -109,7 +109,7 @@ namespace SKENGINE_NAME_NS {
 			.type          = VK_IMAGE_TYPE_2D,
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 			.samples       = VK_SAMPLE_COUNT_1_BIT,
-			.tiling        = VK_IMAGE_TILING_LINEAR,
+			.tiling        = VK_IMAGE_TILING_OPTIMAL,
 			.qfamSharing   = { },
 			.arrayLayers   = 1,
 			.mipLevels     = mip_levels };
@@ -134,6 +134,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkAllocateCommandBuffers, dev, &cba_info, &cmd);
 			VkCommandBufferBeginInfo cbb_info = { };
 			cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			cbb_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 			VK_CHECK(vkBeginCommandBuffer, cmd, &cbb_info);
 		}
 

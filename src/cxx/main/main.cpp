@@ -107,11 +107,18 @@ namespace {
 			rl.intensity = 0.6f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
 			movingRayLight = wr.createRayLight(rl);
+
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 0.6f;
 			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.4f };
 			camLight = wr.createPointLight(pl);
+
+			Renderer::NewObject o = { };
+			o.scale_xyz     = { 0.2f, 0.2f, 0.2f };
+			o.model_locator = "gold-bars.fma";
+			o.hidden        = true;
+			lightGuide = wr.createObject(o);
 		}
 
 
@@ -259,7 +266,7 @@ namespace {
 
 			if(! pressedKeys.contains(SDLK_SPACE)) {
 				if(lightGuideVisible) {
-					wr.removeObject(lightGuide);
+					wr.modifyObject(lightGuide)->hidden = true;
 					lightGuideVisible = false;
 				}
 			} else {
@@ -273,11 +280,9 @@ namespace {
 
 				// Handle the light guide
 				if(! lightGuideVisible) {
-					Renderer::NewObject o = { };
-					o.scale_xyz     = { 0.2f, 0.2f, 0.2f };
-					o.model_locator = "gold-bars.fma";
-					o.position_xyz  = pos + light_pos;
-					lightGuide = wr.createObject(o);
+					auto o = wr.modifyObject(lightGuide).value();
+					o.position_xyz = pos + light_pos;
+					o.hidden       = false;
 					lightGuideVisible = true;
 				} else {
 					wr.modifyObject(lightGuide)->position_xyz = pos + light_pos;

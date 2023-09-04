@@ -39,6 +39,7 @@ namespace SKENGINE_NAME_NS {
 		glm::vec3 position_xyz;
 		glm::vec3 direction_ypr;
 		glm::vec3 scale_xyz;
+		bool      hidden;
 	};
 
 

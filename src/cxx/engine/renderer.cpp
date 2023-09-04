@@ -354,7 +354,8 @@ namespace SKENGINE_NAME_NS {
 			.model_id = model_id,
 			.position_xyz  = ins.position_xyz,
 			.direction_ypr = ins.direction_ypr,
-			.scale_xyz     = ins.scale_xyz };
+			.scale_xyz     = ins.scale_xyz,
+			.hidden        = ins.hidden };
 
 		std::vector<BoneInstance> bone_instances;
 		bone_instances.reserve(model->bones.size());
@@ -471,7 +472,8 @@ namespace SKENGINE_NAME_NS {
 				.bones = std::span<BoneInstance>(found->second.second),
 				.position_xyz  = found->second.first.position_xyz,
 				.direction_ypr = found->second.first.direction_ypr,
-				.scale_xyz     = found->second.first.scale_xyz };
+				.scale_xyz     = found->second.first.scale_xyz,
+				.hidden        = found->second.first.hidden };
 		}
 		return std::nullopt;
 	}
@@ -694,17 +696,19 @@ namespace SKENGINE_NAME_NS {
 				const Bone&              bone,     bone_id_e bone_idx,
 				uint32_t obj_buffer_index
 		) {
+			auto& src_obj = obj_iter->second;
+
+			if(src_obj.first.hidden) return false;
+
 			auto erased_from_updates = mObjectUpdates.erase(obj_id);
 			if(0 == erased_from_updates) {
-				if(! mObjectsNeedRebuild) return;
+				if(! mObjectsNeedRebuild) return true;
 			} else {
 				VkDeviceSize offset = VkDeviceSize(obj_buffer_index) * sizeof(dev::Instance);
 				copies.push_back(VkBufferCopy {
 					.srcOffset = offset, .dstOffset = offset,
 					.size = sizeof(dev::Instance) });
 			}
-
-			auto& src_obj = obj_iter->second;
 
 			auto& bone_instance = src_obj.second[bone_idx];
 			constexpr auto bone_id_digits = std::numeric_limits<bone_id_e>::digits;
@@ -714,7 +718,9 @@ namespace SKENGINE_NAME_NS {
 			obj.rnd       = dist(rng);
 			obj.color_mul = bone_instance.color_rgba;
 
-			{ // Enqueue a matrix assembly job
+			if(src_obj.first.hidden) {
+				obj.model_transf = glm::mat4(0.0f);
+			} else { // Enqueue a matrix assembly job
 				MatrixAssembler::Job job;
 				job.positions [0] = src_obj.first.position_xyz;  job.positions [1] = bone.position_xyz;  job.positions [2] = bone_instance.position_xyz;
 				job.directions[0] = src_obj.first.direction_ypr; job.directions[1] = bone.direction_ypr; job.directions[2] = bone_instance.direction_ypr;
@@ -723,11 +729,16 @@ namespace SKENGINE_NAME_NS {
 				auto& worker = mMatrixAssembler->workers[object_id_e(obj_id) % mMatrixAssembler->workers.size()];
 				worker.queue.push_back(job);
 			}
+
+			return true;
 		};
 
 		// Returns the number of objects set
 		auto set_objects = [&](UnboundDrawBatch& ubatch, const Bone& bone, uint32_t first_object) {
-			uint32_t object_offset = 0;
+			struct R {
+				uint32_t insert_count  = 0;
+				uint32_t visible_count = 0;
+			} r;
 			for(auto obj_ref : ubatch.object_refs) { // Update/set the instances, while indirectly sorting the buffer
 				auto src_obj_iter = mObjects.find(obj_ref);
 				if(src_obj_iter == mObjects.end()) {
@@ -735,12 +746,14 @@ namespace SKENGINE_NAME_NS {
 					continue;
 				}
 
-				set_object(src_obj_iter, obj_ref, bone, ubatch.model_bone_index, first_object + object_offset);
+				if(set_object(src_obj_iter, obj_ref, bone, ubatch.model_bone_index, first_object + r.visible_count)) {
+					++ r.visible_count;
+				}
 
-				++ object_offset;
+				++ r.insert_count;
 			}
 
-			return object_offset;
+			return r;
 		};
 
 		if(mBatchesNeedUpdate || mObjectsNeedFlush) {
@@ -756,9 +769,9 @@ namespace SKENGINE_NAME_NS {
 							.vertex_offset  = 0,
 							.index_count    = bone.mesh.index_count,
 							.first_index    = bone.mesh.first_index,
-							.instance_count = object_set_count,
+							.instance_count = object_set_count.visible_count,
 							.first_instance = first_object });
-						first_object += mDrawBatchList.back().instance_count;
+						first_object += object_set_count.insert_count;
 					}
 				}
 			}

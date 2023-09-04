@@ -131,7 +131,7 @@ namespace SKENGINE_NAME_NS {
 						((u4_t(fma_value >> u8_t( 8)) & u4_t(0xff)) << u4_t( 8)) |
 						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
 					create_texture_from_pixels(*as_engine, &dst, &value4, fmt, 1, 1);
-					log.info(
+					log.trace(
 						"Loaded {} texture as a single texel ({:02x}{:02x}{:02x}{:02x})",
 						name,
 						(value4 >> u4_t( 0)) & u4_t(0xff),
@@ -148,7 +148,7 @@ namespace SKENGINE_NAME_NS {
 					size_t h;
 					auto success = create_texture_from_file(*as_engine, &dst, &w, &h, texture_filename.c_str());
 					if(success) {
-						log.info("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
+						log.trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
