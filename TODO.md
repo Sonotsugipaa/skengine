@@ -3,6 +3,9 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Make `Renderer` objects hideable
+    - A hidden object would be "rendered" with 0 indices, but have its
+      instance fully up-to-date
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
   - Separate the `dev::Light` types to obtain user-modifiable types

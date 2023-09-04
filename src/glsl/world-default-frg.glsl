@@ -65,12 +65,13 @@ const float normal_backface_bias = 0.001;
 
 
 
-float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_pos, float angle_of_attack) {
+float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_pos, float angle_of_attack, float fragm_distance) {
 	float lighting = dot(
 		view_pos,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
+	float light_exp = material_ubo.shininess / fragm_distance;
 	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
-	return clamp(pow(lighting, material_ubo.shininess), 0.0, 1.0);
+	return pow(max(lighting, 0.0), material_ubo.shininess) * pow(light_exp, 1.0 / material_ubo.shininess);
 }
 
 float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack) {
@@ -110,7 +111,7 @@ vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 
 		lighting_spc +=
 			ray_light_buffer.lights[i].intensity
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot);
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot, 0.0);
 	}
 
 
@@ -140,19 +141,17 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 
 		float aot = dot(frg_nrm, light_dir);
 
-		float intensity = point_light_buffer.lights[i].intensity;
-		float falloff = pow(
-			distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz),
-			point_light_buffer.lights[i].falloff_exp );
+		float intensity         = point_light_buffer.lights[i].intensity;
+		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
+		float intensity_falloff = intensity / pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 
 		lighting_dfs +=
-			intensity
-			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot)
-			/ falloff;
+			intensity_falloff
+			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot);
 
 		lighting_spc +=
 			intensity
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot);
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot, fragm_distance);
 	}
 	return vec2(lighting_dfs, lighting_spc);
 }

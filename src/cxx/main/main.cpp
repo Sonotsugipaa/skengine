@@ -59,7 +59,7 @@ namespace {
 
 			Renderer::NewObject o = { };
 			o.model_locator = "ground.fma";
-			o.position_xyz  = { 0.0f, -0.3f, 0.0f };
+			o.position_xyz  = { 0.0f, -0.5f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
 
 			floor = wr.createObject(o);
@@ -85,7 +85,6 @@ namespace {
 				float oz = y * object_spacing;
 				o.position_xyz.x = ox;
 				o.position_xyz.z = oz;
-				o.position_xyz.y = std::sqrt((ox*ox) + (oz*oz)) * -0.4f / (obj_count_sqrt * obj_count_sqrt);
 				size_t xi = x + obj_count_sqrt;
 				size_t yi = y + obj_count_sqrt;
 				assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
@@ -105,8 +104,8 @@ namespace {
 			rl.intensity = 0.08f;
 			rl.direction = { -1.0f, -2.0f, +5.0f };
 			fixedLights[1] = wr.createRayLight(rl);
-			rl.intensity = 0.4f;
-			rl.direction = { 1.8f, 0.2f, 0.0f };
+			rl.intensity = 0.6f;
+			rl.direction = { 1.8f, -0.2f, 0.0f };
 			movingRayLight = wr.createRayLight(rl);
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 0.6f;
