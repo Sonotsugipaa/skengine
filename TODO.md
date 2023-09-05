@@ -5,11 +5,6 @@
 - **cxx/engine/**
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
-  - Separate the `dev::Light` types to obtain user-modifiable types
-    - For example, `dev::PointLight` has a vec4 position instead of
-      a sensible vec3
-  - Make `WorldRenderer::modifyLight` like `WorldRenderer::modifyObject`,
-    and similar stuff (this is easy)
   - Break down big functions in `renderer.cpp`
   - Fragment shader point light computations are highly unoptimized
   - The NVidia best practices validation layer suggests using memory

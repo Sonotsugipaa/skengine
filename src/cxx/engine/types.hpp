@@ -79,6 +79,18 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	struct RayLight {
+		glm::vec3 direction;
+		float     intensity;
+	};
+
+	struct PointLight {
+		glm::vec3 position;
+		float     intensity;
+		float     falloff_exp;
+	};
+
+
 	/// This namespace defines structures as passed to
 	/// the Vulkan device, which need to be carefully
 	/// packed due to alignment shenanigans.

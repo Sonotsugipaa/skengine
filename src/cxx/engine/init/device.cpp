@@ -5,6 +5,7 @@
 #include <vk-util/command_pool.hpp>
 
 #include <string>
+#include <memory>
 #include <charconv>
 
 #include <SDL2/SDL.h>
@@ -174,6 +175,17 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
+		std::unique_ptr<VkExtensionProperties[]> avail_extensions;
+		uint32_t avail_extensions_count;
+		{ // Get available device extensions
+			VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, nullptr);
+			if(avail_extensions_count < 1) {
+				throw std::runtime_error("Failed to find a Vulkan physical device");
+			}
+			avail_extensions = std::make_unique_for_overwrite<VkExtensionProperties[]>(avail_extensions_count);
+			VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, avail_extensions.get());
+		}
+
 		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mLogger.get(), mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
 
 		{ // Create logical device
@@ -182,9 +194,17 @@ namespace SKENGINE_NAME_NS {
 			auto features = vkutil::commonFeatures;
 			features.drawIndirectFirstInstance = true;
 
+			std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+			for(uint32_t i = 0; i < avail_extensions_count; ++i) {
+				#define INS_IF_AVAIL_(NM_) if(0 == strcmp(NM_, avail_extensions[i].extensionName)) extensions.push_back(avail_extensions[i].extensionName);
+				INS_IF_AVAIL_("VK_EXT_pageable_device_local_memory")
+				INS_IF_AVAIL_("VK_EXT_memory_priority")
+				#undef INS_IF_AVAIL_
+			}
+
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
-			cd_info.extensions        = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+			cd_info.extensions        = extensions;
 			cd_info.pPhysDevProps     = &mDevProps;
 			cd_info.pRequiredFeatures = &features;
 

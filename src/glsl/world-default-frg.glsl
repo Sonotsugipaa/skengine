@@ -18,7 +18,8 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 
 
 struct RayLight {
-	vec4  direction;
+	vec3  direction;
+	float direction_padding;
 	float intensity;
 	float unused0;
 	float unused1;
@@ -26,7 +27,8 @@ struct RayLight {
 };
 
 struct PointLight {
-	vec4  position;
+	vec3  position;
+	float position_padding;
 	float intensity;
 	float falloff_exp;
 	float unused0;
@@ -101,7 +103,7 @@ vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 	for(uint i = 0; i < frame_ubo.ray_light_count; ++i) {
 		vec3 light_dir =
 			frg_view3
-			* ray_light_buffer.lights[i].direction.xyz;
+			* ray_light_buffer.lights[i].direction;
 
 		float aot = dot(frg_nrm, light_dir);
 
@@ -134,7 +136,7 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 	uint  light_count  = frame_ubo.ray_light_count + frame_ubo.point_light_count;
 	for(uint i = frame_ubo.ray_light_count; i < light_count; ++i) {
 		vec3 light_dir =
-			point_light_buffer.lights[i].position.xyz
+			point_light_buffer.lights[i].position
 			- frg_pos.xyz;
 
 		light_dir = normalize(frg_view3 * light_dir);
@@ -142,7 +144,7 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 		float aot = dot(frg_nrm, light_dir);
 
 		float intensity         = point_light_buffer.lights[i].intensity;
-		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
+		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position);
 		float intensity_falloff = intensity / pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 
 		lighting_dfs +=

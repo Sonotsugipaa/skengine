@@ -276,7 +276,7 @@ namespace {
 					glm::mat3 view = wr.getViewTransf();
 					return glm::transpose(view) * glm::vec3 { 0.0f, 0.0f, -1.0f };
 				} ();
-				rl->direction = glm::vec4(light_pos, 1.0f);
+				rl->direction = light_pos;
 
 				// Handle the light guide
 				if(! lightGuideVisible) {
@@ -290,7 +290,7 @@ namespace {
 
 				// Make the camera light follow the camera
 				auto* pl = &wr.modifyPointLight(camLight);
-				pl->position = glm::vec4(pos + light_pos, 1.0f);
+				pl->position = pos + light_pos;
 			}
 		}
 	};

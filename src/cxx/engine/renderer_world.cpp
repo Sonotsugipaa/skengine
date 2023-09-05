@@ -150,7 +150,7 @@ namespace SKENGINE_NAME_NS {
 	[[nodiscard]]
 	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
 		auto r = generate_id<ObjectId>();
-		dev::RayLight rl = { };
+		RayLight rl = { };
 		rl.direction = glm::vec4(glm::normalize(nrl.direction), 1.0f);
 		rl.intensity = std::max(nrl.intensity, 0.0f);
 		mRayLights.insert(RayLights::value_type { r, std::move(rl) });
@@ -162,8 +162,8 @@ namespace SKENGINE_NAME_NS {
 	[[nodiscard]]
 	ObjectId WorldRenderer::createPointLight(const NewPointLight& npl) {
 		auto r = generate_id<ObjectId>();
-		dev::PointLight pl = { };
-		pl.position    = glm::vec4(npl.position, 1.0f);
+		PointLight pl = { };
+		pl.position    = npl.position;
 		pl.intensity   = std::max(npl.intensity, 0.0f);
 		pl.falloff_exp = std::max(npl.falloffExponent, 0.0f);
 		mPointLights.insert(PointLights::value_type { r, std::move(pl) });
@@ -179,23 +179,23 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	const dev::RayLight& WorldRenderer::getRayLight(ObjectId id) const {
+	const RayLight& WorldRenderer::getRayLight(ObjectId id) const {
 		return assert_not_end_(mRayLights, id)->second;
 	}
 
 
-	const dev::PointLight& WorldRenderer::getPointLight(ObjectId id) const {
+	const PointLight& WorldRenderer::getPointLight(ObjectId id) const {
 		return assert_not_end_(mPointLights, id)->second;
 	}
 
 
-	dev::RayLight& WorldRenderer::modifyRayLight(ObjectId id) {
+	RayLight& WorldRenderer::modifyRayLight(ObjectId id) {
 		mLightStorageOod = true;
 		return assert_not_end_(mRayLights, id)->second;
 	}
 
 
-	dev::PointLight& WorldRenderer::modifyPointLight(ObjectId id) {
+	PointLight& WorldRenderer::modifyPointLight(ObjectId id) {
 		mLightStorageOod = true;
 		return assert_not_end_(mPointLights, id)->second;
 	}
@@ -214,13 +214,15 @@ namespace SKENGINE_NAME_NS {
 		auto& ray_count = mLightStorage.rayCount;
 		for(uint32_t i = 0; auto& rl : mRayLights) {
 			auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
-			dst = rl.second;
-			dst.direction = - dst.direction;
+			dst.direction = glm::vec4(- rl.second.direction, 1.0f);
+			dst.intensity = rl.second.intensity;
 			++ i;
 		}
 		for(uint32_t i = ray_count; auto& pl : mPointLights) {
 			auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
-			dst = pl.second;
+			dst.position    = glm::vec4(pl.second.position, 1.0f);
+			dst.intensity   = pl.second.intensity;
+			dst.falloff_exp = pl.second.falloff_exp;
 			++ i;
 		}
 

@@ -269,8 +269,8 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
-		using RayLights   = Umap<ObjectId, dev::RayLight>;
-		using PointLights = Umap<ObjectId, dev::PointLight>;
+		using RayLights   = Umap<ObjectId, RayLight>;
+		using PointLights = Umap<ObjectId, PointLight>;
 
 		WorldRenderer() = default;
 
@@ -296,10 +296,10 @@ namespace SKENGINE_NAME_NS {
 		[[nodiscard]] ObjectId createRayLight   (const NewRayLight&);
 		[[nodiscard]] ObjectId createPointLight (const NewPointLight&);
 		void                   removeLight      (ObjectId);
-		const dev::RayLight&   getRayLight      (ObjectId) const;
-		const dev::PointLight& getPointLight    (ObjectId) const;
-		dev::RayLight&         modifyRayLight   (ObjectId);
-		dev::PointLight&       modifyPointLight (ObjectId);
+		const RayLight&   getRayLight      (ObjectId) const;
+		const PointLight& getPointLight    (ObjectId) const;
+		RayLight&         modifyRayLight   (ObjectId);
+		PointLight&       modifyPointLight (ObjectId);
 
 		const LightStorage& lightStorage() const noexcept { return mLightStorage; };
 
