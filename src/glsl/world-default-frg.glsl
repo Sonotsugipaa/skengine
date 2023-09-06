@@ -64,16 +64,27 @@ layout(location = 7) in mat3 frg_view3;
 layout(location = 0) out vec4 out_col;
 
 const float normal_backface_bias = 0.001;
+const float pi                   = 3.14159265358;
 
 
 
-float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_pos, float angle_of_attack, float fragm_distance) {
+float shinify(float x) {
+	return (sin((x - 0.5) * pi) + 1.0) / 2.0;
+}
+
+float shinify_exp(float x, float exp) {
+	x = clamp(x, 0.0, 1.0);
+	return pow(shinify(pow(x, exp)), exp);
+}
+
+
+float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
 	float lighting = dot(
-		view_pos,
+		view_dir,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
-	float light_exp = material_ubo.shininess / fragm_distance;
+	float light_exp = material_ubo.shininess;
 	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
-	return pow(max(lighting, 0.0), material_ubo.shininess) * pow(light_exp, 1.0 / material_ubo.shininess);
+	return shinify_exp(lighting, light_exp);
 }
 
 float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack) {
@@ -97,7 +108,7 @@ float multistep(float v) {
 }
 
 
-vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
+vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 	float lighting_dfs = 0.0;
 	float lighting_spc = 0.0;
 	for(uint i = 0; i < frame_ubo.ray_light_count; ++i) {
@@ -113,24 +124,13 @@ vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 
 		lighting_spc +=
 			ray_light_buffer.lights[i].intensity
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot, 0.0);
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot);
 	}
-
-
-
-
-
-lighting_spc = 0;
-
-
-
-
-
 	return vec2(lighting_dfs, lighting_spc);
 }
 
 
-vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
+vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 	float lighting_dfs = 0.0;
 	float lighting_spc = 0.0;
 	uint  light_count  = frame_ubo.ray_light_count + frame_ubo.point_light_count;
@@ -153,7 +153,7 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_pos) {
 
 		lighting_spc +=
 			intensity
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_pos, aot, fragm_distance);
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot);
 	}
 	return vec2(lighting_dfs, lighting_spc);
 }
@@ -169,12 +169,12 @@ void main() {
 	tex_nrm = normalize((tex_nrm * 2.0) - 1.0);
 
 	vec3 tex_nrm_viewspace = frg_tbn * tex_nrm;
-	vec3 view_pos          = normalize(frg_view3 * ((frg_pos.xyz) - (frame_ubo.view_pos.xyz)));
+	vec3 view_dir          = normalize(frg_view3 * ((frg_pos.xyz) - (frame_ubo.view_pos.xyz)));
 
 	vec2 lighting = vec2(0, 0);
 
-	lighting += sum_ray_lighting(tex_nrm_viewspace, view_pos);
-	lighting += sum_point_lighting(tex_nrm_viewspace, view_pos);
+	lighting += sum_ray_lighting(tex_nrm_viewspace, view_dir);
+	lighting += sum_point_lighting(tex_nrm_viewspace, view_dir);
 
 	float lighting_sum = lighting.x + lighting.y;
 
