@@ -1,7 +1,6 @@
 #include "renderer.hpp"
 
 #include "engine.hpp"
-#include "enum_class_gen.inl.hpp"
 
 #include <bit>
 #include <cassert>
@@ -9,6 +8,8 @@
 #include <tuple>
 #include <type_traits>
 #include <random>
+
+#include "atomic_id_gen.inl.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
 
@@ -344,9 +345,11 @@ namespace SKENGINE_NAME_NS {
 	ObjectId Renderer::createObject(const NewObject& ins) {
 		assert(mDevice != nullptr);
 
-		auto new_obj_id = generate_id<ObjectId>();
+		auto new_obj_id = id_generator<ObjectId>.generate();
 		auto model_id   = getModelId(ins.model_locator);
 		auto model      = assert_not_nullptr_(getModel(model_id));
+
+		mLogger->trace("Generated Object ID {:x}", object_id_e(new_obj_id));
 
 		++ mModelDepCounters[model_id];
 
@@ -412,6 +415,7 @@ namespace SKENGINE_NAME_NS {
 		-- model_dep_counter_iter->second;
 		mObjects.erase(obj_iter);
 		mObjectUpdates.erase(id);
+		id_generator<ObjectId>.recycle(id);
 
 		if(model_dep_counter_iter->second == 0) {
 			mModelDepCounters.erase(model_dep_counter_iter);
@@ -512,7 +516,7 @@ namespace SKENGINE_NAME_NS {
 			auto ins = mModels.insert_or_assign(id, ModelData(model, locator_s));
 			locator = ins.first->second.locator; // Again, `locator` was dangling
 		} else {
-			id = generate_id<ModelId>();
+			id = id_generator<ModelId>.generate();
 			mLogger->trace("Renderer: associating model \"{}\" with ID {}", locator, model_id_e(id));
 		}
 
@@ -579,6 +583,7 @@ namespace SKENGINE_NAME_NS {
 		mModelSupplier->msi_releaseModel(model_locator);
 		mLogger->trace("Renderer: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
+		id_generator<ModelId>.recycle(id);
 	}
 
 
@@ -616,7 +621,7 @@ namespace SKENGINE_NAME_NS {
 			material_ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, { }, locator_s))).first;
 			locator = material_ins->second.locator; // Again, `locator` was dangling
 		} else {
-			id = generate_id<MaterialId>();
+			id = id_generator<MaterialId>.generate();
 			mLogger->trace("Renderer: associating material \"{}\" with ID {}", locator, material_id_e(id));
 			material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, { }, std::string(locator) })).first;
 		}
@@ -648,6 +653,7 @@ namespace SKENGINE_NAME_NS {
 
 		mMaterialSupplier->msi_releaseMaterial(mat_data.locator);
 		mMaterials.erase(id);
+		id_generator<MaterialId>.recycle(id);
 	}
 
 

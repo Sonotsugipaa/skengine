@@ -1,7 +1,8 @@
 #include "renderer.hpp"
 
 #include "engine.hpp"
-#include "enum_class_gen.inl.hpp"
+
+#include "atomic_id_gen.inl.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
 
@@ -149,7 +150,7 @@ namespace SKENGINE_NAME_NS {
 
 	[[nodiscard]]
 	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
-		auto r = generate_id<ObjectId>();
+		auto r = id_generator<ObjectId>.generate();
 		RayLight rl = { };
 		rl.direction = glm::vec4(glm::normalize(nrl.direction), 1.0f);
 		rl.intensity = std::max(nrl.intensity, 0.0f);
@@ -161,7 +162,7 @@ namespace SKENGINE_NAME_NS {
 
 	[[nodiscard]]
 	ObjectId WorldRenderer::createPointLight(const NewPointLight& npl) {
-		auto r = generate_id<ObjectId>();
+		auto r = id_generator<ObjectId>.generate();
 		PointLight pl = { };
 		pl.position    = npl.position;
 		pl.intensity   = std::max(npl.intensity, 0.0f);

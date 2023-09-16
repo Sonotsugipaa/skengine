@@ -1,7 +1,7 @@
 {
 	"C_Cpp.intelliSenseEngineFallback": "disabled",
 	"C_Cpp.default.cppStandard": "c++23",
-	"C_Cpp.default.cStandard": "c17",
+	"C_Cpp.default.cStandard": "c23",
 	"C_Cpp.default.defines": [
 		"SKENGINE_VERSION=1.2.3",
 		"SKENGINE_VERSION_MAJOR=1",
@@ -9,6 +9,7 @@
 		"SKENGINE_VERSION_PATCH=3",
 	],
 	"C_Cpp.default.includePath": [
+		"src/cxx/third-party/id-generator/src/cxx/include",
 		"src/cxx/third-party/fmamdl/include",
 		"src/cxx/third-party/rll-allocator/",
 		"src/cxx/third-party/tick-regulator/",

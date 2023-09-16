@@ -33,7 +33,6 @@ namespace {
 		std::unordered_set<SDL_KeyCode> pressedKeys;
 		ObjectId  objects[obj_count_sqrt+obj_count_sqrt+1][obj_count_sqrt+obj_count_sqrt+1];
 		ObjectId  floor;
-		ObjectId  fixedLights[2];
 		ObjectId  camLight;
 		ObjectId  movingRayLight;
 		ObjectId  lightGuide;
@@ -59,7 +58,7 @@ namespace {
 
 			Renderer::NewObject o = { };
 			o.model_locator = "ground.fma";
-			o.position_xyz  = { 0.0f, -0.5f, 0.0f };
+			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
 
 			floor = wr.createObject(o);
@@ -78,8 +77,10 @@ namespace {
 			for(s_object_id_e y = -obj_count_sqrt; y <= obj_count_sqrt; ++y) {
 				if(x == 0 && y == 0) [[unlikely]] {
 					o.model_locator = "gold-bars.fma";
+					o.position_xyz.y = 0.0f;
 				} else {
-					o.model_locator = "test-model.fma";
+					o.model_locator  = "test-model.fma";
+					o.position_xyz.y = 0.5f;
 				}
 				float ox = x * object_spacing;
 				float oz = y * object_spacing;
@@ -98,20 +99,14 @@ namespace {
 			auto& wr = ca.getWorldRenderer();
 
 			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 0.15f;
-			rl.direction = { +1.0f, -0.0f, -2.0f };
-			fixedLights[0] = wr.createRayLight(rl);
-			rl.intensity = 0.08f;
-			rl.direction = { -1.0f, -2.0f, +5.0f };
-			fixedLights[1] = wr.createRayLight(rl);
-			rl.intensity = 0.6f;
+			rl.intensity = 0.8f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 0.6f;
+			pl.intensity = 1.0f;
 			pl.falloffExponent = 1.0f;
-			pl.position = { 0.4f, 1.0f, 0.4f };
+			pl.position = { 0.4f, 1.0f, 0.6f };
 			camLight = wr.createPointLight(pl);
 
 			Renderer::NewObject o = { };
