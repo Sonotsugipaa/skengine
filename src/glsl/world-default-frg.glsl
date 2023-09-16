@@ -159,6 +159,16 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 }
 
 
+vec3 color_excess_filter(vec3 col) {
+	float len = length(col);
+	if(len > 1.0) {
+		float excess = len - 1.0;
+		return (col / len) + (excess);
+	}
+	return col;
+}
+
+
 
 void main() {
 	vec4 tex_dfs = texture(tex_dfsSampler, frg_tex);
@@ -184,14 +194,13 @@ void main() {
 		lighting_sum = multistep(lighting_sum);
 	}
 
-	lighting_sum = clamp(lighting_sum, 0.0, 1.0);
-
 	out_col.rgb =
 		(frg_col.rgb * (
 			(tex_dfs.rgb * lighting.x) +
 			(tex_spc.rgb * lighting.y)
 		))
-		+ (tex_emi.rgb * (1 - lighting_sum));
+		+ (tex_emi.rgb * clamp(1.0 - lighting_sum, 0.0, 1.0));
+	out_col.rgb = color_excess_filter(out_col.rgb);
 	out_col.rgb = min(out_col.rgb, 1.0);
 	out_col.a = frg_col.a;
 }
