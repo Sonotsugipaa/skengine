@@ -1,4 +1,5 @@
 #include <numbers>
+#include <random>
 
 #include <engine/engine.hpp>
 
@@ -71,17 +72,33 @@ namespace {
 			auto  ca = engine->getConcurrentAccess();
 			auto& wr = ca.getWorldRenderer();
 
+
+			auto rng   = std::minstd_rand(size_t(this));
+			auto disti = std::uniform_int_distribution<uint8_t>(0, 3);
+			auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
 			Renderer::NewObject o = { };
 			o.scale_xyz = { 1.0f, 1.0f, 1.0f };
 			for(s_object_id_e x = -obj_count_sqrt; x <= obj_count_sqrt; ++x)
 			for(s_object_id_e y = -obj_count_sqrt; y <= obj_count_sqrt; ++y) {
 				if(x == 0 && y == 0) [[unlikely]] {
-					o.model_locator = "gold-bars.fma";
+					o.model_locator = "car.fma";
 					o.position_xyz.y = 0.0f;
-				} else {
-					o.model_locator  = "test-model.fma";
-					o.position_xyz.y = 0.5f;
+				} else switch(disti(rng)) {
+					case 0:
+						o.model_locator  = "gold-bars.fma";
+						o.position_xyz.y = 0.0f;
+						break;
+					case 1:
+						o.model_locator  = "car.fma";
+						o.position_xyz.y = 0.0f;
+						break;
+					case 2:
+						o.model_locator  = "test-model.fma";
+						o.position_xyz.y = 0.5f;
+						break;
+					default: std::unreachable(); abort();
 				}
+				o.direction_ypr = { distf(rng), 0.0f, 0.0f };
 				float ox = x * object_spacing;
 				float oz = y * object_spacing;
 				o.position_xyz.x = ox;
@@ -99,12 +116,12 @@ namespace {
 			auto& wr = ca.getWorldRenderer();
 
 			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 0.8f;
+			rl.intensity = 0.4f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 1.0f;
+			pl.intensity = 0.6f;
 			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			camLight = wr.createPointLight(pl);

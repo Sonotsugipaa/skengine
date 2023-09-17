@@ -706,8 +706,7 @@ namespace SKENGINE_NAME_NS {
 
 			if(src_obj.first.hidden) return false;
 
-			auto erased_from_updates = mObjectUpdates.erase(obj_id);
-			if(0 == erased_from_updates) {
+			if(! mObjectUpdates.contains(obj_id)) {
 				if(! mObjectsNeedRebuild) return true;
 			} else {
 				VkDeviceSize offset = VkDeviceSize(obj_buffer_index) * sizeof(dev::Instance);
@@ -796,6 +795,7 @@ namespace SKENGINE_NAME_NS {
 			mObjectsNeedRebuild = false;
 			commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
 			mBatchesNeedUpdate = false;
+			mObjectUpdates.clear();
 		}
 
 		if(mObjectsNeedFlush) {
