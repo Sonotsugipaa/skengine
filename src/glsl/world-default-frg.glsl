@@ -201,6 +201,5 @@ void main() {
 		))
 		+ (tex_emi.rgb * clamp(1.0 - lighting_sum, 0.0, 1.0));
 	out_col.rgb = color_excess_filter(out_col.rgb);
-	out_col.rgb = min(out_col.rgb, 1.0);
 	out_col.a = frg_col.a;
 }
