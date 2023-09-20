@@ -441,12 +441,12 @@ namespace SKENGINE_NAME_NS {
 	):
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
-			std::max<unsigned>(4, 8),
+			8,
 			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
 			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
 		mLogicReg(
-			std::max<unsigned>(4, 8),
+			8,
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),

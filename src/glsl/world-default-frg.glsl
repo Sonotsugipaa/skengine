@@ -68,6 +68,13 @@ const float pi                   = 3.14159265358;
 
 
 
+vec3 unorm_correct(vec3 v) {
+	// v = v * 255.0;
+	// v = min(v, 254.0);
+	// v = v / 254.0;
+	return min(v * 255.0, 254.0) / 254.0;
+}
+
 float shinify(float x) {
 	return (sin((x - 0.5) * pi) + 1.0) / 2.0;
 }
@@ -81,7 +88,7 @@ float shinify_exp(float x, float exp) {
 float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
 	float lighting = dot(
 		view_dir,
-		reflect(light_dir_viewspace, tex_nrm_viewspace) );
+		reflect(light_dir_viewspace, normalize(tex_nrm_viewspace)) );
 	float light_exp = material_ubo.shininess;
 	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
 	return shinify_exp(lighting, light_exp);
@@ -152,7 +159,7 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot);
 
 		lighting_spc +=
-			intensity
+			intensity_falloff
 			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot);
 	}
 	return vec2(lighting_dfs, lighting_spc);
@@ -176,6 +183,7 @@ void main() {
 	vec4 tex_spc = texture(tex_spcSampler, frg_tex);
 	vec4 tex_emi = texture(tex_emiSampler, frg_tex);
 
+	tex_nrm = unorm_correct(tex_nrm);
 	tex_nrm = normalize((tex_nrm * 2.0) - 1.0);
 
 	vec3 tex_nrm_viewspace = frg_tbn * tex_nrm;
