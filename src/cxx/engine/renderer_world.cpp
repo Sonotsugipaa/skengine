@@ -215,7 +215,7 @@ namespace SKENGINE_NAME_NS {
 		auto& ray_count = mLightStorage.rayCount;
 		for(uint32_t i = 0; auto& rl : mRayLights) {
 			auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
-			dst.direction = glm::vec4(- rl.second.direction, 1.0f);
+			dst.direction = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
 			dst.intensity = rl.second.intensity;
 			++ i;
 		}

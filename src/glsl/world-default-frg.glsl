@@ -88,7 +88,7 @@ float shinify_exp(float x, float exp) {
 float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
 	float lighting = dot(
 		view_dir,
-		reflect(light_dir_viewspace, normalize(tex_nrm_viewspace)) );
+		reflect(light_dir_viewspace, tex_nrm_viewspace) );
 	float light_exp = material_ubo.shininess;
 	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
 	return shinify_exp(lighting, light_exp);
@@ -186,7 +186,7 @@ void main() {
 	tex_nrm = unorm_correct(tex_nrm);
 	tex_nrm = normalize((tex_nrm * 2.0) - 1.0);
 
-	vec3 tex_nrm_viewspace = frg_tbn * tex_nrm;
+	vec3 tex_nrm_viewspace = normalize(frg_tbn * tex_nrm);
 	vec3 view_dir          = normalize(frg_view3 * ((frg_pos.xyz) - (frame_ubo.view_pos.xyz)));
 
 	vec2 lighting = vec2(0, 0);

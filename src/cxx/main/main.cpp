@@ -23,7 +23,7 @@ namespace {
 
 	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
 	public:
-		static constexpr ssize_t obj_count_sqrt    = 7;
+		static constexpr ssize_t obj_count_sqrt    = 5 * 2;
 		static constexpr float   object_spacing    = 2.0f;
 		static constexpr float   mouse_sensitivity = 0.25f;
 		static constexpr float   movement_drag     = 8.0f;
@@ -31,8 +31,9 @@ namespace {
 		static constexpr float   movement_speed    = 1.1f * movement_drag;
 
 		Engine* engine;
+		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
-		ObjectId  objects[obj_count_sqrt+obj_count_sqrt+1][obj_count_sqrt+obj_count_sqrt+1];
+		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  floor;
 		ObjectId  camLight;
 		ObjectId  movingRayLight;
@@ -72,14 +73,15 @@ namespace {
 			auto  ca = engine->getConcurrentAccess();
 			auto& wr = ca.getWorldRenderer();
 
+			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
 
 			auto rng   = std::minstd_rand(size_t(this));
 			auto disti = std::uniform_int_distribution<uint8_t>(0, 3);
 			auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
 			Renderer::NewObject o = { };
 			o.scale_xyz = { 1.0f, 1.0f, 1.0f };
-			for(s_object_id_e x = -obj_count_sqrt; x <= obj_count_sqrt; ++x)
-			for(s_object_id_e y = -obj_count_sqrt; y <= obj_count_sqrt; ++y) {
+			for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
+			for(s_object_id_e y = -obj_count_sqrt_half; y <= obj_count_sqrt_half; ++y) {
 				if(x == 0 && y == 0) [[unlikely]] {
 					o.model_locator = "car.fma";
 					o.position_xyz.y = 0.0f;
@@ -103,8 +105,8 @@ namespace {
 				float oz = y * object_spacing;
 				o.position_xyz.x = ox;
 				o.position_xyz.z = oz;
-				size_t xi = x + obj_count_sqrt;
-				size_t yi = y + obj_count_sqrt;
+				size_t xi = x + obj_count_sqrt_half;
+				size_t yi = y + obj_count_sqrt_half;
 				assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
 				objects[yi][xi] = wr.createObject(o);
 			}
@@ -155,8 +157,6 @@ namespace {
 
 			bool mouse_rel_mode = SDL_GetRelativeMouseMode();
 
-			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
-
 			struct ResizeEvent {
 				uint32_t width;
 				uint32_t height;
@@ -177,7 +177,9 @@ namespace {
 							resize_event = { uint32_t(ev.window.data1), uint32_t(ev.window.data2), true };
 							break;
 						case SDL_WINDOWEVENT_FOCUS_LOST:
+							inputMutex.lock();
 							pressedKeys.clear();
+							inputMutex.unlock();
 							break;
 					} break;
 					case SDL_EventType::SDL_KEYDOWN:
@@ -187,13 +189,17 @@ namespace {
 							mouse_rel_mode = ! mouse_rel_mode;
 							break;
 						default:
+							inputMutex.lock();
 							pressedKeys.insert(SDL_KeyCode(ev.key.keysym.sym));
+							inputMutex.unlock();
 							break;
 					} break;
 					case SDL_EventType::SDL_KEYUP:
 					switch(ev.key.keysym.sym) {
 						default:
+							inputMutex.lock();
 							pressedKeys.erase(SDL_KeyCode(ev.key.keysym.sym));
+							inputMutex.unlock();
 							break;
 					} break;
 				}
@@ -217,42 +223,6 @@ namespace {
 				dir.y  = std::clamp(dir.y, -pi_2, +pi_2);
 				wr.setViewRotation(dir);
 			}
-
-			glm::vec3 camera_pulse = [&]() {
-				glm::vec3 r = { 0.0f, 0.0f, 0.0f };
-				bool zero_mov = true;
-
-				if(pressedKeys.contains(SDLK_w)) [[unlikely]] { zero_mov = false; r.z += -1.0f; }
-				if(pressedKeys.contains(SDLK_s)) [[unlikely]] { zero_mov = false; r.z += +1.0f; }
-				if(pressedKeys.contains(SDLK_a)) [[unlikely]] { zero_mov = false; r.x += -1.0f; }
-				if(pressedKeys.contains(SDLK_d)) [[unlikely]] { zero_mov = false; r.x += +1.0f; }
-
-				if(! zero_mov) {
-					// Vertical movement only in relative mouse mode
-					if(! mouse_rel_mode) {
-						r.z = - r.z;
-						std::swap(r.y, r.z);
-					}
-
-					auto&     view_transf4    = wr.getViewTransf();
-					glm::mat3 view_transf     = view_transf4;
-					glm::mat3 view_transf_inv = glm::inverse(view_transf);
-
-					r  = view_transf_inv * r * movement_speed;
-				}
-
-				float drag = pressedKeys.contains(SDLK_LSHIFT)? movement_drag_mod : movement_drag;
-				r -= cameraSpeed * drag;
-
-				return r;
-			} ();
-
-			wr.setViewPosition(
-				wr.getViewPosition()
-				+ (cameraSpeed  * float(delta))
-				+ (camera_pulse * float(delta_integral) ) );
-
-			cameraSpeed += camera_pulse * float(delta);
 		}
 
 
@@ -264,19 +234,64 @@ namespace {
 		void loop_async_preRender(tickreg::delta_t, tickreg::delta_t) override { }
 
 
-		void loop_async_postRender(tickreg::delta_t avg_delta, tickreg::delta_t last_delta) override {
-			auto  ca  = engine->getConcurrentAccess();
-			auto& wr  = ca.getWorldRenderer();
-			auto& pos = wr.getViewPosition();
+		void loop_async_postRender(tickreg::delta_t, tickreg::delta_t delta) override {
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca.getWorldRenderer();
 
-			avg_delta = std::min(avg_delta, last_delta);
+			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
 
 			{ // Rotate the object at the center
-				auto o = wr.modifyObject(objects[obj_count_sqrt][obj_count_sqrt]).value();
-				o.direction_ypr.x -= glm::radians(71.0 * avg_delta);
+				constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
+				auto o = wr.modifyObject(objects[obj_count_sqrt_half][obj_count_sqrt_half]).value();
+				o.direction_ypr.x -= glm::radians(71.0 * delta);
 			}
 
-			if(! pressedKeys.contains(SDLK_SPACE)) {
+			inputMutex.lock();
+
+			glm::vec3 pos;
+			{ // Move the camera
+				bool mouse_rel_mode = SDL_GetRelativeMouseMode();
+
+				glm::vec3 camera_pulse = [&]() {
+					glm::vec3 r = { 0.0f, 0.0f, 0.0f };
+					bool zero_mov = true;
+
+					if(pressedKeys.contains(SDLK_w)) [[unlikely]] { zero_mov = false; r.z += -1.0f; }
+					if(pressedKeys.contains(SDLK_s)) [[unlikely]] { zero_mov = false; r.z += +1.0f; }
+					if(pressedKeys.contains(SDLK_a)) [[unlikely]] { zero_mov = false; r.x += -1.0f; }
+					if(pressedKeys.contains(SDLK_d)) [[unlikely]] { zero_mov = false; r.x += +1.0f; }
+
+					if(! zero_mov) {
+						// Vertical movement only in relative mouse mode
+						if(! mouse_rel_mode) {
+							r.z = - r.z;
+							std::swap(r.y, r.z);
+						}
+
+						auto&     view_transf4    = wr.getViewTransf();
+						glm::mat3 view_transf     = view_transf4;
+						glm::mat3 view_transf_inv = glm::inverse(view_transf);
+
+						r  = view_transf_inv * r * movement_speed;
+					}
+
+					float drag = pressedKeys.contains(SDLK_LSHIFT)? movement_drag_mod : movement_drag;
+					r -= cameraSpeed * drag;
+
+					return r;
+				} ();
+
+				pos =
+					wr.getViewPosition()
+					+ (cameraSpeed  * float(delta))
+					+ (camera_pulse * float(delta_integral) );
+				wr.setViewPosition(pos);
+
+				cameraSpeed += camera_pulse * float(delta);
+			}
+
+			bool move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
+			if(! move_light_key_pressed) {
 				if(lightGuideVisible) {
 					wr.modifyObject(lightGuide)->hidden = true;
 					lightGuideVisible = false;
@@ -304,6 +319,8 @@ namespace {
 				auto* pl = &wr.modifyPointLight(camLight);
 				pl->position = pos + light_pos;
 			}
+
+			inputMutex.unlock();
 		}
 	};
 
