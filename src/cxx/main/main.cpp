@@ -127,7 +127,7 @@ namespace {
 			camLight = wr.createPointLight(pl);
 
 			Renderer::NewObject o = { };
-			o.scale_xyz     = { 0.2f, 0.2f, 0.2f };
+			o.scale_xyz     = { 0.05f, 0.05f, 0.05f };
 			o.model_locator = "gold-bars.fma";
 			o.hidden        = true;
 			lightGuide = wr.createObject(o);
@@ -286,7 +286,7 @@ namespace {
 				auto* rl = &wr.modifyRayLight(movingRayLight);
 				glm::vec3 light_pos = [&]() {
 					glm::mat3 view = wr.getViewTransf();
-					return glm::transpose(view) * glm::vec3 { 0.0f, 0.0f, -1.0f };
+					return glm::transpose(view) * glm::vec3 { 0.0f, 0.0f, -0.2f };
 				} ();
 				rl->direction = light_pos;
 

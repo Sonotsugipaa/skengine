@@ -169,8 +169,8 @@ vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 vec3 color_excess_filter(vec3 col) {
 	float len = length(col);
 	if(len > 1.0) {
-		float excess = len - 1.0;
-		return (col / len) + (excess);
+		float excess_len = len - 1.0;
+		return (col / len) + (excess_len);
 	}
 	return col;
 }
@@ -194,12 +194,9 @@ void main() {
 	lighting += sum_ray_lighting(tex_nrm_viewspace, view_dir);
 	lighting += sum_point_lighting(tex_nrm_viewspace, view_dir);
 
-	float lighting_sum = lighting.x + lighting.y;
-
 	if(frame_ubo.shade_step_count > 0) {
 		lighting.x = multistep(lighting.x);
 		lighting.y = multistep(lighting.y);
-		lighting_sum = multistep(lighting_sum);
 	}
 
 	out_col.rgb =
@@ -207,7 +204,7 @@ void main() {
 			(tex_dfs.rgb * lighting.x) +
 			(tex_spc.rgb * lighting.y)
 		))
-		+ (tex_emi.rgb * clamp(1.0 - lighting_sum, 0.0, 1.0));
+		+ tex_emi.rgb;
 	out_col.rgb = color_excess_filter(out_col.rgb);
 	out_col.a = frg_col.a;
 }
