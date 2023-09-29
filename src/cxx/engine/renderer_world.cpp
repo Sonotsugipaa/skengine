@@ -223,7 +223,6 @@ namespace SKENGINE_NAME_NS {
 				++ i;
 			}
 
-			++ mLightStorage.updateCounter;
 			mLightStorage.buffer.flush(mVma);
 			mLightStorageOod = false;
 		}

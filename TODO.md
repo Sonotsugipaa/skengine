@@ -3,8 +3,6 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
-  - Remove the light storage update counters (from `Engine` and
-    `WorldRenderer::LightStorage`)
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
   - Break down big functions in `renderer.cpp`

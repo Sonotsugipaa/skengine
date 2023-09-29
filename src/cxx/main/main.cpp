@@ -156,7 +156,7 @@ namespace {
 		}
 
 
-		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
+		void loop_processEvents(tickreg::delta_t delta, tickreg::delta_t) override {
 			SDL_Event ev;
 
 			bool mouse_rel_mode = SDL_GetRelativeMouseMode();
@@ -252,7 +252,7 @@ namespace {
 		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
 
 
-		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t, tickreg::delta_t delta) override {
+		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t delta_last) override {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
@@ -348,16 +348,16 @@ int main() {
 	auto logger = std::make_shared<spdlog::logger>(
 		SKENGINE_NAME_CSTR,
 		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
+	logger->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
 
 	auto prefs = engine_preferences;
 
-	prefs.logger = logger;
 	#ifdef NDEBUG
 		spdlog::set_level(spdlog::level::info);
-		prefs.log_level = spdlog::level::info;
+		logger->set_level(spdlog::level::info);
 	#else
 		spdlog::set_level(spdlog::level::debug);
-		prefs.log_level = spdlog::level::debug;
+		logger->set_level(spdlog::level::debug);
 	#endif
 
 	try {
@@ -373,7 +373,8 @@ int main() {
 					SKENGINE_VERSION_MINOR,
 					SKENGINE_VERSION_PATCH ) },
 			prefs,
-			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache) );
+			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache),
+			logger );
 
 		auto loop = Loop(engine);
 

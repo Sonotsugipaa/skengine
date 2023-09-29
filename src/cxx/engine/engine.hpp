@@ -81,15 +81,12 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	#warning "TODO: work on the preferences struct"
 	struct EnginePreferences {
 		static const EnginePreferences default_prefs;
 		std::string phys_device_uuid;
+		std::string asset_filename_prefix;
 		VkExtent2D  init_present_extent;
 		VkExtent2D  max_render_extent;
-		std::string_view asset_filename_prefix;
-		std::shared_ptr<spdlog::logger> logger;
-		spdlog::level::level_enum       log_level;
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
 		uint32_t       max_concurrent_frames;
@@ -158,8 +155,7 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_draw;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
-		uint_fast32_t light_storage_last_update_counter;
-		uint32_t      light_storage_capacity;
+		uint32_t    light_storage_capacity;
 	};
 
 
@@ -248,8 +244,13 @@ namespace SKENGINE_NAME_NS {
 		static constexpr uint32_t MATERIAL_UBO_BINDING  = 4;
 
 		Engine() = default;
-		Engine(const DeviceInitInfo&, const EnginePreferences&, std::unique_ptr<ShaderCacheInterface>);
 		~Engine();
+
+		Engine(
+			const DeviceInitInfo&,
+			const EnginePreferences&,
+			std::unique_ptr<ShaderCacheInterface>,
+			std::shared_ptr<spdlog::logger> );
 
 		VkShaderModule createShaderModuleFromFile(const std::string& file_path);
 

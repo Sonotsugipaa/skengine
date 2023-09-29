@@ -462,7 +462,6 @@ namespace SKENGINE_NAME_NS {
 			gf.frame_ubo     = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
 			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(mVma, light_storage_bc_info);
 			gf.light_storage_capacity = light_storage_capacity;
-			gf.light_storage_last_update_counter = mWorldRenderer.lightStorage().updateCounter;
 
 			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
 			for(auto& wr : dset_wr) wr.dstSet = gf.frame_dset;

@@ -17,6 +17,21 @@
 
 
 
+namespace SKENGINE_NAME_NS {
+namespace {
+
+	constexpr tickreg::delta_t choose_delta(tickreg::delta_t avg, tickreg::delta_t last) {
+		using tickreg::delta_t;
+		constexpr auto tolerance_factor = delta_t(1.0) / delta_t(2.0);
+		delta_t diff = (avg > last)? (avg - last) : (last - avg);
+		if(diff > last * tolerance_factor) avg = last;
+		return avg;
+	}
+
+}}
+
+
+
 struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	using frame_counter_t = decltype(Engine::mGframeSelector);
@@ -126,6 +141,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkImage     sc_img;
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
 		auto        delta_last = e.mGraphicsReg.lastDelta();
+		auto        delta      = choose_delta(delta_avg, delta_last);
 		auto        concurrent_access = ConcurrentAccess(&e, true);
 
 		e.mGraphicsReg.beginCycle();
@@ -165,7 +181,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		loop.loop_async_preRender(concurrent_access, delta_avg, delta_last);
+		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
@@ -185,7 +201,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
 			ubo.shade_step_exp    = e.mPrefs.shade_step_exponent;
 			ubo.rnd               = dist(rng);
-			ubo.time_delta        = std::float32_t(delta_last);
+			ubo.time_delta        = std::float32_t(delta);
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
@@ -358,7 +374,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
 		e.mRendererMutex.unlock();
 
-		loop.loop_async_postRender(concurrent_access, delta_avg, e.mGraphicsReg.lastDelta());
+		loop.loop_async_postRender(concurrent_access, delta, e.mGraphicsReg.lastDelta());
 
 		e.mGraphicsReg.endCycle();
 
@@ -368,10 +384,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	static LoopInterface::LoopState runLogicIteration(Engine& e, LoopInterface& loop) {
 		e.mLogicReg.beginCycle();
-		auto delta_avg = e.mLogicReg.estDelta();
+		auto delta_last = e.mLogicReg.lastDelta();
+		auto delta = choose_delta(e.mLogicReg.estDelta(), delta_last);
 
 		e.mGframePriorityOverride.store(true, std::memory_order_seq_cst);
-		loop.loop_processEvents(delta_avg, e.mLogicReg.lastDelta());
+		loop.loop_processEvents(delta, delta_last);
 		e.mGframePriorityOverride.store(false, std::memory_order_seq_cst);
 		e.mGframeResumeCond.notify_one();
 
@@ -391,11 +408,9 @@ namespace SKENGINE_NAME_NS {
 
 	const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
 		.phys_device_uuid      = "",
+		.asset_filename_prefix = "",
 		.init_present_extent   = { 600, 400 },
 		.max_render_extent     = { 0, 0 },
-		.asset_filename_prefix = "",
-		.logger                = { },
-		.log_level             = spdlog::level::info,
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
@@ -422,12 +437,13 @@ namespace SKENGINE_NAME_NS {
 
 	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
 		auto reinit = [&]() {
+			using tickreg::delta_t;
 			auto lock = ca_engine->pauseRenderPass();
 			ca_engine->mPrefs.init_present_extent = ext;
 
 			// Some compositors resize the window as soon as it appears, and this seems to cause problems
-			ca_engine->mGraphicsReg.resetEstimates(ca_engine->mPrefs.target_framerate);
-			ca_engine->mLogicReg.resetEstimates(ca_engine->mPrefs.target_tickrate);
+			ca_engine->mGraphicsReg.resetEstimates (delta_t(1.0) / delta_t(ca_engine->mPrefs.target_framerate));
+			ca_engine->mLogicReg.resetEstimates    (delta_t(1.0) / delta_t(ca_engine->mPrefs.target_tickrate));
 
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
 			init->reinit();
@@ -448,7 +464,8 @@ namespace SKENGINE_NAME_NS {
 	Engine::Engine(
 			const DeviceInitInfo&    di,
 			const EnginePreferences& ep,
-			std::unique_ptr<ShaderCacheInterface> sci
+			std::unique_ptr<ShaderCacheInterface> sci,
+			std::shared_ptr<spdlog::logger>       logger
 	):
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
@@ -465,15 +482,19 @@ namespace SKENGINE_NAME_NS {
 		mGframeSelector(0),
 		mLogger([&]() {
 			decltype(mLogger) r;
-			if(ep.logger) {
-				r = ep.logger;
+			if(logger) {
+				r = logger;
 			} else {
 				r = std::make_shared<spdlog::logger>(
 					SKENGINE_NAME_CSTR,
 					std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
 			}
 			r->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
-			r->set_level(ep.log_level);
+			#ifdef NDEBUG
+				r->set_level(spdlog::level::debug);
+			#else
+				r->set_level(spdlog::level::info);
+			#endif
 			return r;
 		} ()),
 		mPrefs(ep)

@@ -251,10 +251,9 @@ namespace SKENGINE_NAME_NS {
 		struct LightStorage {
 			vkutil::ManagedBuffer buffer;
 			dev::Light*           mappedPtr;
-			uint_fast32_t updateCounter;
-			uint32_t      bufferCapacity;
-			uint32_t      rayCount;
-			uint32_t      pointCount;
+			uint32_t bufferCapacity;
+			uint32_t rayCount;
+			uint32_t pointCount;
 		};
 
 		struct NewRayLight {
