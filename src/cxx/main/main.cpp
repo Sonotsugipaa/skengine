@@ -21,7 +21,23 @@ namespace {
 	using namespace SKENGINE_NAME_NS;
 
 
-	class Loop : public SKENGINE_NAME_NS_SHORT::LoopInterface {
+	const EnginePreferences engine_preferences = []() {
+		auto prefs = EnginePreferences::default_prefs;
+		prefs.init_present_extent   = { 700, 700 };
+		prefs.max_render_extent     = { 0, 400 };
+		prefs.asset_filename_prefix = "assets/";
+		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
+		prefs.target_framerate      = 60.0f;
+		prefs.target_tickrate       = 60.0f;
+		prefs.fov_y                 = glm::radians(80.0f);
+		prefs.shade_step_count      = 8;
+		prefs.shade_step_smoothness = 0.7f;
+		prefs.shade_step_exponent   = 4.0f;
+		return prefs;
+	} ();
+
+
+	class Loop : public LoopInterface {
 	public:
 		static constexpr ssize_t obj_count_sqrt    = 5 * 2;
 		static constexpr float   object_spacing    = 2.0f;
@@ -43,10 +59,7 @@ namespace {
 		bool active            : 1;
 
 
-		void setView() {
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca.getWorldRenderer();
-
+		void setView(skengine::WorldRenderer& wr) {
 			glm::vec3 dir  = { 0.0f, glm::radians(20.0f), 0.0f };
 			float     dist = object_spacing / 2.0f;
 			wr.setViewRotation(dir);
@@ -54,10 +67,7 @@ namespace {
 		}
 
 
-		void createGround() {
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca.getWorldRenderer();
-
+		void createGround(skengine::WorldRenderer& wr) {
 			Renderer::NewObject o = { };
 			o.model_locator = "ground.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
@@ -67,16 +77,13 @@ namespace {
 		}
 
 
-		void createTestObjects() {
+		void createTestObjects(skengine::WorldRenderer& wr) {
 			using s_object_id_e = std::make_signed_t<object_id_e>;
-
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca.getWorldRenderer();
 
 			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
 
 			auto rng   = std::minstd_rand(size_t(this));
-			auto disti = std::uniform_int_distribution<uint8_t>(0, 3);
+			auto disti = std::uniform_int_distribution<uint8_t>(0, 2);
 			auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
 			Renderer::NewObject o = { };
 			o.scale_xyz = { 1.0f, 1.0f, 1.0f };
@@ -113,10 +120,7 @@ namespace {
 		}
 
 
-		void createLights() {
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca.getWorldRenderer();
-
+		void createLights(skengine::WorldRenderer& wr) {
 			WorldRenderer::NewRayLight rl = { };
 			rl.intensity = 0.4f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
@@ -142,20 +146,21 @@ namespace {
 			lightGuideVisible(false),
 			active(true)
 		{
-			setView();
-			createGround();
-			createTestObjects();
-			createLights();
+			auto  ca = engine->getConcurrentAccess();
+			auto& wr = ca->getWorldRenderer();
+
+			setView(wr);
+			createGround(wr);
+			createTestObjects(wr);
+			createLights(wr);
 		}
 
 
 		void loop_processEvents(tickreg::delta_t, tickreg::delta_t delta) override {
 			SDL_Event ev;
 
-			auto  ca = engine->getConcurrentAccess();
-			auto& wr = ca.getWorldRenderer();
-
 			bool mouse_rel_mode = SDL_GetRelativeMouseMode();
+			bool request_ca     = false;
 
 			struct ResizeEvent {
 				uint32_t width;
@@ -175,6 +180,7 @@ namespace {
 					switch(ev.window.event) {
 						case SDL_WINDOWEVENT_RESIZED:
 							resize_event = { uint32_t(ev.window.data1), uint32_t(ev.window.data2), true };
+							request_ca = true;
 							break;
 						case SDL_WINDOWEVENT_FOCUS_LOST:
 							inputMutex.lock();
@@ -204,24 +210,36 @@ namespace {
 					} break;
 				}
 
-				if(mouse_rel_mode)
-				switch(ev.type) {
-					case SDL_EventType::SDL_MOUSEMOTION:
-						rotate_camera.x -= glm::radians<float>(ev.motion.xrel) * mouse_sensitivity / delta;
-						rotate_camera.y += glm::radians<float>(ev.motion.yrel) * mouse_sensitivity / delta;
-						break;
+				if(mouse_rel_mode) {
+					using float_t = tickreg::delta_t;
+					auto mouse_mov_magnitude = float_t(mouse_sensitivity) / delta;
+					switch(ev.type) {
+						default: break;
+						case SDL_EventType::SDL_MOUSEMOTION:
+							rotate_camera.x -= glm::radians<float_t>(ev.motion.xrel) * mouse_mov_magnitude;
+							rotate_camera.y += glm::radians<float_t>(ev.motion.yrel) * mouse_mov_magnitude;
+							request_ca = true;
+							break;
+					}
 				}
 			}
 
-			if(resize_event.triggered) ca.setPresentExtent({ resize_event.width, resize_event.height });
+			if(request_ca) {
+				auto  ca = engine->getConcurrentAccess();
+				auto& wr = ca->getWorldRenderer();
 
-			{ // Rotate the camera
-				constexpr auto pi_2 = std::numbers::pi_v<float> / 2.0f;
-				auto dir = wr.getViewRotation();
-				dir.x += rotate_camera.x * delta;
-				dir.y += rotate_camera.y * delta;
-				dir.y  = std::clamp(dir.y, -pi_2, +pi_2);
-				wr.setViewRotation(dir);
+				if(resize_event.triggered) {
+					ca->setPresentExtent({ resize_event.width, resize_event.height });
+				}
+
+				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
+					constexpr auto pi_2 = std::numbers::pi_v<float> / 2.0f;
+					auto dir = wr.getViewRotation();
+					dir.x += rotate_camera.x * delta;
+					dir.y += rotate_camera.y * delta;
+					dir.y  = std::clamp(dir.y, -pi_2, +pi_2);
+					wr.setViewRotation(dir, false);
+				}
 			}
 		}
 
@@ -231,11 +249,10 @@ namespace {
 		}
 
 
-		void loop_async_preRender(tickreg::delta_t, tickreg::delta_t) override { }
+		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
 
 
-		void loop_async_postRender(tickreg::delta_t, tickreg::delta_t delta) override {
-			auto  ca = engine->getConcurrentAccess();
+		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t, tickreg::delta_t delta) override {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
@@ -270,9 +287,9 @@ namespace {
 
 						auto&     view_transf4    = wr.getViewTransf();
 						glm::mat3 view_transf     = view_transf4;
-						glm::mat3 view_transf_inv = glm::inverse(view_transf);
+						glm::mat3 view_transf_inv = glm::transpose(view_transf);
 
-						r  = view_transf_inv * r * movement_speed;
+						r = view_transf_inv * r * movement_speed;
 					}
 
 					float drag = pressedKeys.contains(SDLK_LSHIFT)? movement_drag_mod : movement_drag;
@@ -305,19 +322,18 @@ namespace {
 				} ();
 				rl->direction = light_pos;
 
-				// Handle the light guide
-				if(! lightGuideVisible) {
+				{ // Handle the light guide
 					auto o = wr.modifyObject(lightGuide).value();
-					o.position_xyz = pos + light_pos;
-					o.hidden       = false;
+					o.position_xyz    = pos + light_pos;
+					o.hidden          = false;
 					lightGuideVisible = true;
-				} else {
-					wr.modifyObject(lightGuide)->position_xyz = pos + light_pos;
 				}
 
 				// Make the camera light follow the camera
-				auto* pl = &wr.modifyPointLight(camLight);
-				pl->position = pos + light_pos;
+				{
+					auto* pl = &wr.modifyPointLight(camLight);
+					pl->position = pos + light_pos;
+				}
 			}
 
 			inputMutex.unlock();
@@ -333,17 +349,7 @@ int main() {
 		SKENGINE_NAME_CSTR,
 		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
 
-	auto prefs = SKENGINE_NAME_NS_SHORT::EnginePreferences::default_prefs;
-	prefs.init_present_extent   = { 700, 700 };
-	prefs.max_render_extent     = { 0, 400 };
-	prefs.asset_filename_prefix = "assets/";
-	prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
-	prefs.target_framerate      = 60.0f;
-	prefs.target_tickrate       = 60.0f;
-	prefs.fov_y                 = glm::radians(110.0f);
-	prefs.shade_step_count      = 12;
-	prefs.shade_step_smoothness = 0.7f;
-	prefs.shade_step_exponent   = 4.0f;
+	auto prefs = engine_preferences;
 
 	prefs.logger = logger;
 	#ifdef NDEBUG

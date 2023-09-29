@@ -81,6 +81,7 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	#warning "TODO: work on the preferences struct"
 	struct EnginePreferences {
 		static const EnginePreferences default_prefs;
 		std::string phys_device_uuid;
@@ -166,12 +167,16 @@ namespace SKENGINE_NAME_NS {
 	public:
 		friend Engine;
 
+		ConcurrentAccess() = default;
+		ConcurrentAccess(Engine* e, bool is_thread_local): ca_engine(e), ca_threadLocal(is_thread_local) { }
+
 		WorldRenderer& getWorldRenderer() noexcept;
 
 		void setPresentExtent(VkExtent2D);
 
 	private:
 		Engine* ca_engine;
+		bool    ca_threadLocal;
 	};
 
 
@@ -189,8 +194,8 @@ namespace SKENGINE_NAME_NS {
 
 		virtual void      loop_processEvents (tickreg::delta_t delta_avg, tickreg::delta_t delta) = 0;
 		virtual LoopState loop_pollState     () const noexcept = 0;
-		virtual void      loop_async_preRender  (tickreg::delta_t delta_avg, tickreg::delta_t delta_previous) = 0;
-		virtual void      loop_async_postRender (tickreg::delta_t delta_avg, tickreg::delta_t delta_current) = 0;
+		virtual void      loop_async_preRender  (ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_previous) = 0;
+		virtual void      loop_async_postRender (ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_current) = 0;
 	};
 
 
@@ -293,7 +298,7 @@ namespace SKENGINE_NAME_NS {
 
 		auto& logger() const { return *mLogger; }
 
-		ConcurrentAccess getConcurrentAccess() noexcept;
+		MutexAccess<ConcurrentAccess> getConcurrentAccess() noexcept;
 
 	private:
 		class Implementation;
@@ -335,7 +340,7 @@ namespace SKENGINE_NAME_NS {
 		std::atomic_uint_fast32_t mGframeCounter;
 		uint_fast32_t             mGframeSelector;
 		std::vector<GframeData>   mGframes;
-		std::atomic_uint_fast32_t mLastGframe;
+		std::thread               mGraphicsThread;
 
 		VkExtent2D       mRenderExtent;
 		VkExtent2D       mPresentExtent;

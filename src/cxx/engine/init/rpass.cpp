@@ -484,8 +484,6 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
 		};
 
-		mLastGframe = 0;
-
 		logger().trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
 		for(size_t i = mGframes.size(); i < mPrefs.max_concurrent_frames; ++i) {
 			mGframes.resize(i + 1);

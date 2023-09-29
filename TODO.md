@@ -3,6 +3,8 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Remove the light storage update counters (from `Engine` and
+    `WorldRenderer::LightStorage`)
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
   - Break down big functions in `renderer.cpp`
@@ -31,6 +33,8 @@
   - Make `vkQueuePresentKHR` wait for swapchain images instead of gframes
     - It is probably not needed to have an acquired image in order to
       draw a gframe
+  - Every gframe waits for the draw command to complete, because modified
+    objects may or may lag behind; this should be fixable, with a lot of work
   - Asynchronous one-time transfer commands
     - Make them use the transfer queue
   - `Renderer::setModel` has a dubious, prematurely optimized way of dealing

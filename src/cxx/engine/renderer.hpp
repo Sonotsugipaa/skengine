@@ -287,11 +287,23 @@ namespace SKENGINE_NAME_NS {
 
 		const glm::vec3& getViewPosition () const noexcept { return mViewPosXyz; }
 		const glm::vec3& getViewRotation () const noexcept { return mViewDirYpr; }
-		void setViewPosition  (const glm::vec3& xyz) noexcept;
-		void setViewRotation  (const glm::vec3& ypr) noexcept; ///< Sets the yaw, pitch and roll of the world-view transformation.
-		void setViewDirection (const glm::vec3& xyz) noexcept; ///< Rotates the view so that `xyz - pos` in world space equals (0, 0, -1) in view space.
-		void rotate           (const glm::vec3& ypr) noexcept; ///< Similar to `WorldRenderer::setViewRotation`, but it's relative to the current position and rotation.
-		void rotateTowards    (const glm::vec3& xyz) noexcept; ///< Similar to `WorldRenderer::setViewDirection`, but it's relative to the current position.
+
+		/// \brief Sets the view position of the camera.
+		/// \param lazy Whether the view is to be considered out of date afterwards.
+		///
+		void setViewPosition(const glm::vec3& xyz, bool lazy = false) noexcept;
+
+		/// \brief Sets the yaw, pitch and roll of the camera.
+		/// \param lazy Whether the view is to be considered out of date afterwards.
+		///
+		void setViewRotation(const glm::vec3& ypr, bool lazy = false) noexcept;
+
+		/// \brief Rotates the view so that `xyz - pos` in world space equals (0, 0, -1) in view space.
+		/// \param lazy Whether the view is to be considered out of date afterwards.
+		///
+		void setViewDirection (const glm::vec3& xyz, bool lazy = false) noexcept;
+		void rotate           (const glm::vec3& ypr, bool lazy = false) noexcept; ///< Similar to `WorldRenderer::setViewRotation`, but it's relative to the current position and rotation.
+		void rotateTowards    (const glm::vec3& xyz, bool lazy = false) noexcept; ///< Similar to `WorldRenderer::setViewDirection`, but it's relative to the current position.
 
 		[[nodiscard]] ObjectId createRayLight   (const NewRayLight&);
 		[[nodiscard]] ObjectId createPointLight (const NewPointLight&);

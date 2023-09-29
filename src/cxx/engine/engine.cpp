@@ -33,7 +33,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			bool     is_free   = (wait_res == VK_SUCCESS);
 			if(is_free) {
 				e.mGframeSelector = (1 + candidate_idx) % count;
-				VK_CHECK(vkResetFences, e.mDevice, 1, &candidate.fence_draw);
 				VK_CHECK(vkResetCommandPool, e.mDevice, candidate.cmd_pool, 0);
 				return candidate_idx;
 			}
@@ -71,11 +70,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			gf.light_storage_capacity = bc_info.size;
 		}
 
-		if(buffer_resized || (ls.updateCounter != gf.light_storage_last_update_counter)) {
+		if(true /* Optimizable, but not worth the effort */) {
 			VkBufferCopy cp = { };
 			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
 			vkCmdCopyBuffer(cmd, ls.buffer.value, gf.light_storage, 1, &cp);
-			gf.light_storage_last_update_counter = ls.updateCounter;
 		}
 	}
 
@@ -128,6 +126,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkImage     sc_img;
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
 		auto        delta_last = e.mGraphicsReg.lastDelta();
+		auto        concurrent_access = ConcurrentAccess(&e, true);
 
 		e.mGraphicsReg.beginCycle();
 
@@ -166,16 +165,18 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		loop.loop_async_preRender(delta_avg, delta_last);
+		loop.loop_async_preRender(concurrent_access, delta_avg, delta_last);
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
 
 		{ // Prepare the gframe buffers
+			e.mRendererMutex.lock();
 			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
 			auto& ls   = e.mWorldRenderer.lightStorage();
 			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
 			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
+			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
 			ubo.proj_transf       = e.mProjTransf;
 			ubo.view_transf       = e.mWorldRenderer.getViewTransf();
 			ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -188,10 +189,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
-			{ // Synchronously commit the renderers
-				e.mRendererMutex.lock();
-				e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
-			}
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 		}
 
@@ -339,13 +336,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			subm->pWaitSemaphores    = &gframe->sem_prepare;
 			subm->pWaitDstStageMask  = &draw_wait_stages;
 			subm->pSignalSemaphores  = &gframe->sem_draw;
+			VK_CHECK(vkResetFences, e.mDevice,          1,      &gframe->fence_draw);
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_draw);
 		}
 
-		auto prev_frame = e.mLastGframe.exchange(gframe_idx);
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
-		e.mRendererMutex.unlock();
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &e.mGframes[prev_frame].fence_draw, true, UINT64_MAX);
+		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
 
 		{ // Here's a present!
 			VkResult res;
@@ -360,7 +355,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 
-		loop.loop_async_postRender(delta_avg, e.mGraphicsReg.lastDelta());
+		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+		e.mRendererMutex.unlock();
+
+		loop.loop_async_postRender(concurrent_access, delta_avg, e.mGraphicsReg.lastDelta());
 
 		e.mGraphicsReg.endCycle();
 
@@ -369,15 +367,17 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	static LoopInterface::LoopState runLogicIteration(Engine& e, LoopInterface& loop) {
+		e.mLogicReg.beginCycle();
 		auto delta_avg = e.mLogicReg.estDelta();
 
-		e.mLogicReg.beginCycle();
+		e.mGframePriorityOverride.store(true, std::memory_order_seq_cst);
 		loop.loop_processEvents(delta_avg, e.mLogicReg.lastDelta());
+		e.mGframePriorityOverride.store(false, std::memory_order_seq_cst);
+		e.mGframeResumeCond.notify_one();
+
 		e.mLogicReg.endCycle();
 
 		auto r = loop.loop_pollState();
-
-		e.mGframeResumeCond.notify_one();
 
 		e.mLogicReg.awaitNextTick();
 		return r;
@@ -421,15 +421,26 @@ namespace SKENGINE_NAME_NS {
 
 
 	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
-		auto lock = ca_engine->pauseRenderPass();
-		ca_engine->mPrefs.init_present_extent = ext;
+		auto reinit = [&]() {
+			auto lock = ca_engine->pauseRenderPass();
+			ca_engine->mPrefs.init_present_extent = ext;
 
-		// Some compositors resize the window as soon as it appears, and this seems to cause problems
-		ca_engine->mGraphicsReg.resetEstimates(ca_engine->mPrefs.target_framerate);
-		ca_engine->mLogicReg.resetEstimates(ca_engine->mPrefs.target_tickrate);
+			// Some compositors resize the window as soon as it appears, and this seems to cause problems
+			ca_engine->mGraphicsReg.resetEstimates(ca_engine->mPrefs.target_framerate);
+			ca_engine->mLogicReg.resetEstimates(ca_engine->mPrefs.target_tickrate);
 
-		auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
-		init->reinit();
+			auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
+			init->reinit();
+		};
+
+		// Only unlock/relock the renderer mutex if the access doesn't happen on the graphics thread
+		if(ca_threadLocal) {
+			reinit();
+		} else {
+			ca_engine->mRendererMutex.unlock();
+			reinit();
+			ca_engine->mRendererMutex.lock();
+		}
 	}
 
 
@@ -559,7 +570,7 @@ namespace SKENGINE_NAME_NS {
 			exception = std::current_exception();
 		};
 
-		auto graphics_thread = std::thread([&]() {
+		mGraphicsThread = std::thread([&]() {
 			while(loop_state != LoopInterface::LoopState::eShouldStop) {
 				try {
 					{
@@ -592,12 +603,13 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		assert(graphics_thread.joinable());
+		assert(mGraphicsThread.joinable());
 		auto lock = pauseRenderPass();
 		mGframePriorityOverride.store(false, std::memory_order_seq_cst);
 		mGframeResumeCond.notify_one();
 		lock.unlock();
-		graphics_thread.join();
+		mGraphicsThread.join();
+		mGraphicsThread = { };
 
 		if(exception) {
 			std::rethrow_exception(exception);
@@ -606,22 +618,31 @@ namespace SKENGINE_NAME_NS {
 
 
 	std::unique_lock<std::mutex> Engine::pauseRenderPass() {
-		mGframePriorityOverride.store(true, std::memory_order_seq_cst);
-		auto lock = std::unique_lock(mGframeMutex);
-		auto lock_renderer = std::unique_lock(mRendererMutex); // Possible deadlock with the gframe mutex
-		lock_renderer.unlock();
-		mGframeResumeCond.notify_one();
-		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
-		for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
+		auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
+
+		auto wait_for_fences = [&]() {
+			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
+			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
+		};
+
+		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();
+		if(! is_graphics_thread) {
+			mGframePriorityOverride.store(true, std::memory_order_seq_cst);
+			wait_for_fences();
+			lock.lock();
+			mGframePriorityOverride.store(false, std::memory_order_seq_cst);
+			mGframeResumeCond.notify_one();
+		} else {
+			wait_for_fences();
+		}
 		VK_CHECK(vkDeviceWaitIdle, mDevice);
+
 		return lock;
 	}
 
 
-	ConcurrentAccess Engine::getConcurrentAccess() noexcept {
-		ConcurrentAccess ca;
-		ca.ca_engine = this;
-
+	MutexAccess<ConcurrentAccess> Engine::getConcurrentAccess() noexcept {
+		auto ca = ConcurrentAccess(this, mGraphicsThread.get_id() == std::this_thread::get_id());
 		return MutexAccess(std::move(ca), mRendererMutex);
 	}
 

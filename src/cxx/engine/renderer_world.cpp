@@ -90,7 +90,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	const glm::mat4& WorldRenderer::getViewTransf() noexcept {
-		if(mViewTransfCacheOod) [[unlikely]] {
+		if(mViewTransfCacheOod) {
 			constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
 			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
 			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
@@ -108,13 +108,13 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::setViewPosition(const glm::vec3& xyz) noexcept {
+	void WorldRenderer::setViewPosition(const glm::vec3& xyz, bool lazy) noexcept {
 		mViewPosXyz = xyz;
-		mViewTransfCacheOod = true;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
 	}
 
 
-	void WorldRenderer::setViewRotation(const glm::vec3& ypr) noexcept {
+	void WorldRenderer::setViewRotation(const glm::vec3& ypr, bool lazy) noexcept {
 		{ // Normalize the direction values
 			constexpr auto pi2 = 2.0f * std::numbers::pi_v<float>;
 			#define NORMALIZE_(I_) { if(mViewDirYpr[I_] >= pi2) [[unlikely]] { \
@@ -126,12 +126,11 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		mViewDirYpr = ypr;
-		mViewTransfCacheOod = true;
-		mLightStorageOod    = true;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
 	}
 
 
-	void WorldRenderer::setViewDirection(const glm::vec3& xyz) noexcept {
+	void WorldRenderer::setViewDirection(const glm::vec3& xyz, bool lazy) noexcept {
 		/*       -x         '  '        +y         '
 		'         |         '  '         |         '
 		'         |         '  '         |         '
@@ -144,7 +143,7 @@ namespace SKENGINE_NAME_NS {
 		ypr[1] = std::atan2(+xyz.y, -xyz.z);
 		ypr[2] = 0;
 		mViewDirYpr = ypr;
-		mViewTransfCacheOod = true;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
 	}
 
 
@@ -203,35 +202,33 @@ namespace SKENGINE_NAME_NS {
 
 
 	bool WorldRenderer::commitObjects(VkCommandBuffer cmd) {
-		auto r = Renderer::commitObjects(cmd);
+		if(mLightStorageOod) {
+			uint32_t new_ls_size = mRayLights.size() + mPointLights.size();
+			set_light_buffer_capacity(mVma, &mLightStorage, new_ls_size);
 
-		if(! mLightStorageOod) return r;
+			mLightStorage.rayCount   = mRayLights.size();
+			mLightStorage.pointCount = mPointLights.size();
+			auto& ray_count = mLightStorage.rayCount;
+			for(uint32_t i = 0; auto& rl : mRayLights) {
+				auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
+				dst.direction = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
+				dst.intensity = rl.second.intensity;
+				++ i;
+			}
+			for(uint32_t i = ray_count; auto& pl : mPointLights) {
+				auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
+				dst.position    = glm::vec4(pl.second.position, 1.0f);
+				dst.intensity   = pl.second.intensity;
+				dst.falloff_exp = pl.second.falloff_exp;
+				++ i;
+			}
 
-		uint32_t new_ls_size = mRayLights.size() + mPointLights.size();
-		set_light_buffer_capacity(mVma, &mLightStorage, new_ls_size);
-
-		mLightStorage.rayCount   = mRayLights.size();
-		mLightStorage.pointCount = mPointLights.size();
-		auto& ray_count = mLightStorage.rayCount;
-		for(uint32_t i = 0; auto& rl : mRayLights) {
-			auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
-			dst.direction = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
-			dst.intensity = rl.second.intensity;
-			++ i;
+			++ mLightStorage.updateCounter;
+			mLightStorage.buffer.flush(mVma);
+			mLightStorageOod = false;
 		}
-		for(uint32_t i = ray_count; auto& pl : mPointLights) {
-			auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
-			dst.position    = glm::vec4(pl.second.position, 1.0f);
-			dst.intensity   = pl.second.intensity;
-			dst.falloff_exp = pl.second.falloff_exp;
-			++ i;
-		}
 
-		++ mLightStorage.updateCounter;
-		mLightStorage.buffer.flush(mVma);
-
-		mLightStorageOod = false;
-		return r;
+		return Renderer::commitObjects(cmd);
 	}
 
 

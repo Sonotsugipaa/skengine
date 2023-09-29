@@ -782,13 +782,23 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // Wait for the matrix assembler
-				for(auto& worker : mMatrixAssembler->workers) {
+				std::vector<size_t> worker_indices;
+				worker_indices.reserve(mMatrixAssembler->workers.size());
+				for(size_t i = 0; i < mMatrixAssembler->workers.size(); ++i) {
+					auto& worker = mMatrixAssembler->workers[i];
 					if(! worker.queue.empty()) {
-						auto lock = std::unique_lock(worker.cond->mutex, std::adopt_lock_t());
+						worker_indices.push_back(i);
 						worker.cond->produce_cond.notify_one();
-						worker.cond->consume_cond.wait(lock);
-						lock.release(); // The consumer thread always holds the mutex, unless waiting
+						worker.cond->mutex.unlock();
 					}
+				}
+				for(size_t i = 0; i < worker_indices.size(); ++i) {
+					auto& worker = mMatrixAssembler->workers[worker_indices[i]];
+					auto lock = std::unique_lock(worker.cond->mutex);
+					if(! worker.queue.empty() /* `consume_cond` may have already been notified */) {
+						worker.cond->consume_cond.wait(lock);
+					}
+					lock.release(); // The consumer thread always holds the mutex, unless waiting
 				}
 			}
 
