@@ -31,7 +31,9 @@ layout(location = 0) out vec4 frg_pos;
 layout(location = 1) out vec4 frg_col;
 layout(location = 2) out vec2 frg_tex;
 layout(location = 3) out vec3 frg_nrm;
-layout(location = 4) out mat3 frg_tbn;
+layout(location = 4) out vec3 frg_viewspace_tanu;
+layout(location = 5) out vec3 frg_viewspace_tanv;
+layout(location = 6) out vec3 frg_viewspace_tanw;
 layout(location = 7) out mat3 frg_view3;
 
 
@@ -53,14 +55,9 @@ void main() {
 	vec3 worldspace_tanu = obj_transf3 * in_tanu;
 	vec3 worldspace_tanv = obj_transf3 * -in_tanv;
 	vec3 worldspace_tanw = obj_transf3 * in_nrm;
-	vec3 viewspace_tanu  = normalize(view3 * worldspace_tanu);
-	vec3 viewspace_tanv  = normalize(view3 * worldspace_tanv);
-	vec3 viewspace_tanw  = normalize(view3 * worldspace_tanw);
-
-	frg_tbn = transpose(inverse(mat3(
-		viewspace_tanu,
-		viewspace_tanv,
-		viewspace_tanw )));
+	frg_viewspace_tanu  = normalize(view3 * worldspace_tanu);
+	frg_viewspace_tanv  = normalize(view3 * worldspace_tanv);
+	frg_viewspace_tanw  = normalize(view3 * worldspace_tanw);
 
 	frg_nrm = normalize(view3 * obj_transf3 * in_nrm);
 }

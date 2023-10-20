@@ -58,12 +58,14 @@ layout(location = 0) in vec4 frg_pos;
 layout(location = 1) in vec4 frg_col;
 layout(location = 2) in vec2 frg_tex;
 layout(location = 3) in vec3 frg_nrm;
-layout(location = 4) in mat3 frg_tbn;
+layout(location = 4) in vec3 frg_viewspace_tanu;
+layout(location = 5) in vec3 frg_viewspace_tanv;
+layout(location = 6) in vec3 frg_viewspace_tanw;
 layout(location = 7) in mat3 frg_view3;
 
 layout(location = 0) out vec4 out_col;
 
-const float normal_backface_bias = 0.001;
+const float normal_backface_bias = -0.05;
 const float pi                   = 3.14159265358;
 
 
@@ -178,6 +180,11 @@ vec3 color_excess_filter(vec3 col) {
 
 
 void main() {
+	mat3 tbn = transpose(inverse(mat3(
+		frg_viewspace_tanu,
+		frg_viewspace_tanv,
+		frg_viewspace_tanw )));
+
 	vec4 tex_dfs = texture(tex_dfsSampler, frg_tex);
 	vec3 tex_nrm = texture(tex_nrmSampler, frg_tex).rgb;
 	vec4 tex_spc = texture(tex_spcSampler, frg_tex);
@@ -186,7 +193,7 @@ void main() {
 	tex_nrm = unorm_correct(tex_nrm);
 	tex_nrm = normalize((tex_nrm * 2.0) - 1.0);
 
-	vec3 tex_nrm_viewspace = normalize(frg_tbn * tex_nrm);
+	vec3 tex_nrm_viewspace = normalize(tbn * tex_nrm);
 	vec3 view_dir          = normalize(frg_view3 * ((frg_pos.xyz) - (frame_ubo.view_pos.xyz)));
 
 	vec2 lighting = vec2(0, 0);

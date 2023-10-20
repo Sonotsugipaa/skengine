@@ -50,7 +50,7 @@ namespace {
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
-		ObjectId  floor;
+		ObjectId  world;
 		ObjectId  camLight;
 		ObjectId  movingRayLight;
 		ObjectId  lightGuide;
@@ -69,11 +69,11 @@ namespace {
 
 		void createGround(skengine::WorldRenderer& wr) {
 			Renderer::NewObject o = { };
-			o.model_locator = "ground.fma";
+			o.model_locator = "world.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
 
-			floor = wr.createObject(o);
+			world = wr.createObject(o);
 		}
 
 
@@ -127,8 +127,8 @@ namespace {
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 0.6f;
-			pl.falloffExponent = 1.0f;
+			pl.intensity = 1.0f;
+			pl.falloffExponent = 0.75f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			camLight = wr.createPointLight(pl);
 
