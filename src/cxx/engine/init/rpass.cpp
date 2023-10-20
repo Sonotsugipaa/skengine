@@ -160,6 +160,7 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::init(const RpassConfig& rc) {
 		mRpassConfig = rc;
 		mSwapchainOod = false;
+		mHdrEnabled   = false;
 		validate_prefs(mPrefs);
 		State state = { };
 		initSurface();

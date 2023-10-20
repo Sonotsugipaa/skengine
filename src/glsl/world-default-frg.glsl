@@ -14,6 +14,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float shade_step_exp;
 	float rnd;
 	float time_delta;
+	bool hdr_enabled;
 } frame_ubo;
 
 
@@ -212,6 +213,10 @@ void main() {
 			(tex_spc.rgb * lighting.y)
 		))
 		+ tex_emi.rgb;
-	out_col.rgb = color_excess_filter(out_col.rgb);
 	out_col.a = frg_col.a;
+
+	// Handle colors > 1 in a LDR-friendly way
+	if(! frame_ubo.hdr_enabled) {
+		out_col.rgb = color_excess_filter(out_col.rgb);
+	}
 }

@@ -14,6 +14,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float shade_step_exp;
 	float rnd;
 	float time_delta;
+	bool hdr_enabled;
 } frame_ubo;
 
 

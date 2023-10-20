@@ -7,6 +7,7 @@
 #include <string>
 #include <memory>
 #include <charconv>
+#include <unordered_set>
 
 #include <SDL2/SDL.h>
 
@@ -175,15 +176,25 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		std::unique_ptr<VkExtensionProperties[]> avail_extensions;
-		uint32_t avail_extensions_count;
-		{ // Get available device extensions
-			VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, nullptr);
-			if(avail_extensions_count < 1) {
-				throw std::runtime_error("Failed to find a Vulkan physical device");
+		auto avail_extensions = std::unordered_set<std::string_view>(0);
+		{ // Enumerate extensions
+			std::unique_ptr<VkExtensionProperties[]> avail_extensions_buf;
+			uint32_t avail_extensions_count;
+			{ // Get available device extensions
+				VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, nullptr);
+				if(avail_extensions_count < 1) {
+					throw std::runtime_error("Failed to find a Vulkan physical device");
+				}
+				avail_extensions_buf = std::make_unique_for_overwrite<VkExtensionProperties[]>(avail_extensions_count);
+				VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, avail_extensions_buf.get());
 			}
-			avail_extensions = std::make_unique_for_overwrite<VkExtensionProperties[]>(avail_extensions_count);
-			VK_CHECK(vkEnumerateDeviceExtensionProperties, mPhysDevice, nullptr, &avail_extensions_count, avail_extensions.get());
+			avail_extensions.max_load_factor(2.0f);
+			avail_extensions.rehash(avail_extensions_count);
+			for(uint32_t i = 0; i < avail_extensions_count; ++i) {
+				auto* name = avail_extensions_buf[i].extensionName;
+				mLogger->trace("Available device extension: {}", name);
+				avail_extensions.insert(name);
+			}
 		}
 
 		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mLogger.get(), mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
@@ -195,16 +206,25 @@ namespace SKENGINE_NAME_NS {
 			features.drawIndirectFirstInstance = true;
 
 			std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-			for(uint32_t i = 0; i < avail_extensions_count; ++i) {
-				#define INS_IF_AVAIL_(NM_) if(0 == strcmp(NM_, avail_extensions[i].extensionName)) extensions.push_back(avail_extensions[i].extensionName);
-				INS_IF_AVAIL_("VK_EXT_pageable_device_local_memory")
-				INS_IF_AVAIL_("VK_EXT_memory_priority")
-				#undef INS_IF_AVAIL_
-			}
+
+			// Optional extensions
+			#define INS_IF_AVAIL_(NM_) if(avail_extensions.contains(NM_)) extensions.push_back(NM_);
+			INS_IF_AVAIL_("VK_EXT_pageable_device_local_memory")
+			INS_IF_AVAIL_("VK_EXT_memory_priority")
+			#undef INS_IF_AVAIL_
+
+			// Required extensions
+			auto require_ext = [&](std::string_view nm) {
+				if(! avail_extensions.contains(nm)) {
+					mLogger->error("Required device extension not available: {}", nm);
+				}
+				extensions.push_back(nm.data());
+			};
+			require_ext("VK_EXT_hdr_metadata");
 
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
-			cd_info.extensions        = extensions;
+			cd_info.extensions        = std::move(extensions);
 			cd_info.pPhysDevProps     = &mDevProps;
 			cd_info.pRequiredFeatures = &features;
 

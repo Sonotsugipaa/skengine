@@ -204,6 +204,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.time_delta        = std::float32_t(delta);
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
+			ubo.hdr_enabled       = e.mHdrEnabled;
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 		}
@@ -356,6 +357,20 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_draw);
 		}
 
+		{ // HDR (This is just a stub, apparently HDR isn't a Linux thing yet and `vkSetHdrMetadataEXT` is not defined in the (standard?) Vulkan ICD)
+			// VkHdrMetadataEXT hdr = { };
+			// hdr.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+			// hdr.minLuminance = 0.0f;
+			// hdr.maxLuminance = 1.0f;
+			// hdr.maxFrameAverageLightLevel = 0.7f;
+			// hdr.maxContentLightLevel      = 0.7f;
+			// hdr.whitePoint                = VkXYColorEXT { 0.3127f, 0.3290f };
+			// hdr.displayPrimaryRed         = VkXYColorEXT { 0.6400f, 0.3300f };
+			// hdr.displayPrimaryGreen       = VkXYColorEXT { 0.3000f, 0.6000f };
+			// hdr.displayPrimaryBlue        = VkXYColorEXT { 0.1500f, 0.0600f };
+			// vkSetHdrMetadataEXT(e.mDevice, 1, &e.mSwapchain, &hdr);
+		}
+
 		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
 
 		{ // Here's a present!
@@ -483,7 +498,7 @@ namespace SKENGINE_NAME_NS {
 		mLogger([&]() {
 			decltype(mLogger) r;
 			if(logger) {
-				r = logger;
+				r = std::move(logger);
 			} else {
 				r = std::make_shared<spdlog::logger>(
 					SKENGINE_NAME_CSTR,

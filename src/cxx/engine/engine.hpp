@@ -366,6 +366,7 @@ namespace SKENGINE_NAME_NS {
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;
 		bool mSwapchainOod;
+		bool mHdrEnabled;
 	};
 
 

@@ -17,6 +17,7 @@
 
 #define ALIGNF32(N_) alignas((N_) * sizeof(float))
 #define ALIGNI32(N_) alignas((N_) * sizeof(uint32_t))
+#define ALIGNBOOL(N_) alignas((N_) * sizeof(bool))
 
 
 
@@ -143,6 +144,7 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) std::float32_t shade_step_exp;
 			ALIGNF32(1) std::float32_t rnd;
 			ALIGNF32(1) std::float32_t time_delta;
+			ALIGNBOOL(1) bool hdr_enabled;
 		};
 
 
