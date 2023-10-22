@@ -524,12 +524,20 @@ namespace SKENGINE_NAME_NS {
 			subpass_refs[DEPTH].attachment = DEPTH;
 			subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-			VkSubpassDescription subpasses[1];
+			VkSubpassDescription subpasses[2];
 			subpasses[0] = { };
 			subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 			subpasses[0].colorAttachmentCount    = 1;
 			subpasses[0].pColorAttachments       = subpass_refs + COLOR;
 			subpasses[0].pDepthStencilAttachment = subpass_refs + DEPTH;
+			subpasses[1] = subpasses[0];
+
+			VkSubpassDependency dependencies[1];
+			dependencies[0] = { };
+			dependencies[0].srcSubpass    = 0;
+			dependencies[0].dstSubpass    = 1;
+			dependencies[0].srcStageMask  = dependencies[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[0].srcAccessMask = dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
 			VkRenderPassCreateInfo rpc_info = { };
 			rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -537,8 +545,8 @@ namespace SKENGINE_NAME_NS {
 			rpc_info.pAttachments    = atch_descs;
 			rpc_info.subpassCount    = std::size(subpasses);
 			rpc_info.pSubpasses      = subpasses;
-			rpc_info.dependencyCount = 0;
-			rpc_info.pDependencies   = nullptr;
+			rpc_info.dependencyCount = std::size(dependencies);
+			rpc_info.pDependencies   = dependencies;
 
 			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mRpass);
 		}
@@ -556,6 +564,24 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
 
 			mGenericGraphicsPipeline = createPipeline("default");
+
+			geom::PipelineSetCreateInfo gpsci = { };
+			gpsci.subpass       = 1;
+			gpsci.renderPass    = mRpass;
+			gpsci.pipelineCache = mPipelineCache;
+			mPhGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
+
+			mPhPolysBuffer = [&]() {
+				vkutil::BufferCreateInfo bc_info = { };
+				bc_info.size =
+					(mPhPolys.vertexCount   * sizeof(PolyVertex)) +
+					(mPhPolys.instanceCount * sizeof(PolyInstance));
+				bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+				vkutil::BufferDuplex b = vkutil::BufferDuplex::createVertexInputBuffer(mVma, bc_info);
+				memcpy(b.mappedPtr(), mPhPolys.vertexInput.get(), bc_info.size);
+				pushBuffer(b);
+				return std::move(b).detachStagingBuffer(mVma);
+			} ();
 		}
 	}
 
@@ -609,6 +635,8 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpass(State& state) {
 		if(! state.reinit) {
+			vkutil::ManagedBuffer::destroy(mVma, mPhPolysBuffer);
+			geom::PipelineSet::destroy(mDevice, mPhGeomPipelines);
 			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
 			vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);

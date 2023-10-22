@@ -1,11 +1,13 @@
 #pragma once
 
-#include "input.hpp"
 #include "renderer.hpp"
 #include "shader_cache.hpp"
+#include "gui.hpp"
 
 #include <vk-util/init.hpp>
 #include <vk-util/memory.hpp>
+
+#include <input/input.hpp>
 
 #include <tick-regulator.hpp>
 
@@ -358,8 +360,12 @@ namespace SKENGINE_NAME_NS {
 		std::mutex    mRendererMutex = std::mutex();
 		AssetSupplier mAssetSupplier;
 		WorldRenderer mWorldRenderer;
-		Renderer      mUiRenderer;
 		glm::mat4     mProjTransf;
+
+		#warning "------ PLACEHOLDERS BELOW ------"
+		placeholder::Polys    mPhPolys = placeholder::RectTemplate::instantiate(glm::vec2 { 0.2f, 0.2f }, glm::vec2 { 0.4f, 0.4f });
+		geom::PipelineSet     mPhGeomPipelines;
+		vkutil::ManagedBuffer mPhPolysBuffer;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

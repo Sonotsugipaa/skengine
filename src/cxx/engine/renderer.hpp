@@ -1,26 +1,4 @@
 #pragma once
-/// \file
-/// This entire thing is wrong.
-///
-/// The understanding-oriented documentation in /doc treats objects as
-/// sets of meshes (as it should), but this header treats them as instances.
-///
-/// Here's what *should* happen:\n
-/// the Renderer should hold a buffer of indirect draw commands, and one
-/// of instances; it should also break given objects (from models) into
-/// instances, *then* turn them into draw commands.
-///
-/// It does not have to worry about vertex buffers, because those belong
-/// to the model (you know, memory-mapped model files and such) and the engine
-/// does (will do) all the vertex buffer binding itself.\n
-/// The entire point of the Renderer is for the engine to tell it
-/// "I have these objects (with these locations) that have these models
-/// (I already know where the vertices are), please turn them into instances
-/// and draw commands."
-///
-/// I will worry about bones in the future, I can't see how it could
-/// possibly go wrong.
-///
 
 #include "types.hpp"
 
@@ -44,7 +22,6 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine;
 	class WorldRenderer;
-	class UiRenderer;
 
 
 	struct DevModel {
@@ -109,7 +86,6 @@ namespace SKENGINE_NAME_NS {
 	class Renderer {
 	public:
 		friend WorldRenderer;
-		friend UiRenderer;
 
 		// This type should only be used for function parameters
 		struct NewObject {
@@ -243,6 +219,7 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	#warning "DOCUMENT OR REFACTOR: Is 'Renderer' necessarily a 'WorldRenderer'?"
 	/// \brief A specialisation of Renderer, for drawing objects
 	///        in a generic 3D space.
 	///
@@ -327,14 +304,6 @@ namespace SKENGINE_NAME_NS {
 		bool      mLightStorageOod    : 1;
 
 		WorldRenderer(Renderer&&);
-	};
-
-
-	/// \brief A specialisation of Renderer, for drawing objects
-	///        user interface elements.
-	///
-	/* Placeholder */ struct UiRenderer : public WorldRenderer {
-		using WorldRenderer::WorldRenderer;
 	};
 
 }

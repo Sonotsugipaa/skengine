@@ -4,11 +4,16 @@ find_package(glm)
 find_package(Vulkan)
 find_package(SDL2)
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_subdirectory(shader-compiler)
+add_subdirectory(draw-geometry)
+
 add_library(engine
 	init/device.cpp
 	init/rpass.cpp
 	renderer.cpp
 	renderer_world.cpp
+	gui.cpp
 	engine.cpp
 	engine_buffer.cpp
 	engine_create_pipeline.cpp
@@ -26,6 +31,7 @@ target_link_libraries(engine
 	SDL2::SDL2
 	vulkan vma
 	nlohmann_json::nlohmann_json
+	draw-geometry
 	spdlog::spdlog )
 
 # Enable unity builds

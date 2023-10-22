@@ -2,6 +2,7 @@
 #include <random>
 
 #include <engine/engine.hpp>
+#include <ui/ui.hpp>
 
 #include <spdlog/spdlog.h>
 

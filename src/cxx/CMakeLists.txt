@@ -22,5 +22,7 @@ add_subdirectory(third-party)
 
 add_subdirectory(engine)
 add_subdirectory(gridlogic)
+add_subdirectory(ui)
+add_subdirectory(input)
 
 add_subdirectory(main)

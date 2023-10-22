@@ -99,7 +99,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			size_t          gf_index,
 			Renderer&       renderer
 	) {
-		constexpr VkDeviceSize offset = 0;
 		GframeData& gf = e.mGframes[gf_index];
 		auto batches         = renderer.getDrawBatches();
 		auto instance_buffer = renderer.getInstanceBuffer();
@@ -113,9 +112,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			auto* model = renderer.getModel(batch.model_id);
 			assert(model != nullptr);
 			if(batch.model_id != last_mdl) {
+				VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
+				constexpr VkDeviceSize offsets[] = { 0, 0 };
 				vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
-				vkCmdBindVertexBuffers(cmd, 0, 1, &model->vertices.value, &offset);
-				vkCmdBindVertexBuffers(cmd, 1, 1, &instance_buffer,       &offset);
+				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
 			}
 			if(batch.material_id != last_mat) {
 				auto mat = renderer.getMaterial(batch.material_id);
@@ -127,8 +127,16 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				cmd, batch_buffer,
 				i * sizeof(VkDrawIndexedIndirectCommand), 1,
 				sizeof(VkDrawIndexedIndirectCommand) );
-
 			++ i;
+		}
+
+		{
+			VkBuffer vtx_buffers[] = { e.mPhPolysBuffer, e.mPhPolysBuffer };
+			VkDeviceSize offsets[] = { 0, e.mPhPolys.vertexCount * sizeof(PolyVertex) };
+			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPhGeomPipelines.polyLine);
+			vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+			vkCmdDraw(cmd, e.mPhPolys.vertexCount, e.mPhPolys.instanceCount, 0, 0);
 		}
 	}
 

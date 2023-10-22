@@ -17,6 +17,7 @@
 		"src/cxx/third-party/vk-util/",
 		"src/cxx/third-party/vma/",
 		"src/cxx/third-party/",
+		"src/cxx/engine/",
 		"src/cxx/"
 	]
 }

@@ -5,6 +5,7 @@ add_executable(sketch-sim
 	main.cpp )
 
 target_link_libraries(sketch-sim
+	ui
 	posixfio
 	engine
 	nlohmann_json::nlohmann_json

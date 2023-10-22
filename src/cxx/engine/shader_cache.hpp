@@ -40,7 +40,7 @@ namespace SKENGINE_NAME_NS {
 
 	struct ShaderRequirement {
 		enum class Type {
-			eWorld, eUi
+			eWorld
 		};
 
 		union {

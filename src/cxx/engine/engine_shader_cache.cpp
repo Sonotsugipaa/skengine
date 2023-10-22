@@ -15,10 +15,6 @@ namespace SKENGINE_NAME_NS {
 			case ReqType::eWorld:
 				r = std::hash<std::string_view>()(req.world.materialName);
 				break;
-			#warning "Temporarily bad hash for UI shader requirements"
-			case ReqType::eUi:
-				r = 0xaaaaaaaaaaaaaaaa;
-				break;
 		}
 		return r;
 	}
@@ -29,7 +25,6 @@ namespace SKENGINE_NAME_NS {
 		using ReqType = ShaderRequirement::Type;
 		if(l.type != r.type) return false;
 		if(l.type == ReqType::eWorld) return l.world.materialName == r.world.materialName;
-		if(l.type == ReqType::eUi)    abort();
 		std::unreachable();
 	}
 
@@ -92,9 +87,6 @@ namespace SKENGINE_NAME_NS {
 				r = {
 					try_get_shader(mPrefix + "world-" + str + "-vtx.spv", "world-default-vtx.spv"),
 					try_get_shader(mPrefix + "world-" + str + "-frg.spv", "world-default-frg.spv") };
-				break;
-			case ShaderRequirement::Type::eUi:
-				throw std::runtime_error("TBW");
 				break;
 			default: abort();
 		}
