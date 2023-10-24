@@ -151,7 +151,8 @@ namespace SKENGINE_NAME_NS {
 	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
 		auto r = id_generator<ObjectId>.generate();
 		RayLight rl = { };
-		rl.direction = glm::vec4(glm::normalize(nrl.direction), 1.0f);
+		rl.direction = glm::normalize(nrl.direction);
+		rl.color     = nrl.color;
 		rl.intensity = std::max(nrl.intensity, 0.0f);
 		mRayLights.insert(RayLights::value_type { r, std::move(rl) });
 		mLightStorageOod = true;
@@ -164,6 +165,7 @@ namespace SKENGINE_NAME_NS {
 		auto r = id_generator<ObjectId>.generate();
 		PointLight pl = { };
 		pl.position    = npl.position;
+		pl.color       = npl.color;
 		pl.intensity   = std::max(npl.intensity, 0.0f);
 		pl.falloff_exp = std::max(npl.falloffExponent, 0.0f);
 		mPointLights.insert(PointLights::value_type { r, std::move(pl) });
@@ -212,13 +214,13 @@ namespace SKENGINE_NAME_NS {
 			for(uint32_t i = 0; auto& rl : mRayLights) {
 				auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
 				dst.direction = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
-				dst.intensity = rl.second.intensity;
+				dst.color     = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
 				++ i;
 			}
 			for(uint32_t i = ray_count; auto& pl : mPointLights) {
 				auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
 				dst.position    = glm::vec4(pl.second.position, 1.0f);
-				dst.intensity   = pl.second.intensity;
+				dst.color       = glm::vec4(glm::normalize(pl.second.color), pl.second.intensity);
 				dst.falloff_exp = pl.second.falloff_exp;
 				++ i;
 			}

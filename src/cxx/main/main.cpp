@@ -123,14 +123,16 @@ namespace {
 
 		void createLights(skengine::WorldRenderer& wr) {
 			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 0.4f;
+			rl.intensity = 0.9f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
+			rl.color     = { 0.7f, 0.91f, 1.0f };
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 1.0f;
-			pl.falloffExponent = 0.75f;
+			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
+			pl.color    = { 1.0f, 0.0f, 0.34f };
 			camLight = wr.createPointLight(pl);
 
 			Renderer::NewObject o = { };

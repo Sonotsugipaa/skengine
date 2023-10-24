@@ -19,21 +19,21 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 
 
 struct RayLight {
-	vec3  direction;
-	float direction_padding;
-	float intensity;
+	vec4  direction;
+	vec4  color;
 	float unused0;
 	float unused1;
 	float unused2;
+	float unused3;
 };
 
 struct PointLight {
-	vec3  position;
-	float position_padding;
-	float intensity;
+	vec4  position;
+	vec4  color;
 	float falloff_exp;
 	float unused0;
 	float unused1;
+	float unused2;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer RayLightBuffer {
@@ -71,6 +71,12 @@ const float normal_backface_bias = -0.05;
 const float pi                   = 3.14159265358;
 const uint  flag_hdr_enabled     = 1;
 
+
+
+struct LuminanceInfo {
+	vec4 dfs;
+	vec4 spc;
+};
 
 
 vec3 unorm_correct(vec3 v) {
@@ -120,54 +126,74 @@ float multistep(float v) {
 }
 
 
-vec2 sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
-	float lighting_dfs = 0.0;
-	float lighting_spc = 0.0;
+LuminanceInfo sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
+	LuminanceInfo luminance;
+	luminance.dfs = vec4(0.0, 0.0, 0.0, 0.0);
+	luminance.spc = vec4(0.0, 0.0, 0.0, 0.0);
+
+	// Sum luminances
 	for(uint i = 0; i < frame_ubo.ray_light_count; ++i) {
 		vec3 light_dir =
 			frg_view3
-			* ray_light_buffer.lights[i].direction;
+			* ray_light_buffer.lights[i].direction.xyz;
 
 		float aot = dot(frg_nrm, light_dir);
 
-		lighting_dfs +=
-			ray_light_buffer.lights[i].intensity
-			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot);
+		luminance.dfs.a += (
+			ray_light_buffer.lights[i].color.a
+			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
 
-		lighting_spc +=
-			ray_light_buffer.lights[i].intensity
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot);
+		luminance.spc.a += (
+			ray_light_buffer.lights[i].color.a
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
 	}
-	return vec2(lighting_dfs, lighting_spc);
+
+	// Sum colors
+	for(uint i = 0; i < frame_ubo.ray_light_count; ++i) {
+		luminance.dfs.rgb += ray_light_buffer.lights[i].color.rgb * luminance.dfs.a;
+		luminance.spc.rgb += ray_light_buffer.lights[i].color.rgb * luminance.dfs.a;
+	}
+
+	return luminance;
 }
 
 
-vec2 sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
-	float lighting_dfs = 0.0;
-	float lighting_spc = 0.0;
-	uint  light_count  = frame_ubo.ray_light_count + frame_ubo.point_light_count;
+LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
+	LuminanceInfo luminance;
+	luminance.dfs = vec4(0.0, 0.0, 0.0, 0.0);
+	luminance.spc = vec4(0.0, 0.0, 0.0, 0.0);
+	uint light_count = frame_ubo.ray_light_count + frame_ubo.point_light_count;
+
+	// Sum luminances
 	for(uint i = frame_ubo.ray_light_count; i < light_count; ++i) {
 		vec3 light_dir =
-			point_light_buffer.lights[i].position
+			point_light_buffer.lights[i].position.xyz
 			- frg_pos.xyz;
 
 		light_dir = normalize(frg_view3 * light_dir);
 
 		float aot = dot(frg_nrm, light_dir);
 
-		float intensity         = point_light_buffer.lights[i].intensity;
-		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position);
+		float intensity         = point_light_buffer.lights[i].color.a;
+		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
 		float intensity_falloff = intensity / pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 
-		lighting_dfs +=
+		luminance.dfs.a += (
 			intensity_falloff
-			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot);
+			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
 
-		lighting_spc +=
+		luminance.spc.a += (
 			intensity_falloff
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot);
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
 	}
-	return vec2(lighting_dfs, lighting_spc);
+
+	// Sum colors
+	for(uint i = frame_ubo.ray_light_count; i < light_count; ++i) {
+		luminance.dfs.rgb += point_light_buffer.lights[i].color.rgb * luminance.dfs.a;
+		luminance.spc.rgb += point_light_buffer.lights[i].color.rgb * luminance.dfs.a;
+	}
+
+	return luminance;
 }
 
 
@@ -199,20 +225,21 @@ void main() {
 	vec3 tex_nrm_viewspace = normalize(tbn * tex_nrm);
 	vec3 view_dir          = normalize(frg_view3 * ((frg_pos.xyz) - (frame_ubo.view_pos.xyz)));
 
-	vec2 lighting = vec2(0, 0);
-
-	lighting += sum_ray_lighting(tex_nrm_viewspace, view_dir);
-	lighting += sum_point_lighting(tex_nrm_viewspace, view_dir);
+	LuminanceInfo luminance;
+	LuminanceInfo ray_luminance = sum_ray_lighting(tex_nrm_viewspace, view_dir);
+	LuminanceInfo pt_luminance  = sum_point_lighting(tex_nrm_viewspace, view_dir);
+	luminance.dfs = ray_luminance.dfs + pt_luminance.dfs;
+	luminance.spc = ray_luminance.spc + pt_luminance.spc;
 
 	if(frame_ubo.shade_step_count > 0) {
-		lighting.x = multistep(lighting.x);
-		lighting.y = multistep(lighting.y);
+		luminance.dfs.a = multistep(luminance.dfs.a);
+		luminance.spc.a = multistep(luminance.spc.a);
 	}
 
 	out_col.rgb =
 		(frg_col.rgb * (
-			(tex_dfs.rgb * lighting.x) +
-			(tex_spc.rgb * lighting.y)
+			(tex_dfs.rgb * luminance.dfs.rgb * luminance.dfs.a) +
+			(tex_spc.rgb * luminance.spc.rgb * luminance.spc.a)
 		))
 		+ tex_emi.rgb;
 	out_col.a = frg_col.a;

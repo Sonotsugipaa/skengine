@@ -82,11 +82,13 @@ namespace SKENGINE_NAME_NS {
 
 	struct RayLight {
 		glm::vec3 direction;
+		glm::vec3 color;
 		float     intensity;
 	};
 
 	struct PointLight {
 		glm::vec3 position;
+		glm::vec3 color;
 		float     intensity;
 		float     falloff_exp;
 	};
@@ -117,27 +119,30 @@ namespace SKENGINE_NAME_NS {
 
 		struct Light {
 			ALIGNF32(4) glm::vec4 m0;
-			ALIGNF32(1) std::float32_t m1;
+			ALIGNF32(4) glm::vec4 m1;
 			ALIGNF32(1) std::float32_t m2;
 			ALIGNF32(1) std::float32_t m3;
 			ALIGNF32(1) std::float32_t m4;
+			ALIGNF32(1) std::float32_t m5;
 		};
 
 		struct RayLight {
 			ALIGNF32(4) glm::vec4 direction;
-			ALIGNF32(1) std::float32_t intensity;
-			ALIGNF32(1) std::float32_t m2_unused;
+			ALIGNF32(4) glm::vec4 color;
 			ALIGNF32(1) std::float32_t m3_unused;
 			ALIGNF32(1) std::float32_t m4_unused;
+			ALIGNF32(1) std::float32_t m5_unused;
+			ALIGNF32(1) std::float32_t m6_unused;
 		};
 		static_assert(std::is_layout_compatible_v<Light, RayLight> && sizeof(Light) == sizeof(RayLight));
 
 		struct PointLight {
 			ALIGNF32(4) glm::vec4 position;
-			ALIGNF32(1) std::float32_t intensity;
+			ALIGNF32(4) glm::vec4 color;
 			ALIGNF32(1) std::float32_t falloff_exp;
-			ALIGNF32(1) std::float32_t m3_unused;
 			ALIGNF32(1) std::float32_t m4_unused;
+			ALIGNF32(1) std::float32_t m5_unused;
+			ALIGNF32(1) std::float32_t m6_unused;
 		};
 		static_assert(std::is_layout_compatible_v<Light, PointLight> && sizeof(Light) == sizeof(PointLight));
 
