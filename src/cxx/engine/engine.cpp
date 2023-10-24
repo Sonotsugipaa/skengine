@@ -126,7 +126,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	) {
 		VkBuffer vtx_buffers[] = { e.mPlaceholderPolysBuffer, e.mPlaceholderPolysBuffer };
 		VkDeviceSize offsets[] = { 0, e.mPlaceholderPolys.vertexCount * sizeof(PolyVertex) };
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPlaceholderGeomPipelines.polyLine);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPlaceholderGeomPipelines.polyFill);
 		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
 		vkCmdDraw(cmd, e.mPlaceholderPolys.vertexCount, e.mPlaceholderPolys.instanceCount, 0, 0);
 	}

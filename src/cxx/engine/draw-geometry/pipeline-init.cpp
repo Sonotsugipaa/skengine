@@ -21,26 +21,14 @@ inline namespace geom {
 		VkPipelineLayout    pipelineLayout;
 		VkPrimitiveTopology topology;
 		VkPolygonMode       polyMode;
-		const char*      vertexShaderName;
-		std::string_view vertexShaderSrc;
-		const char*      fragmentShaderName;
-		std::string_view fragmentShaderSrc;
+		VkShaderModule      vertexShader;
+		VkShaderModule      fragmentShader;
+		VkPipeline       basePipeline;
 	};
 
 
-	VkPipeline createPipeline(VkDevice dev, const PipelineCreateInfo& cpi) {
+	VkPipeline createPipeline(VkDevice dev, const PipelineCreateInfo& pci) {
 		VkPipeline pipeline;
-
-		// Create the shader modules first, so that exceptions don't mess stuff up
-		#define CMP_(KIND_) \
-			ShaderCompiler::glslSourceToModule( \
-				dev, \
-				cpi.KIND_ ## ShaderName, \
-				cpi.KIND_ ## ShaderSrc, \
-				shaderc_ ## KIND_ ## _shader )
-		auto vtxModule = CMP_(vertex);
-		auto frgModule = CMP_(fragment);
-		#undef CMP_
 
 		VkVertexInputAttributeDescription vtx_attr[5];
 		VkVertexInputBindingDescription   vtx_bind[2];
@@ -81,7 +69,7 @@ inline namespace geom {
 		VkPipelineInputAssemblyStateCreateInfo ia = { }; {
 			ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 			ia.primitiveRestartEnable = false;
-			ia.topology               = cpi.topology;
+			ia.topology               = pci.topology;
 		}
 
 		VkPipelineTessellationStateCreateInfo t = { }; {
@@ -119,7 +107,13 @@ inline namespace geom {
 
 		VkPipelineColorBlendAttachmentState atch_color[1]; {
 			*atch_color = { };
-			atch_color->blendEnable = false;
+			atch_color->blendEnable = true;
+			atch_color->colorBlendOp = VK_BLEND_OP_ADD;
+			atch_color->alphaBlendOp = VK_BLEND_OP_ADD;
+			atch_color->srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			atch_color->dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			atch_color->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+			atch_color->dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 			atch_color->colorWriteMask = /* rgba */ VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		}
 
@@ -146,17 +140,17 @@ inline namespace geom {
 			stages[VTX].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 			stages[VTX].pName  = "main";
 			stages[VTX].stage  = VK_SHADER_STAGE_VERTEX_BIT;
-			stages[VTX].module = vtxModule;
+			stages[VTX].module = pci.vertexShader;
 			stages[FRG] = stages[VTX];
 			stages[FRG].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-			stages[FRG].module = frgModule;
+			stages[FRG].module = pci.fragmentShader;
 		}
 
 		VkGraphicsPipelineCreateInfo gpc_info = { };
 		gpc_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		gpc_info.renderPass = cpi.renderPass;
-		gpc_info.layout     = cpi.pipelineLayout;
-		gpc_info.subpass    = cpi.subpass;
+		gpc_info.renderPass = pci.renderPass;
+		gpc_info.layout     = pci.pipelineLayout;
+		gpc_info.subpass    = pci.subpass;
 		gpc_info.stageCount = std::size(stages);
 		gpc_info.pStages    = stages;
 		gpc_info.pVertexInputState   = &vi;
@@ -170,17 +164,7 @@ inline namespace geom {
 		gpc_info.pDynamicState       = &d;
 
 		// This entire sequence could have been a try/finally, but whatever
-		auto end = [&]() {
-			vkDestroyShaderModule(dev, vtxModule, nullptr);
-			vkDestroyShaderModule(dev, frgModule, nullptr);
-		};
-		try {
-			VK_CHECK(vkCreateGraphicsPipelines, dev, cpi.pipelineCache, 1, &gpc_info, nullptr, &pipeline);
-		} catch(...) {
-			end();
-			std::rethrow_exception(std::current_exception());
-		}
-		end();
+		VK_CHECK(vkCreateGraphicsPipelines, dev, pci.pipelineCache, 1, &gpc_info, nullptr, &pipeline);
 
 		return pipeline;
 	}
@@ -201,26 +185,40 @@ inline namespace geom {
 			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.layout);
 		}
 
+		// Create the shader modules
+		#define COMPILE_(NAME_, SRC_, KIND_) ShaderCompiler::glslSourceToModule(dev, NAME_, SRC_, shaderc_ ## KIND_ ## _shader)
+		auto polyVtxModule = COMPILE_("geom:poly.vtx", polyVtxSrc, vertex);
+		auto polyFrgModule = COMPILE_("geom:poly.frg", polyFrgSrc, fragment);
+		#undef COMPILE_
+		auto destroyShaderModules = [&]() {
+			vkDestroyShaderModule(dev, polyVtxModule, nullptr);
+			vkDestroyShaderModule(dev, polyFrgModule, nullptr);
+		};
+
 		std::vector<VkPipeline> pipelines;
 		try { // Pipelines or bust
-			PipelineCreateInfo cpi = { };
-			cpi.renderPass     = psci.renderPass;
-			cpi.subpass        = psci.subpass;
-			cpi.pipelineCache  = psci.pipelineCache;
-			cpi.pipelineLayout = r.layout;
-			cpi.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+			PipelineCreateInfo pci = { };
+			pci.renderPass     = psci.renderPass;
+			pci.subpass        = psci.subpass;
+			pci.pipelineCache  = psci.pipelineCache;
+			pci.pipelineLayout = r.layout;
 
-			cpi.polyMode = VK_POLYGON_MODE_LINE;
-			cpi.vertexShaderName   = "geom:poly-line.vtx";
-			cpi.fragmentShaderName = "geom:poly-line.frg";
-			cpi.vertexShaderSrc   = polyLineVtxSrc;
-			cpi.fragmentShaderSrc = polyLineFrgSrc;
-			pipelines.push_back(r.polyLine = createPipeline(dev, cpi));
+			pci.vertexShader   = polyVtxModule;
+			pci.fragmentShader = polyFrgModule;
+			pci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+			pci.polyMode = VK_POLYGON_MODE_FILL;
+			pipelines.push_back(r.polyFill = createPipeline(dev, pci));
+			pci.basePipeline = r.polyFill;
+			pci.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+			pci.polyMode = VK_POLYGON_MODE_LINE;
+			pipelines.push_back(r.polyLine = createPipeline(dev, pci));
 		} catch(...) {
 			// Destroy the now useless layout and the successfully created pipelines, then resume the downwards spiral
+			destroyShaderModules();
 			vkDestroyPipelineLayout(dev, r.layout, nullptr);
 			std::rethrow_exception(std::current_exception());
 		}
+		destroyShaderModules();
 
 		return r;
 	}
@@ -228,6 +226,7 @@ inline namespace geom {
 
 	void PipelineSet::destroy(VkDevice dev, PipelineSet& ps) noexcept {
 		vkDestroyPipeline(dev, ps.polyLine, nullptr);
+		vkDestroyPipeline(dev, ps.polyFill, nullptr);
 		vkDestroyPipelineLayout(dev, ps.layout, nullptr);
 	}
 

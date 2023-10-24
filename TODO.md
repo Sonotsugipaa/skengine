@@ -3,6 +3,8 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Figure out stencil buffer usage, which will probably help with consistent
+    UI element transparency
   - Engine initialization utilities are UB, find a way to un-UBify them
     without too much boilerplate
   - Make `Renderer` objects not get fully recomputed every time an object

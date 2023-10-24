@@ -7,7 +7,7 @@
 namespace SKENGINE_NAME_NS {
 inline namespace geom_shaders {
 
-	constexpr const std::string_view polyLineVtxSrc =
+	constexpr const std::string_view polyVtxSrc =
 	"#version 450\n"
 	""
 	"layout(location = 0) in vec3 in_pos;"
@@ -24,7 +24,7 @@ inline namespace geom_shaders {
 	"}";
 
 
-	constexpr const std::string_view polyLineFrgSrc =
+	constexpr const std::string_view polyFrgSrc =
 	"#version 450\n"
 	""
 	"layout(location = 0) in vec4 in_col;"

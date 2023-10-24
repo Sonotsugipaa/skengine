@@ -36,7 +36,7 @@ inline namespace geom {
 	struct PipelineSet {
 		VkPipelineLayout layout;
 		VkPipeline polyLine;
-		//VkPipeline polyFill;
+		VkPipeline polyFill;
 		//VkPipeline text;
 
 		static PipelineSet create  (VkDevice, std::span<VkDescriptorSetLayout>, const PipelineSetCreateInfo&);
