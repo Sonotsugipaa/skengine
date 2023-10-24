@@ -44,11 +44,11 @@ namespace SKENGINE_NAME_NS {
 		void initSwapchain(State&);
 		void initGframeDescPool(State&);
 		void initGframes(State&);
-		void initRpass(State&);
+		void initRpasses(State&);
 		void initFramebuffers(State&);
 		void destroyFramebuffers(State&);
-		void destroyRpass(State&);
-		void destroyGframes(State&, size_t keep);
+		void destroyRpasses(State&);
+		void destroyGframes(State&);
 		void destroyGframeDescPool(State&);
 		void destroySwapchain(State&);
 		void destroySurface();

@@ -219,9 +219,21 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	#warning "DOCUMENT OR REFACTOR: Is 'Renderer' necessarily a 'WorldRenderer'?"
 	/// \brief A specialisation of Renderer, for drawing objects
 	///        in a generic 3D space.
+	///
+	/// A `WorldRenderer` manages light sources, their device storage and
+	/// the view/camera logistics.
+	///
+	/// \note
+	/// Currently and indefinitely, a `Renderer` is ALWAYS a `WorldRenderer`. <br>
+	/// The `Renderer` class was originally meant to be inherited by
+	/// `WorldRenderer` and `UiRenderer`, but the GUI is rendered by a
+	/// completely different render pass in a completely different way - which
+	/// is incompatible with `Renderer`. <br>
+	/// The separation between `Renderer` and `WorldRenderer` is now kept in
+	/// order to more easily manage the hardly reasonable number of responsibilities
+	/// both classes have.
 	///
 	class WorldRenderer : public Renderer {
 	public:

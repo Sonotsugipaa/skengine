@@ -14,7 +14,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float shade_step_exp;
 	float rnd;
 	float time_delta;
-	bool hdr_enabled;
+	uint flags;
 } frame_ubo;
 
 
@@ -58,16 +58,18 @@ layout(set = 1, binding = 4) uniform MaterialUbo {
 layout(location = 0) in vec4 frg_pos;
 layout(location = 1) in vec4 frg_col;
 layout(location = 2) in vec2 frg_tex;
-layout(location = 3) in vec3 frg_nrm;
-layout(location = 4) in vec3 frg_viewspace_tanu;
-layout(location = 5) in vec3 frg_viewspace_tanv;
-layout(location = 6) in vec3 frg_viewspace_tanw;
-layout(location = 7) in mat3 frg_view3;
+layout(location = 3) in vec2 frg_viewport_pos;
+layout(location = 4) in vec3 frg_nrm;
+layout(location = 5) in vec3 frg_viewspace_tanu;
+layout(location = 6) in vec3 frg_viewspace_tanv;
+layout(location = 7) in vec3 frg_viewspace_tanw;
+layout(location = 8) in mat3 frg_view3;
 
 layout(location = 0) out vec4 out_col;
 
 const float normal_backface_bias = -0.05;
 const float pi                   = 3.14159265358;
+const uint  flag_hdr_enabled     = 1;
 
 
 
@@ -216,7 +218,7 @@ void main() {
 	out_col.a = frg_col.a;
 
 	// Handle colors > 1 in a LDR-friendly way
-	if(! frame_ubo.hdr_enabled) {
+	if((frame_ubo.flags & flag_hdr_enabled) != 0) {
 		out_col.rgb = color_excess_filter(out_col.rgb);
 	}
 }

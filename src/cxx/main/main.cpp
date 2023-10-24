@@ -253,7 +253,7 @@ namespace {
 		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
 
 
-		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t delta_last) override {
+		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);

@@ -135,24 +135,21 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	struct SwapchainImageData {
-		VkImage image;
-	};
-
-
 	struct GframeData {
 		VkDescriptorSet       frame_dset;
 		vkutil::BufferDuplex  frame_ubo;
 		vkutil::ManagedBuffer light_storage;
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
+		VkImage     swapchain_image;
+		VkImageView swapchain_image_view;
 		VkImageView atch_color_view;
 		VkImageView atch_depthstencil_view;
 		VkCommandPool cmd_pool;
 		VkCommandBuffer cmd_prepare;
 		VkCommandBuffer cmd_draw;
-		VkFramebuffer framebuffer;
-		VkSemaphore sem_swapchain_image;
+		VkFramebuffer worldFramebuffer;
+		VkFramebuffer uiFramebuffer;
 		VkSemaphore sem_prepare;
 		VkSemaphore sem_draw;
 		VkFence     fence_prepare;
@@ -261,7 +258,7 @@ namespace SKENGINE_NAME_NS {
 
 		void destroyShaderModule(VkShaderModule);
 
-		VkPipeline createPipeline(std::string_view material_type_name);
+		VkPipeline createPipeline(std::string_view material_type_name, VkRenderPass);
 
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
@@ -330,7 +327,6 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceCapabilitiesKHR mSurfaceCapabs = { };
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
 		VkFormat                 mDepthAtchFmt;
-		std::vector<SwapchainImageData> mSwapchainImages;
 
 		std::unique_ptr<LoopInterface>        mLoop = nullptr;
 		std::unique_ptr<ShaderCacheInterface> mShaderCache;
@@ -343,12 +339,13 @@ namespace SKENGINE_NAME_NS {
 		std::atomic_uint_fast32_t mGframeCounter;
 		uint_fast32_t             mGframeSelector;
 		std::vector<GframeData>   mGframes;
+		std::vector<VkFence>      mGframeSelectionFences;
 		std::thread               mGraphicsThread;
 
 		VkExtent2D       mRenderExtent;
 		VkExtent2D       mPresentExtent;
-		VkRenderPass     mRpass;
-		VkFramebuffer    mFramebuffer;
+		VkRenderPass     mWorldRpass;
+		VkRenderPass     mUiRpass;
 		VkPipelineLayout mPipelineLayout;
 		VkPipelineCache  mPipelineCache;
 		VkPipeline       mGenericGraphicsPipeline;
@@ -362,10 +359,9 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
-		#warning "------ PLACEHOLDERS BELOW ------"
-		placeholder::Polys    mPhPolys = placeholder::RectTemplate::instantiate(glm::vec2 { 0.2f, 0.2f }, glm::vec2 { 0.4f, 0.4f });
-		geom::PipelineSet     mPhGeomPipelines;
-		vkutil::ManagedBuffer mPhPolysBuffer;
+		placeholder::Polys    mPlaceholderPolys = placeholder::RectTemplate::instantiate(glm::vec2 { -0.01f, -0.01f }, glm::vec2 { +0.01f, +0.01f });
+		vkutil::ManagedBuffer mPlaceholderPolysBuffer;
+		geom::PipelineSet     mPlaceholderGeomPipelines;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

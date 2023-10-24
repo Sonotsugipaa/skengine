@@ -36,24 +36,12 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	using frame_counter_t = decltype(Engine::mGframeSelector);
 
-	static constexpr auto NO_FRAME_AVAILABLE = ~ frame_counter_t(0);
 
-
-	static frame_counter_t selectGframe(Engine& e) {
-		auto count = e.mGframes.size();
-		for(frame_counter_t i = 0; i < count; ++i) {
-			frame_counter_t candidate_idx = (i + e.mGframeSelector) % count;
-			auto&    candidate = e.mGframes[candidate_idx];
-			VkResult wait_res  = vkWaitForFences(e.mDevice, 1, &candidate.fence_draw, VK_TRUE, 0);
-			bool     is_free   = (wait_res == VK_SUCCESS);
-			if(is_free) {
-				e.mGframeSelector = (1 + candidate_idx) % count;
-				VK_CHECK(vkResetCommandPool, e.mDevice, candidate.cmd_pool, 0);
-				return candidate_idx;
-			}
-		}
-		++ e.mGframeSelector;
-		return NO_FRAME_AVAILABLE;
+	static VkFence& selectGframeFence(Engine& e) {
+		auto i = (++ e.mGframeSelector) % frame_counter_t(e.mGframes.size());
+		auto& r = e.mGframeSelectionFences[i];
+		VK_CHECK(vkResetFences, e.mDevice, 1, &r);
+		return r;
 	}
 
 
@@ -93,7 +81,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void recordRendererDrawCommands(
+	static void recordWorldDrawCommands(
 			Engine& e,
 			VkCommandBuffer cmd,
 			size_t          gf_index,
@@ -129,24 +117,43 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				sizeof(VkDrawIndexedIndirectCommand) );
 			++ i;
 		}
+	}
 
-		{
-			VkBuffer vtx_buffers[] = { e.mPhPolysBuffer, e.mPhPolysBuffer };
-			VkDeviceSize offsets[] = { 0, e.mPhPolys.vertexCount * sizeof(PolyVertex) };
-			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPhGeomPipelines.polyLine);
-			vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-			vkCmdDraw(cmd, e.mPhPolys.vertexCount, e.mPhPolys.instanceCount, 0, 0);
-		}
+
+	static void recordUiDrawCommands(
+			Engine& e,
+			VkCommandBuffer cmd
+	) {
+		VkBuffer vtx_buffers[] = { e.mPlaceholderPolysBuffer, e.mPlaceholderPolysBuffer };
+		VkDeviceSize offsets[] = { 0, e.mPlaceholderPolys.vertexCount * sizeof(PolyVertex) };
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPlaceholderGeomPipelines.polyLine);
+		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+		vkCmdDraw(cmd, e.mPlaceholderPolys.vertexCount, e.mPlaceholderPolys.instanceCount, 0, 0);
+	}
+
+
+	static void setHdrMetadata(Engine& e) {
+		// HDR (This is just a stub, apparently HDR isn't a Linux thing yet and `vkSetHdrMetadataEXT` is not defined in the (standard?) Vulkan ICD)
+		//
+		(void) e;
+		// VkHdrMetadataEXT hdr = { };
+		// hdr.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+		// hdr.minLuminance = 0.0f;
+		// hdr.maxLuminance = 1.0f;
+		// hdr.maxFrameAverageLightLevel = 0.7f;
+		// hdr.maxContentLightLevel      = 0.7f;
+		// hdr.whitePoint                = VkXYColorEXT { 0.3127f, 0.3290f };
+		// hdr.displayPrimaryRed         = VkXYColorEXT { 0.6400f, 0.3300f };
+		// hdr.displayPrimaryGreen       = VkXYColorEXT { 0.3000f, 0.6000f };
+		// hdr.displayPrimaryBlue        = VkXYColorEXT { 0.1500f, 0.0600f };
+		// vkSetHdrMetadataEXT(e.mDevice, 1, &e.mSwapchain, &hdr);
 	}
 
 
 	// Returns `false` if the swapchain is out of date
 	static bool draw(Engine& e, LoopInterface& loop) {
-		size_t      gframe_idx;
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
-		VkImage     sc_img;
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
 		auto        delta_last = e.mGraphicsReg.lastDelta();
 		auto        delta      = choose_delta(delta_avg, delta_last);
@@ -154,17 +161,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mGraphicsReg.beginCycle();
 
-		{ // Select gframe
-			gframe_idx = selectGframe(e);
-			gframe     = e.mGframes.data() + gframe_idx;
-			if(gframe_idx == NO_FRAME_AVAILABLE) {
-				e.logger().trace("No gframe available");
-				return true;
-			}
-		}
-
 		{ // Acquire image
-			VkResult res = vkAcquireNextImageKHR(e.mDevice, e.mSwapchain, UINT64_MAX, gframe->sem_swapchain_image, nullptr, &sc_img_idx);
+			VkFence  sc_img_fence = selectGframeFence(e);
+			VkResult res = vkAcquireNextImageKHR(e.mDevice, e.mSwapchain, UINT64_MAX, nullptr, sc_img_fence, &sc_img_idx);
 			switch(res) {
 				case VK_SUCCESS:
 					break;
@@ -181,7 +180,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					assert(res < VkResult(0));
 					throw vkutil::VulkanError("vkAcquireNextImage2KHR", res);
 			}
-			sc_img = e.mSwapchainImages[sc_img_idx].image;
+			gframe = e.mGframes.data() + sc_img_idx;
+			VK_CHECK(vkWaitForFences, e.mDevice, 1, &sc_img_fence,       VK_TRUE, UINT64_MAX);
+			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, VK_TRUE, UINT64_MAX);
+			VK_CHECK(vkResetFences,   e.mDevice, 1, &gframe->fence_draw);
+			VK_CHECK(vkResetCommandPool, e.mDevice, gframe->cmd_pool, 0);
 		}
 
 		e.mGframeCounter.fetch_add(1, std::memory_order_relaxed);
@@ -212,19 +215,22 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.time_delta        = std::float32_t(delta);
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
-			ubo.hdr_enabled       = e.mHdrEnabled;
+			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 		}
 
-		VkImageMemoryBarrier imb[2] = { };
-		imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imb[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imb[0].subresourceRange.layerCount = 1;
-		imb[0].subresourceRange.levelCount = 1;
-		imb[1] = imb[0];
+		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
 
-		{ // Begin the render pass
+		VkImageMemoryBarrier imb[2] = { }; {
+			imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imb[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imb[0].subresourceRange.layerCount = 1;
+			imb[0].subresourceRange.levelCount = 1;
+			imb[1] = imb[0];
+		}
+
+		{ // Begin the world render pass
 			constexpr size_t COLOR = 0;
 			constexpr size_t DEPTH = 1;
 			constexpr float clear_color[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
@@ -234,8 +240,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			VkRenderPassBeginInfo rpb_info = { };
 			rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			rpb_info.framebuffer = gframe->framebuffer;
-			rpb_info.renderPass  = e.mRpass;
+			rpb_info.framebuffer = gframe->worldFramebuffer;
+			rpb_info.renderPass  = e.mWorldRpass;
 			rpb_info.clearValueCount = 2;
 			rpb_info.pClearValues    = clears;
 			rpb_info.renderArea      = { VkOffset2D { 0, 0 }, e.mRenderExtent };
@@ -262,7 +268,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			recordRendererDrawCommands(e, cmd, gframe_idx, e.mWorldRenderer);
+			recordWorldDrawCommands(e, cmd, sc_img_idx, e.mWorldRenderer);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw);
@@ -272,24 +278,19 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			imb[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			imb[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			imb[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			// imb[0].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			imb[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			// imb[0].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			imb[1] = imb[0];
-			imb[1].image = e.mSwapchainImages[sc_img_idx].image;
+			imb[1].image = gframe->swapchain_image;
 			imb[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			imb[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imb[1].srcAccessMask = VK_ACCESS_NONE;
-			// imb[1].srcStageMask  = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+			imb[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 			imb[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			// imb[1].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
 			vkCmdPipelineBarrier(
 				gframe->cmd_draw,
 				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, { },
 				0, nullptr, 0, nullptr, 1, imb+0 );
 			vkCmdPipelineBarrier(
 				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, { },
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, { },
 				0, nullptr, 0, nullptr, 1, imb+1 );
 		}
 
@@ -305,7 +306,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			blit.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
 			blit.srcImage       = gframe->atch_color;
 			blit.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			blit.dstImage       = sc_img;
+			blit.dstImage       = gframe->swapchain_image;
 			blit.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			blit.filter = VK_FILTER_NEAREST;
 			blit.regionCount = 1;
@@ -313,24 +314,20 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			vkCmdBlitImage2(gframe->cmd_draw, &blit);
 		}
 
-		{ // Barrier the swapchain image for presenting, and the color attachment for... color attaching?
-			imb[0].image = e.mSwapchainImages[sc_img_idx].image;
+		{ // Barrier the swapchain image [0] for drawing the UI, and the color attachment [1] for... color attaching?
+			imb[0].image = gframe->swapchain_image;
 			imb[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imb[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imb[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			imb[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			// imb[0].srcStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_NONE;
-			// imb[0].dstStageMask  = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+			imb[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 			imb[1].image = gframe->atch_color;
 			imb[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			imb[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			imb[1].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			// imb[1].srcStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
 			imb[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			// imb[1].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			vkCmdPipelineBarrier(
 				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, { },
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, { },
 				0, nullptr, 0, nullptr, 1, imb+0 );
 			vkCmdPipelineBarrier(
 				gframe->cmd_draw,
@@ -338,7 +335,65 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				0, nullptr, 0, nullptr, 1, imb+1 );
 		}
 
-		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
+		{ // Begin the ui render pass
+			VkRenderPassBeginInfo rpb_info = { };
+			rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			rpb_info.framebuffer = gframe->uiFramebuffer;
+			rpb_info.renderPass  = e.mUiRpass;
+			rpb_info.renderArea  = { VkOffset2D { 0, 0 }, e.mRenderExtent };
+			vkCmdBeginRenderPass(gframe->cmd_draw, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
+		}
+
+		{ // Draw the UI
+			auto& cmd = gframe->cmd_draw;
+
+			VkViewport viewport = { }; {
+				viewport.x      = 0.0f;
+				viewport.y      = 0.0f;
+				viewport.width  = e.mPresentExtent.width;
+				viewport.height = e.mPresentExtent.height;
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+			}
+
+			VkRect2D scissor = { }; {
+				scissor.offset = { };
+				scissor.extent = { e.mPresentExtent.width, e.mPresentExtent.height };
+			}
+
+			vkCmdSetViewport(cmd, 0, 1, &viewport);
+			vkCmdSetScissor(cmd, 0, 1, &scissor);
+			recordUiDrawCommands(e, gframe->cmd_draw);
+		}
+
+		#warning "WAW HAZARD: vkCmdEndRenderPass, SYNC_COLOR_ATTACHMENT_OUTPUT_COLOR_ATTACHMENT_WRITE => SYNC_IMAGE_LAYOUT_TRANSITION"
+		// SYNC-HAZARD-WRITE-AFTER-WRITE(ERROR / SPEC): msgNum: 1544472022 - Validation Error: [ SYNC-HAZARD-WRITE-AFTER-WRITE ]
+		// Object 0: handle = 0xa2eb680000000026, type = VK_OBJECT_TYPE_IMAGE;
+		// MessageID = 0x5c0ec5d6
+		// vkCmdPipelineBarrier: Hazard WRITE_AFTER_WRITE for image barrier 0 VkImage gframe->swapchain_image.
+		// Access info (
+		//   usage: SYNC_IMAGE_LAYOUT_TRANSITION,
+		//   prior_usage: SYNC_COLOR_ATTACHMENT_OUTPUT_COLOR_ATTACHMENT_WRITE,
+		//   write_barriers: 0,
+		//   command: vkCmdEndRenderPass,
+		//   seq_no: 26,renderpass: VkRenderPass e.mUiRpass, reset_no: 2
+		// ).
+		// Objects: 1
+		//   [0] 0xa2eb680000000026, type: 10, name: NULL
+		vkCmdEndRenderPass(gframe->cmd_draw);
+
+		{ // Barrier the swapchain image for presenting (borrow the barrier info from the previous vkCmdPipelineBarrier)
+			imb[0].image = gframe->swapchain_image;
+			imb[0].oldLayout = imb[0].newLayout;
+			imb[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imb[0].srcAccessMask = imb[0].dstAccessMask;
+			imb[0].dstAccessMask = VK_ACCESS_NONE;
+			vkCmdPipelineBarrier(
+				gframe->cmd_draw,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, { },
+				0, nullptr, 0, nullptr, 1, imb+0 );
+		}
+
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw);
 
 		VkSubmitInfo subm[2] = { };
@@ -350,8 +405,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			subm->commandBufferCount   = 1;
 			subm->signalSemaphoreCount = 1;
 			subm->pCommandBuffers    = &gframe->cmd_prepare;
-			subm->waitSemaphoreCount = 1;
-			subm->pWaitSemaphores    = &gframe->sem_swapchain_image;
 			subm->pWaitDstStageMask  = &prepare_wait_stages;
 			subm->pSignalSemaphores  = &gframe->sem_prepare;
 			VK_CHECK(vkResetFences, e.mDevice,          1,      &gframe->fence_prepare);
@@ -365,19 +418,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_draw);
 		}
 
-		{ // HDR (This is just a stub, apparently HDR isn't a Linux thing yet and `vkSetHdrMetadataEXT` is not defined in the (standard?) Vulkan ICD)
-			// VkHdrMetadataEXT hdr = { };
-			// hdr.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
-			// hdr.minLuminance = 0.0f;
-			// hdr.maxLuminance = 1.0f;
-			// hdr.maxFrameAverageLightLevel = 0.7f;
-			// hdr.maxContentLightLevel      = 0.7f;
-			// hdr.whitePoint                = VkXYColorEXT { 0.3127f, 0.3290f };
-			// hdr.displayPrimaryRed         = VkXYColorEXT { 0.6400f, 0.3300f };
-			// hdr.displayPrimaryGreen       = VkXYColorEXT { 0.3000f, 0.6000f };
-			// hdr.displayPrimaryBlue        = VkXYColorEXT { 0.1500f, 0.0600f };
-			// vkSetHdrMetadataEXT(e.mDevice, 1, &e.mSwapchain, &hdr);
-		}
+		setHdrMetadata(e);
 
 		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
 
@@ -511,13 +552,13 @@ namespace SKENGINE_NAME_NS {
 				r = std::make_shared<spdlog::logger>(
 					SKENGINE_NAME_CSTR,
 					std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
+				r->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
+				#ifdef NDEBUG
+					r->set_level(spdlog::level::info);
+				#else
+					r->set_level(spdlog::level::debug);
+				#endif
 			}
-			r->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
-			#ifdef NDEBUG
-				r->set_level(spdlog::level::debug);
-			#else
-				r->set_level(spdlog::level::info);
-			#endif
 			return r;
 		} ()),
 		mPrefs(ep)
@@ -665,6 +706,7 @@ namespace SKENGINE_NAME_NS {
 		auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
 
 		auto wait_for_fences = [&]() {
+			for(auto& gff : mGframeSelectionFences) VK_CHECK(vkWaitForFences, mDevice, 1, &gff, true, UINT64_MAX);
 			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
 			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
 		};
@@ -672,8 +714,8 @@ namespace SKENGINE_NAME_NS {
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();
 		if(! is_graphics_thread) {
 			mGframePriorityOverride.store(true, std::memory_order_seq_cst);
-			wait_for_fences();
 			lock.lock();
+			wait_for_fences();
 			mGframePriorityOverride.store(false, std::memory_order_seq_cst);
 			mGframeResumeCond.notify_one();
 		} else {

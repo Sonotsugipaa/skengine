@@ -310,15 +310,7 @@ inline namespace ui {
 
 		ComputedBounds grid_getBounds() noexcept override;
 		RelativeSize   grid_desiredTileSize(GridPosition) noexcept override;
-
-		GridSize grid_gridSize() noexcept override {
-			#warning "UN-INLINE THIS"
-			grid_ucoord_t elemCount    = grid_lots.size();
-			grid_ucoord_t subelemCount = grid_ucoord_t(list_subelemCount);
-			return (list_direction == ListDirection::eListOfRows)?
-				GridSize { .rows = elemCount,    .columns = subelemCount } :
-				GridSize { .rows = subelemCount, .columns = elemCount    } ;
-		}
+		GridSize grid_gridSize() noexcept override;
 
 	private:
 		std::unique_ptr<float[]> list_subelemSizes;

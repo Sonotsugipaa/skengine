@@ -8,7 +8,7 @@
 
 namespace SKENGINE_NAME_NS {
 
-	VkPipeline Engine::createPipeline(std::string_view material_type_name) {
+	VkPipeline Engine::createPipeline(std::string_view material_type_name, VkRenderPass worldRpass) {
 		VkPipeline pipeline;
 
 		VkVertexInputAttributeDescription vtx_attr[11];
@@ -140,7 +140,7 @@ namespace SKENGINE_NAME_NS {
 
 		VkGraphicsPipelineCreateInfo gpc_info = { };
 		gpc_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		gpc_info.renderPass = mRpass;
+		gpc_info.renderPass = worldRpass;
 		gpc_info.layout     = mPipelineLayout;
 		gpc_info.subpass    = 0;
 		gpc_info.stageCount = std::size(stages);

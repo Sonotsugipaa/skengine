@@ -18,7 +18,7 @@ namespace SKENGINE_NAME_NS {
 	unsigned long sdl_init_counter = 0;
 
 
-	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
+	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii) {
 		assert(dii != nullptr);
 		initSdl(dii);

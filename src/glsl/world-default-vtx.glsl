@@ -14,7 +14,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float shade_step_exp;
 	float rnd;
 	float time_delta;
-	bool hdr_enabled;
+	uint flags;
 } frame_ubo;
 
 
@@ -31,11 +31,12 @@ layout(location = 10) in float in_rnd;
 layout(location = 0) out vec4 frg_pos;
 layout(location = 1) out vec4 frg_col;
 layout(location = 2) out vec2 frg_tex;
-layout(location = 3) out vec3 frg_nrm;
-layout(location = 4) out vec3 frg_viewspace_tanu;
-layout(location = 5) out vec3 frg_viewspace_tanv;
-layout(location = 6) out vec3 frg_viewspace_tanw;
-layout(location = 7) out mat3 frg_view3;
+layout(location = 3) out vec2 frg_viewport_pos;
+layout(location = 4) out vec3 frg_nrm;
+layout(location = 5) out vec3 frg_viewspace_tanu;
+layout(location = 6) out vec3 frg_viewspace_tanv;
+layout(location = 7) out vec3 frg_viewspace_tanw;
+layout(location = 8) out mat3 frg_view3;
 
 
 
@@ -47,6 +48,7 @@ void main() {
 	frg_pos     = worldspace_pos;
 	frg_col     = in_col;
 	frg_tex     = in_tex;
+	frg_viewport_pos = gl_Position.xy;
 
 	mat3 iview3      = inverse(mat3(frame_ubo.view_transf4));
 	mat3 view3       = transpose(iview3);

@@ -59,13 +59,13 @@ namespace SKENGINE_NAME_NS::placeholder {
 
 	struct RectTemplate {
 		static constexpr PolyVertex vertices[] = {
-			{ .pos = { 0.0f, 0.0f,  1.0f } },
-			{ .pos = { 1.0f, 0.0f,  1.0f } },
-			{ .pos = { 1.0f, 1.0f,  1.0f } },
-			{ .pos = { 0.0f, 1.0f,  1.0f } },
-			{ .pos = { 0.0f, 0.0f,  1.0f } } };
+			{ .pos = { -1.0f, -1.0f,  1.0f } },
+			{ .pos = { +1.0f, -1.0f,  1.0f } },
+			{ .pos = { +1.0f, +1.0f,  1.0f } },
+			{ .pos = { -1.0f, +1.0f,  1.0f } },
+			{ .pos = { -1.0f, -1.0f,  1.0f } } };
 		static constexpr PolyInstance instances[] = {
-			{ .col = { 1.0f, 0.0f, 1.0f, 1.0f }, .transform = glm::mat4(1.0f) } };
+			{ .col = { 1.0f, 0.0f, 1.0f, 0.7f }, .transform = glm::mat4(1.0f) } };
 
 		static Polys instantiate(glm::vec2 p0, glm::vec2 p1);
 	};

@@ -3,6 +3,8 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Engine initialization utilities are UB, find a way to un-UBify them
+    without too much boilerplate
   - Make `Renderer` objects not get fully recomputed every time an object
     is added
   - Break down big functions in `renderer.cpp`
@@ -10,6 +12,7 @@
   - The NVidia best practices validation layer suggests using memory
     priority hints along with `VK_EXT_pageable_device_local_memory`,
     so do that I guess
+  - Gframe selection fences are destroyed/created during every swapchain recreation
   - Integrate cleanup queues
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation
   - Optimize object buffer update procedure for simple object modifications

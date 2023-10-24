@@ -17,7 +17,7 @@
 
 #define ALIGNF32(N_) alignas((N_) * sizeof(float))
 #define ALIGNI32(N_) alignas((N_) * sizeof(uint32_t))
-#define ALIGNBOOL(N_) alignas((N_) * sizeof(bool))
+#define ALIGNFLAGS(N_) alignas((N_) * sizeof(uint32_t))
 
 
 
@@ -98,6 +98,16 @@ namespace SKENGINE_NAME_NS {
 	///
 	namespace dev {
 
+		using dev_flags_e = uint32_t;
+
+		enum FrameUniformFlagBits : dev_flags_e {
+			FRAME_UNI_ZERO        = 0b0,
+			FRAME_UNI_HDR_ENABLED = 0b1
+		};
+
+		enum class FrameUniformFlags : dev_flags_e { };
+
+
 		struct Instance {
 			ALIGNF32(1) glm::mat4 model_transf;
 			ALIGNF32(1) glm::vec4 color_mul;
@@ -144,7 +154,7 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) std::float32_t shade_step_exp;
 			ALIGNF32(1) std::float32_t rnd;
 			ALIGNF32(1) std::float32_t time_delta;
-			ALIGNBOOL(1) bool hdr_enabled;
+			ALIGNFLAGS(1) FrameUniformFlags flags;
 		};
 
 

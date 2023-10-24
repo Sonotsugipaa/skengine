@@ -16,9 +16,9 @@
 namespace SKENGINE_NAME_NS {
 
 	struct Engine::RpassInitializer::State {
-		bool reinit           : 1;
-		bool createdGframes   : 1;
-		bool destroyedGframes : 1;
+		bool reinit         : 1;
+		bool createGframes  : 1;
+		bool destroyGframes : 1;
 	};
 
 
@@ -95,10 +95,10 @@ namespace SKENGINE_NAME_NS {
 			}
 
 		TRY_PM_("preferred ", preferred_mode, VK_PRESENT_MODE_MAX_ENUM_KHR)
-		TRY_PM_("",          VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR,     preferred_mode)
-		TRY_PM_("",          VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR, preferred_mode)
-		TRY_PM_("",          VK_PRESENT_MODE_MAILBOX_KHR,                   preferred_mode)
-		TRY_PM_("",          VK_PRESENT_MODE_FIFO_RELAXED_KHR,              preferred_mode)
+		TRY_PM_("", VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR,     preferred_mode)
+		TRY_PM_("", VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR, preferred_mode)
+		TRY_PM_("", VK_PRESENT_MODE_MAILBOX_KHR,                   preferred_mode)
+		TRY_PM_("", VK_PRESENT_MODE_FIFO_RELAXED_KHR,              preferred_mode)
 
 		#undef TRY_PM_
 
@@ -111,8 +111,8 @@ namespace SKENGINE_NAME_NS {
 		upscale = std::max(upscale, std::numeric_limits<float>::min());
 
 		desired = {
-				uint32_t(std::ceil(desired.width  / upscale)),
-				uint32_t(std::ceil(desired.height / upscale)) };
+			uint32_t(std::ceil(desired.width  / upscale)),
+			uint32_t(std::ceil(desired.height / upscale)) };
 		float desired_fw = desired.width;
 		float desired_fh = desired.height;
 
@@ -156,7 +156,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	#warning "Document how this works, since it's trippy, workaroundy and probably UB (hopefully not) (but it removes A LOT of boilerplate)"
+	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::RpassInitializer::init(const RpassConfig& rc) {
 		mRpassConfig = rc;
 		mSwapchainOod = false;
@@ -167,7 +167,7 @@ namespace SKENGINE_NAME_NS {
 		initSwapchain(state);
 		initGframeDescPool(state);
 		initGframes(state);
-		initRpass(state);
+		initRpasses(state);
 		initFramebuffers(state);
 	}
 
@@ -183,8 +183,14 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_render_xt  = mRenderExtent;
 		VkExtent2D old_present_xt = mPresentExtent;
 
+		destroyFramebuffers(state);
 		destroySwapchain(state);
+		destroyGframes(state);
 		initSwapchain(state);
+		destroyGframeDescPool(state);
+		initGframeDescPool(state);
+		initGframes(state);
+		initFramebuffers(state);
 
 		bool render_xt_changed =
 			(old_render_xt.width  != mRenderExtent.width) ||
@@ -194,14 +200,8 @@ namespace SKENGINE_NAME_NS {
 			(old_present_xt.height != mPresentExtent.height);
 
 		if(render_xt_changed || present_xt_changed) {
-			destroyFramebuffers(state);
-			destroyRpass(state);
-			destroyGframes(state, 0);
-			destroyGframeDescPool(state);
-			initGframeDescPool(state);
-			initGframes(state);
-			initRpass(state);
-			initFramebuffers(state);
+			destroyRpasses(state);
+			initRpasses(state);
 		}
 	}
 
@@ -209,10 +209,10 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::destroy() {
 		State state = { };
 		destroyFramebuffers(state);
-		destroyRpass(state);
-		destroyGframes(state, 0);
-		destroyGframeDescPool(state);
+		destroyRpasses(state);
 		destroySwapchain(state);
+		destroyGframes(state);
+		destroyGframeDescPool(state);
 		destroySurface();
 	}
 
@@ -296,25 +296,26 @@ namespace SKENGINE_NAME_NS {
 			vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
 		}
 
-		VkSwapchainCreateInfoKHR s_info = { };
-		s_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-		s_info.surface          = mSurface;
-		s_info.imageFormat      = mSurfaceFormat.format;
-		s_info.imageColorSpace  = mSurfaceFormat.colorSpace;
-		s_info.imageExtent      = mPrefs.init_present_extent;
-		s_info.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		s_info.imageArrayLayers = 1;
-		s_info.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-		s_info.compositeAlpha   = select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
-		s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
-		s_info.clipped          = VK_TRUE;
-		s_info.oldSwapchain     = mSwapchain;
-		s_info.pQueueFamilyIndices   = concurrent_qfams;
-		s_info.queueFamilyIndexCount = 2;
-		s_info.imageSharingMode      =
-			(concurrent_qfams[0] == concurrent_qfams[1])?
-			VK_SHARING_MODE_EXCLUSIVE :
-			VK_SHARING_MODE_CONCURRENT;
+		VkSwapchainCreateInfoKHR s_info = { }; {
+			s_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+			s_info.surface          = mSurface;
+			s_info.imageFormat      = mSurfaceFormat.format;
+			s_info.imageColorSpace  = mSurfaceFormat.colorSpace;
+			s_info.imageExtent      = mPrefs.init_present_extent;
+			s_info.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+			s_info.imageArrayLayers = 1;
+			s_info.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+			s_info.compositeAlpha   = select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
+			s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
+			s_info.clipped          = VK_TRUE;
+			s_info.oldSwapchain     = mSwapchain;
+			s_info.pQueueFamilyIndices   = concurrent_qfams;
+			s_info.queueFamilyIndexCount = 2;
+			s_info.imageSharingMode      =
+				(concurrent_qfams[0] == concurrent_qfams[1])?
+				VK_SHARING_MODE_EXCLUSIVE :
+				VK_SHARING_MODE_CONCURRENT;
+		}
 
 		{ // Select min image count
 			unsigned desired     = mPrefs.max_concurrent_frames + 1;
@@ -322,11 +323,7 @@ namespace SKENGINE_NAME_NS {
 				desired,
 				mSurfaceCapabs.minImageCount,
 				mSurfaceCapabs.maxImageCount );
-			if(desired == s_info.minImageCount) {
-				if(! state.reinit) logger().debug("Acquired {} swapchain image{}",              desired, desired == 1? "":"s");
-			} else {
-				if(! state.reinit) logger().warn("Requested {} swapchain image{}, acquired {}", desired, desired == 1? "":"s", s_info.minImageCount);
-			}
+			logger().trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
 		}
 
 		mSwapchainOld = mSwapchain;
@@ -353,14 +350,27 @@ namespace SKENGINE_NAME_NS {
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, nullptr);
 			images.resize(count);
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, images.data());
+			logger().debug("Acquired {} swapchain image{}", count, count == 1? "":"s");
 
-			assert(mSwapchainImages.empty());
-			mSwapchainImages.reserve(images.size());
+			assert(mGframes.empty() || state.reinit);
+			if(mGframes.size() < images.size()) state.createGframes  = true;
+			else
+			if(mGframes.size() > images.size()) state.destroyGframes = true;
+			mGframes.resize(images.size());
 			for(size_t i = 0; i < images.size(); ++i) {
-				mSwapchainImages.push_back({ });
-				auto& img_data = mSwapchainImages.back();
+				auto& img_data = mGframes[i];
 				auto& img      = images[i];
-				img_data.image = img;
+				img_data.swapchain_image = img;
+				VkImageViewCreateInfo ivc_info = { };
+				ivc_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				ivc_info.image = img;
+				ivc_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				ivc_info.format   = mSurfaceFormat.format;
+				ivc_info.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A };
+				ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				ivc_info.subresourceRange.layerCount = 1;
+				ivc_info.subresourceRange.levelCount = 1;
+				VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &img_data.swapchain_image_view);
 			}
 		}
 	}
@@ -368,10 +378,11 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::initGframeDescPool(State& state) {
 		// Descriptor pool initialization only required if gframes will be created or deleted
-		bool ood = state.createdGframes || state.destroyedGframes;
+		bool ood = state.createGframes || state.destroyGframes;
 		if(state.reinit && ! ood) return;
 
-		auto frame_n = uint32_t(mPrefs.max_concurrent_frames);
+		assert(! mGframes.empty() /* The gframe vector should be resized by the swapchain init procedure */);
+		auto frame_n = uint32_t(mGframes.size());
 
 		VkDescriptorPoolSize sizes[] = {
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_n * 1 },
@@ -390,8 +401,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::initGframes(State& state) {
+	void Engine::RpassInitializer::initGframes(State&) {
 		uint32_t light_storage_capacity = mWorldRenderer.lightStorage().bufferCapacity;
+
+		assert(! mGframes.empty());
+		auto frame_n = mGframes.size();
 
 		vkutil::BufferCreateInfo ubo_bc_info = {
 			.size  = sizeof(dev::FrameUniform),
@@ -401,11 +415,6 @@ namespace SKENGINE_NAME_NS {
 			.size  = light_storage_capacity * sizeof(dev::Light),
 			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			.qfamSharing = { } };
-
-		ssize_t missing = ssize_t(mPrefs.max_concurrent_frames) - ssize_t(mGframes.size());
-		if(missing <= 0) return;
-
-		state.createdGframes = true;
 
 		VkCommandPoolCreateInfo cpc_info = { };
 		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -453,7 +462,7 @@ namespace SKENGINE_NAME_NS {
 		fc_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fc_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-		auto create_frame = [&](GframeData& gf) {
+		auto create_frame = [&](GframeData& gf, VkFence& gff) {
 			VK_CHECK(vkCreateCommandPool, mDevice, &cpc_info, nullptr, &gf.cmd_pool);
 			cba_info.commandPool = gf.cmd_pool;
 			VK_CHECK(vkAllocateCommandBuffers, mDevice, &cba_info, cmd);
@@ -477,78 +486,99 @@ namespace SKENGINE_NAME_NS {
 			ic_info.format       = mDepthAtchFmt;
 			gf.atch_depthstencil = vkutil::ManagedImage::create(mVma, ic_info, ac_info);
 
-			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_swapchain_image);
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_prepare);
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_draw);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_prepare);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
+			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gff);
 		};
 
-		logger().trace("Creating {} gframe{}", missing, (missing != 1)? "s" : "");
-		for(size_t i = mGframes.size(); i < mPrefs.max_concurrent_frames; ++i) {
-			mGframes.resize(i + 1);
-			GframeData& gf = mGframes.back();
-			create_frame(gf);
+		logger().trace("Creating {} gframe{}", frame_n, (frame_n != 1)? "s" : "");
+		mGframeSelectionFences.resize(frame_n);
+		for(size_t i = 0; i < frame_n; ++i) {
+			GframeData& gf  = mGframes[i];
+			VkFence&    gff = mGframeSelectionFences[i];
+			create_frame(gf, gff);
 		}
 	}
 
 
-	void Engine::RpassInitializer::initRpass(State& state) {
+	void Engine::RpassInitializer::initRpasses(State& state) {
 		constexpr size_t COLOR = 0;
 		constexpr size_t DEPTH = 1;
 
 		{ // Create the render pass
-			VkAttachmentDescription atch_descs[2];
-			atch_descs[COLOR] = { };
-			atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			atch_descs[COLOR].samples = VK_SAMPLE_COUNT_1_BIT;
+			VkAttachmentDescription atch_descs[2]; {
+				atch_descs[COLOR] = { };
+				atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				atch_descs[COLOR].samples = VK_SAMPLE_COUNT_1_BIT;
 
-			atch_descs[COLOR].format = mSurfaceFormat.format;
-			atch_descs[COLOR].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			atch_descs[COLOR].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			atch_descs[COLOR].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				atch_descs[COLOR].format = mSurfaceFormat.format;
+				atch_descs[COLOR].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				atch_descs[COLOR].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+				atch_descs[COLOR].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 
-			atch_descs[DEPTH] = atch_descs[COLOR];
-			atch_descs[DEPTH].format = mDepthAtchFmt;
-			atch_descs[DEPTH].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-			atch_descs[DEPTH].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			atch_descs[DEPTH].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				atch_descs[DEPTH] = atch_descs[COLOR];
+				atch_descs[DEPTH].format = mDepthAtchFmt;
+				atch_descs[DEPTH].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+				atch_descs[DEPTH].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				atch_descs[DEPTH].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			}
 
-			VkAttachmentReference subpass_refs[2];
-			subpass_refs[COLOR].attachment = COLOR;
-			subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			subpass_refs[DEPTH].attachment = DEPTH;
-			subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			VkAttachmentReference subpass_refs[2]; {
+				subpass_refs[COLOR].attachment = COLOR;
+				subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				subpass_refs[DEPTH].attachment = DEPTH;
+				subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			}
 
-			VkSubpassDescription subpasses[2];
-			subpasses[0] = { };
-			subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			subpasses[0].colorAttachmentCount    = 1;
-			subpasses[0].pColorAttachments       = subpass_refs + COLOR;
-			subpasses[0].pDepthStencilAttachment = subpass_refs + DEPTH;
-			subpasses[1] = subpasses[0];
+			VkSubpassDescription subpasses[1]; {
+				subpasses[0] = { };
+				subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+				subpasses[0].colorAttachmentCount    = 1;
+				subpasses[0].pColorAttachments       = subpass_refs + COLOR;
+				subpasses[0].pDepthStencilAttachment = subpass_refs + DEPTH;
+			}
 
-			VkSubpassDependency dependencies[1];
-			dependencies[0] = { };
-			dependencies[0].srcSubpass    = 0;
-			dependencies[0].dstSubpass    = 1;
-			dependencies[0].srcStageMask  = dependencies[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[0].srcAccessMask = dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			VkRenderPassCreateInfo rpc_info = { }; {
+				rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+				rpc_info.attachmentCount = std::size(atch_descs);
+				rpc_info.pAttachments    = atch_descs;
+				rpc_info.subpassCount    = std::size(subpasses);
+				rpc_info.pSubpasses      = subpasses;
+			}
 
-			VkRenderPassCreateInfo rpc_info = { };
-			rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-			rpc_info.attachmentCount = std::size(atch_descs);
-			rpc_info.pAttachments    = atch_descs;
-			rpc_info.subpassCount    = std::size(subpasses);
-			rpc_info.pSubpasses      = subpasses;
-			rpc_info.dependencyCount = std::size(dependencies);
-			rpc_info.pDependencies   = dependencies;
+			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mWorldRpass);
 
-			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mRpass);
+			{ // Recycle the previous infos for the UI render pass
+				atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				atch_descs[COLOR].format = mSurfaceFormat.format;
+				atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_LOAD;
+				atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				subpass_refs[COLOR].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				subpasses[0].pDepthStencilAttachment = nullptr;
+
+				// No depth attachment, only color
+				rpc_info.attachmentCount = 1;
+				rpc_info.pAttachments    = atch_descs + COLOR;
+			}
+
+			VkSubpassDependency deps[1] = { }; {
+				deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+				deps[0].dstSubpass = 0;
+				deps[0].srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+				deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+				deps[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+				rpc_info.dependencyCount = std::size(deps);
+				rpc_info.pDependencies   = deps;
+			}
+
+			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mUiRpass);
 		}
 
 		if(! state.reinit) { // Create the pipeline layouts, pipeline cache and pipelines
@@ -563,22 +593,22 @@ namespace SKENGINE_NAME_NS {
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
 
-			mGenericGraphicsPipeline = createPipeline("default");
+			mGenericGraphicsPipeline = createPipeline("default", mWorldRpass);
 
 			geom::PipelineSetCreateInfo gpsci = { };
-			gpsci.subpass       = 1;
-			gpsci.renderPass    = mRpass;
+			gpsci.subpass       = 0;
+			gpsci.renderPass    = mUiRpass;
 			gpsci.pipelineCache = mPipelineCache;
-			mPhGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
+			mPlaceholderGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
 
-			mPhPolysBuffer = [&]() {
+			mPlaceholderPolysBuffer = [&]() {
 				vkutil::BufferCreateInfo bc_info = { };
 				bc_info.size =
-					(mPhPolys.vertexCount   * sizeof(PolyVertex)) +
-					(mPhPolys.instanceCount * sizeof(PolyInstance));
+					(mPlaceholderPolys.vertexCount   * sizeof(PolyVertex)) +
+					(mPlaceholderPolys.instanceCount * sizeof(PolyInstance));
 				bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 				vkutil::BufferDuplex b = vkutil::BufferDuplex::createVertexInputBuffer(mVma, bc_info);
-				memcpy(b.mappedPtr(), mPhPolys.vertexInput.get(), bc_info.size);
+				memcpy(b.mappedPtr(), mPlaceholderPolys.vertexInput.get(), bc_info.size);
 				pushBuffer(b);
 				return std::move(b).detachStagingBuffer(mVma);
 			} ();
@@ -587,8 +617,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::initFramebuffers(State&) {
-		constexpr size_t ATCH_COUNT = 2 /* color, depth/stencil */;
-
 		VkImageViewCreateInfo ivc_info = { };
 		ivc_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		ivc_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -600,13 +628,9 @@ namespace SKENGINE_NAME_NS {
 		ivc_info.subresourceRange.levelCount = 1;
 		VkFramebufferCreateInfo fc_info = { };
 		fc_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		fc_info.width  = mRenderExtent.width;
-		fc_info.height = mRenderExtent.height;
 		fc_info.layers = 1;
-		fc_info.renderPass = mRpass;
-		fc_info.attachmentCount = ATCH_COUNT;
 
-		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
+		for(size_t i = 0; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
 			ivc_info.image  = gf.atch_color;
 			ivc_info.format = mSurfaceFormat.format;
@@ -616,47 +640,86 @@ namespace SKENGINE_NAME_NS {
 			ivc_info.format = mDepthAtchFmt;
 			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_depthstencil_view);
-			VkImageView atchs[ATCH_COUNT] = { gf.atch_color_view, gf.atch_depthstencil_view };
-			fc_info.pAttachments = atchs;
-			VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.framebuffer);
+
+			{ // Create the world rpass framebuffer
+				VkImageView atchs[] = { gf.atch_color_view, gf.atch_depthstencil_view };
+				fc_info.renderPass = mWorldRpass;
+				fc_info.attachmentCount = std::size(atchs);
+				fc_info.pAttachments    = atchs;
+				fc_info.width  = mRenderExtent.width;
+				fc_info.height = mRenderExtent.height;
+				VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.worldFramebuffer);
+			}
+
+			{ // Create the world rpass framebuffer
+				VkImageView atchs[] = { gf.swapchain_image_view };
+				fc_info.renderPass = mUiRpass;
+				fc_info.attachmentCount = std::size(atchs);
+				fc_info.pAttachments    = atchs;
+				fc_info.width  = mPresentExtent.width;
+				fc_info.height = mPresentExtent.height;
+				VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.uiFramebuffer);
+			}
 		}
 	}
 
 
 	void Engine::RpassInitializer::destroyFramebuffers(State&) {
-		for(size_t i = 0; i < mPrefs.max_concurrent_frames; ++i) {
+		for(size_t i = 0; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
-			vkDestroyFramebuffer(mDevice, gf.framebuffer, nullptr);
+			vkDestroyFramebuffer(mDevice, gf.uiFramebuffer, nullptr);
+			vkDestroyFramebuffer(mDevice, gf.worldFramebuffer, nullptr);
 			vkDestroyImageView(mDevice, gf.atch_depthstencil_view, nullptr);
 			vkDestroyImageView(mDevice, gf.atch_color_view, nullptr);
 		}
 	}
 
 
-	void Engine::RpassInitializer::destroyRpass(State& state) {
+	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
-			vkutil::ManagedBuffer::destroy(mVma, mPhPolysBuffer);
-			geom::PipelineSet::destroy(mDevice, mPhGeomPipelines);
+			vkutil::ManagedBuffer::destroy(mVma, mPlaceholderPolysBuffer);
+			geom::PipelineSet::destroy(mDevice, mPlaceholderGeomPipelines);
 			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
 			vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);
 		}
-		vkDestroyRenderPass(mDevice, mRpass, nullptr);
+		vkDestroyRenderPass(mDevice, mUiRpass, nullptr);
+		vkDestroyRenderPass(mDevice, mWorldRpass, nullptr);
 	}
 
 
-	void Engine::RpassInitializer::destroyGframes(State& state, size_t keep) {
-		ssize_t excess = ssize_t(mGframes.size()) - ssize_t(keep);
-		if(excess <= 0) return;
+	void Engine::RpassInitializer::destroyGframeDescPool(State& state) {
+		// Descriptor pool destruction only required if gframes have been created or deleted
+		bool ood = state.createGframes || state.destroyGframes;
+		if(state.reinit && ! ood) return;
 
-		state.destroyedGframes = true;
+		vkDestroyDescriptorPool(mDevice, mGframeDescPool, nullptr);
+	}
 
-		auto destroy_frame = [&](GframeData& gf) {
+
+	void Engine::RpassInitializer::destroySwapchain(State& state) {
+		if(mSwapchain == nullptr) return;
+
+		for(auto& gf : mGframes) vkDestroyImageView(mDevice, gf.swapchain_image_view, nullptr);
+		if(! state.reinit) [[unlikely]] {
+			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
+			// Did this make sense?!? Wtf?    // if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+		}
+		vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+
+		mSwapchain = nullptr;
+	}
+
+
+	void Engine::RpassInitializer::destroyGframes(State& state) {
+		state.destroyGframes = true;
+
+		auto destroy_frame = [&](GframeData& gf, VkFence& gframe_sel_fence) {
+			vkDestroyFence     (mDevice, gframe_sel_fence, nullptr);
 			vkDestroyFence     (mDevice, gf.fence_draw, nullptr);
 			vkDestroyFence     (mDevice, gf.fence_prepare, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_draw, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_prepare, nullptr);
-			vkDestroySemaphore (mDevice, gf.sem_swapchain_image, nullptr);
 
 			vkutil::ManagedImage::destroy(mVma, gf.atch_color);
 			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
@@ -668,36 +731,12 @@ namespace SKENGINE_NAME_NS {
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
 		};
 
-		logger().trace("Destroying {} gframe{}", excess, (excess != 1)? "s" : "");
-		for(size_t i = keep; i < mGframes.size(); ++i) {
-			GframeData& gf = mGframes[i];
-			destroy_frame(gf);
+		logger().trace("Destroying {} gframe{}", mGframes.size(), (mGframes.size() != 1)? "s" : "");
+		for(size_t i = 0; i < mGframes.size(); ++i) {
+			GframeData& gf  = mGframes[i];
+			VkFence&    gff = mGframeSelectionFences[i];
+			destroy_frame(gf, gff);
 		}
-
-		mGframes.resize(std::min(keep, mGframes.size()));
-	}
-
-
-	void Engine::RpassInitializer::destroyGframeDescPool(State& state) {
-		// Descriptor pool destruction only required if gframes have been created or deleted
-		bool ood = state.createdGframes || state.destroyedGframes;
-		if(! ood) return;
-
-		vkDestroyDescriptorPool(mDevice, mGframeDescPool, nullptr);
-	}
-
-
-	void Engine::RpassInitializer::destroySwapchain(State& state) {
-		if(mSwapchain == nullptr) return;
-
-		mSwapchainImages.clear();
-
-		if(! state.reinit) [[unlikely]] {
-			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
-		}
-		vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
-
-		mSwapchain = nullptr;
 	}
 
 
