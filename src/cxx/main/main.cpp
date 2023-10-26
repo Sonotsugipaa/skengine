@@ -6,7 +6,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include <posixfio.hpp>
+#include <posixfio_tl.hpp>
 
 #include <vk-util/error.hpp>
 
@@ -36,6 +36,42 @@ namespace {
 		prefs.shade_step_exponent   = 4.0f;
 		return prefs;
 	} ();
+
+
+	std::vector<std::string> readObjectNameList(posixfio::FileView file) {
+		auto fileBuf = posixfio::ArrayInputBuffer<>(file);
+
+		std::string strBuf;
+		auto rdln = [&]() {
+			strBuf.clear();
+			strBuf.reserve(64);
+			char c;
+			bool eol = false;
+			ssize_t rd = fileBuf.read(&c, 1);
+			while(rd > 0) {
+				if(c == '\n') [[unlikely]] {
+					eol = true;
+					rd = 0;
+				} else {
+					strBuf.push_back(c);
+					rd = fileBuf.read(&c, 1);
+				}
+			}
+			return eol;
+		};
+
+		std::vector<std::string> r;
+		bool eof    = ! rdln();
+		bool nEmpty = ! strBuf.empty();
+		while((! eof) || nEmpty) {
+			if(nEmpty) {
+				r.push_back(std::move(strBuf));
+			}
+			eof    = ! rdln();
+			nEmpty = ! strBuf.empty();
+		}
+		return r;
+	}
 
 
 	class Loop : public LoopInterface {
@@ -83,54 +119,61 @@ namespace {
 
 			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
 
-			auto rng   = std::minstd_rand(size_t(this));
-			auto disti = std::uniform_int_distribution<uint8_t>(0, 2);
-			auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
-			Renderer::NewObject o = { };
-			o.scale_xyz = { 1.0f, 1.0f, 1.0f };
-			for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
-			for(s_object_id_e y = -obj_count_sqrt_half; y <= obj_count_sqrt_half; ++y) {
-				if(x == 0 && y == 0) [[unlikely]] {
-					o.model_locator = "car.fma";
-					o.position_xyz.y = 0.0f;
-				} else switch(disti(rng)) {
-					case 0:
-						o.model_locator  = "gold-bars.fma";
+			auto createListedObjects = [&](const std::vector<std::string>& nameList) {
+				auto rng   = std::minstd_rand(size_t(this));
+				auto disti = std::uniform_int_distribution<uint8_t>(0, nameList.size() - 1);
+				auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
+				Renderer::NewObject o = { };
+				o.scale_xyz = { 1.0f, 1.0f, 1.0f };
+				for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
+				for(s_object_id_e y = -obj_count_sqrt_half; y <= obj_count_sqrt_half; ++y) {
+					if(x == 0 && y == 0) [[unlikely]] {
+						o.model_locator = "car.fma";
 						o.position_xyz.y = 0.0f;
-						break;
-					case 1:
-						o.model_locator  = "car.fma";
+					} else {
+						o.model_locator  = nameList[disti(rng)];
 						o.position_xyz.y = 0.0f;
-						break;
-					case 2:
-						o.model_locator  = "test-model.fma";
-						o.position_xyz.y = 0.5f;
-						break;
-					default: std::unreachable(); abort();
+					}
+					o.direction_ypr = { distf(rng), 0.0f, 0.0f };
+					float ox = x * object_spacing;
+					float oz = y * object_spacing;
+					o.position_xyz.x = ox;
+					o.position_xyz.z = oz;
+					size_t xi = x + obj_count_sqrt_half;
+					size_t yi = y + obj_count_sqrt_half;
+					assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
+					objects[yi][xi] = wr.createObject(o);
 				}
-				o.direction_ypr = { distf(rng), 0.0f, 0.0f };
-				float ox = x * object_spacing;
-				float oz = y * object_spacing;
-				o.position_xyz.x = ox;
-				o.position_xyz.z = oz;
-				size_t xi = x + obj_count_sqrt_half;
-				size_t yi = y + obj_count_sqrt_half;
-				assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
-				objects[yi][xi] = wr.createObject(o);
+			};
+
+			try {
+				auto nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", O_RDONLY));
+				if(nameList.empty()) {
+					engine->logger().info("\"assets/object-list.txt\" is empty");
+					throw std::runtime_error("empty object list");
+				} else {
+					std::unordered_map<std::string_view, size_t> names;
+					for(auto& nm : nameList) ++ names[nm];
+					engine->logger().info("Objects:");
+					for(auto& nm : names) engine->logger().info("- {}x {}", nm.second, nm.first);
+					createListedObjects(nameList);
+				}
+			} catch(posixfio::FileError& err) {
+				engine->logger().error("File \"assets/object-list.txt\" not found");
 			}
 		}
 
 
 		void createLights(skengine::WorldRenderer& wr) {
 			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 0.9f;
+			rl.intensity = 1.1f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
 			rl.color     = { 0.7f, 0.91f, 1.0f };
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 1.0f;
-			pl.falloffExponent = 1.0f;
+			pl.intensity = 0.7f;
+			pl.falloffExponent = 0.8f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			pl.color    = { 1.0f, 0.0f, 0.34f };
 			camLight = wr.createPointLight(pl);
