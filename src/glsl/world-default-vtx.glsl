@@ -60,11 +60,11 @@ void main() {
 	vec3 worldspace_tanw = obj_transf3 * in_nrm;
 
 	{ // Gram-Schmidt process
-		vec3 viewspace_u   = normalize(view3 * worldspace_tanu);
-		vec3 viewspace_v   = normalize(view3 * worldspace_tanv);
-		vec3 viewspace_w   = normalize(view3 * worldspace_tanw);
-		frg_viewspace_tanu = normalize(viewspace_u - (viewspace_w * dot(viewspace_w, viewspace_u)));
-		frg_viewspace_tanv = normalize(viewspace_v - (viewspace_w * dot(viewspace_w, viewspace_v)));
+		vec3 viewspace_u   = view3 * worldspace_tanu;
+		vec3 viewspace_v   = view3 * worldspace_tanv;
+		vec3 viewspace_w   = view3 * worldspace_tanw;
+		frg_viewspace_tanu = viewspace_u - (viewspace_w * dot(viewspace_w, viewspace_u));
+		frg_viewspace_tanv = viewspace_v - (viewspace_w * dot(viewspace_w, viewspace_v));
 		frg_viewspace_tanw = viewspace_w;
 	}
 

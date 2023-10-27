@@ -80,10 +80,14 @@ struct LuminanceInfo {
 
 
 vec3 unorm_correct(vec3 v) {
-	// v = v * 255.0;
-	// v = min(v, 254.0);
-	// v = v / 254.0;
-	return min(v * 255.0, 254.0) / 254.0;
+	// v = v * 255;
+	// if(v >= 127 && v <= 128) v = 127.5;
+	// v = v / 255;
+	v = v * 255.0;
+	v.x = v.x + (v.x < 126.9? 0.0 : 0.5) - (v.x < 127.9? 0.0 : 0.5);
+	v.y = v.y + (v.y < 126.9? 0.0 : 0.5) - (v.y < 127.9? 0.0 : 0.5);
+	v.z = v.z + (v.z < 126.9? 0.0 : 0.5) - (v.z < 127.9? 0.0 : 0.5);
+	return v / 255.0;
 }
 
 float shinify(float x) {
@@ -210,9 +214,9 @@ vec3 color_excess_filter(vec3 col) {
 
 void main() {
 	mat3 tbn = transpose(inverse(mat3(
-		frg_viewspace_tanu,
-		frg_viewspace_tanv,
-		frg_viewspace_tanw )));
+		normalize(frg_viewspace_tanu),
+		normalize(frg_viewspace_tanv),
+		normalize(frg_viewspace_tanw) )));
 
 	vec4 tex_dfs = texture(tex_dfsSampler, frg_tex);
 	vec3 tex_nrm = texture(tex_nrmSampler, frg_tex).rgb;
