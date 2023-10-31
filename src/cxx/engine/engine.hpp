@@ -169,6 +169,8 @@ namespace SKENGINE_NAME_NS {
 
 		void setPresentExtent(VkExtent2D);
 
+		uint_fast32_t currentFrameNumber() const noexcept;
+
 	private:
 		Engine* ca_engine;
 		bool    ca_threadLocal;
@@ -381,6 +383,7 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
 
 
-	inline WorldRenderer& ConcurrentAccess::getWorldRenderer() noexcept { return ca_engine->mWorldRenderer; }
+	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()       noexcept { return ca_engine->mWorldRenderer; }
+	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber () const noexcept { return ca_engine->mGframeCounter; }
 
 }

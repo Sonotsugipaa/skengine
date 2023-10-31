@@ -34,8 +34,8 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY = 4;
 		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR  = OBJECT_MAP_INITIAL_CAPACITY;
 		constexpr size_t BATCH_MAP_INITIAL_CAPACITY  = 16;
-		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 2.0;
-		constexpr size_t MATRIX_WORKER_COUNT         = 4;
+		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 1.0;
+		constexpr size_t MATRIX_WORKER_COUNT         = 4 /* This value seems to outperform other Renderer::modifyObject bottlenecks */;
 
 
 		[[nodiscard]]

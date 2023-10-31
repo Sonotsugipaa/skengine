@@ -104,6 +104,13 @@ namespace {
 		}
 
 
+		void rotateObject(skengine::WorldRenderer& wr, std::minstd_rand& rng, float mul, ObjectId id) {
+			auto dist = std::uniform_real_distribution(0.0f, 0.3f * std::numbers::pi_v<float>);
+			auto obj = wr.modifyObject(id).value();
+			obj.direction_ypr.r += mul * dist(rng);
+		}
+
+
 		void createGround(skengine::WorldRenderer& wr) {
 			Renderer::NewObject o = { };
 			o.model_locator = "world.fma";
@@ -120,7 +127,7 @@ namespace {
 			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
 
 			auto createListedObjects = [&](const std::vector<std::string>& nameList) {
-				auto rng   = std::minstd_rand(size_t(this));
+				auto rng = std::minstd_rand(size_t(this));
 				auto disti = std::uniform_int_distribution<uint8_t>(0, nameList.size() - 1);
 				auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
 				Renderer::NewObject o = { };
@@ -302,11 +309,20 @@ namespace {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
+			auto rng = std::minstd_rand(ca.currentFrameNumber());
 
 			{ // Rotate the object at the center
 				constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
 				auto o = wr.modifyObject(objects[obj_count_sqrt_half][obj_count_sqrt_half]).value();
 				o.direction_ypr.x -= glm::radians(71.0 * delta);
+			}
+
+			{ // Randomly rotate all the objects
+				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
+				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
+				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
+					rotateObject(wr, rng, delta, objects[x][y]);
+				}
 			}
 
 			inputMutex.lock();
