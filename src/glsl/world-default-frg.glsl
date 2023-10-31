@@ -211,6 +211,14 @@ vec3 color_excess_filter(vec3 col) {
 }
 
 
+vec4 mix_weighted_colors(vec4 c0, vec4 c1) {
+	// This assumes that  normalize(col.rgb) == col.rgb / col.a  ,
+	// which should be the case for sum_*_lighting if all light colors
+	// are already normalized
+	return vec4(normalize(c0.rgb + c1.rgb), c0.a + c1.a);
+}
+
+
 
 void main() {
 	mat3 tbn = transpose(inverse(mat3(
@@ -232,8 +240,8 @@ void main() {
 	LuminanceInfo luminance;
 	LuminanceInfo ray_luminance = sum_ray_lighting(tex_nrm_viewspace, view_dir);
 	LuminanceInfo pt_luminance  = sum_point_lighting(tex_nrm_viewspace, view_dir);
-	luminance.dfs = ray_luminance.dfs + pt_luminance.dfs;
-	luminance.spc = ray_luminance.spc + pt_luminance.spc;
+	luminance.dfs = mix_weighted_colors(ray_luminance.dfs, pt_luminance.dfs);
+	luminance.spc = mix_weighted_colors(ray_luminance.spc, pt_luminance.spc);
 
 	if(frame_ubo.shade_step_count > 0) {
 		luminance.dfs.a = multistep(luminance.dfs.a);

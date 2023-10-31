@@ -104,7 +104,7 @@ namespace {
 		}
 
 
-		void rotateObject(skengine::WorldRenderer& wr, std::minstd_rand& rng, float mul, ObjectId id) {
+		void rotateObject(skengine::WorldRenderer& wr, std::ranlux48& rng, float mul, ObjectId id) {
 			auto dist = std::uniform_real_distribution(0.0f, 0.3f * std::numbers::pi_v<float>);
 			auto obj = wr.modifyObject(id).value();
 			obj.direction_ypr.r += mul * dist(rng);
@@ -179,7 +179,7 @@ namespace {
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 0.7f;
+			pl.intensity = 4.0f;
 			pl.falloffExponent = 0.8f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			pl.color    = { 1.0f, 0.0f, 0.34f };
@@ -309,7 +309,7 @@ namespace {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
-			auto rng = std::minstd_rand(ca.currentFrameNumber());
+			auto rng = std::ranlux48(ca.currentFrameNumber() + (ca.currentFrameNumber() == 0));
 
 			{ // Rotate the object at the center
 				constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
@@ -318,9 +318,11 @@ namespace {
 			}
 
 			{ // Randomly rotate all the objects
+				constexpr size_t obj_count_sqrt_half = obj_count_sqrt / 2;
 				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
 				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
 				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
+					if(x == obj_count_sqrt_half && y == obj_count_sqrt_half) [[unlikely]] /* Exclude the center object */ continue;
 					rotateObject(wr, rng, delta, objects[x][y]);
 				}
 			}
