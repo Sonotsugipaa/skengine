@@ -28,21 +28,6 @@ inline namespace gui {
 		uint_fast16_t  upd_elem_stateCtr         = 1;
 	};
 
-
-	class Box : public UpdateableElement {
-	public:
-		ComputedBounds ui_elem_getBounds() const noexcept { return box_oobb; }
-
-		EventFeedback ui_elem_onEvent(Lot&, EventData&, propagation_offset_t) {
-			return { } /* This should default to "ePropagateUpwards=0", even if cppreference.com doesn't really make this clear */;
-		}
-
-		void ui_elem_draw(DrawContext*) override;
-
-	private:
-		ComputedBounds box_oobb;
-	};
-
 }}
 
 
