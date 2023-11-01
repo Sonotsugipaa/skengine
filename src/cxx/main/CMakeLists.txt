@@ -8,6 +8,7 @@ target_link_libraries(sketch-sim
 	ui
 	posixfio
 	engine
+	engine-util
 	nlohmann_json::nlohmann_json
 	spdlog::spdlog )
 

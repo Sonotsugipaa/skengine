@@ -21,6 +21,7 @@ add_compile_definitions("SKENGINE_VERSION_PATCH=${PROJECT_VERSION_PATCH}")
 add_subdirectory(third-party)
 
 add_subdirectory(engine)
+add_subdirectory(engine-util)
 add_subdirectory(gridlogic)
 add_subdirectory(ui)
 add_subdirectory(input)

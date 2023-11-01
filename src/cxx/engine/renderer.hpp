@@ -4,6 +4,9 @@
 
 #include "vk-util/memory.hpp"
 
+#include <fmamdl/fmamdl.hpp>
+#include <fmamdl/material.hpp>
+
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
@@ -57,6 +60,24 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	class AssetSourceInterface {
+	public:
+		struct ModelSource {
+			fmamdl::HeaderView fmaHeader;
+		};
+
+		struct MaterialSource {
+			fmamdl::MaterialView fmaHeader;
+			std::string texturePathPrefix;
+		};
+
+		virtual ModelSource asi_requestModelData(std::string_view locator) = 0;
+		virtual MaterialSource asi_requestMaterialData(std::string_view locator) = 0;
+		virtual void asi_releaseModelData(std::string_view locator) = 0;
+		virtual void asi_releaseMaterialData(std::string_view locator) = 0;
+	};
+
+
 	class AssetSupplier {
 	public:
 		using Models           = std::unordered_map<std::string, DevModel>;
@@ -64,7 +85,7 @@ namespace SKENGINE_NAME_NS {
 		using MissingMaterials = std::unordered_set<std::string>;
 
 		AssetSupplier(): as_engine(nullptr) { }
-		AssetSupplier(Engine& engine, std::string_view filename_prefix, float max_inactive_ratio);
+		AssetSupplier(Engine& engine, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy();
@@ -80,13 +101,13 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		Engine* as_engine;
+		std::shared_ptr<AssetSourceInterface> as_srcInterface;
 		Models    as_activeModels;
 		Models    as_inactiveModels;
 		Materials as_activeMaterials;
 		Materials as_inactiveMaterials;
 		Material  as_fallbackMaterial;
 		MissingMaterials as_missingMaterials;
-		std::string as_filenamePrefix;
 		float       as_maxInactiveRatio;
 	};
 

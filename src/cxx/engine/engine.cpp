@@ -528,6 +528,7 @@ namespace SKENGINE_NAME_NS {
 			const DeviceInitInfo&    di,
 			const EnginePreferences& ep,
 			std::shared_ptr<ShaderCacheInterface> sci,
+			std::shared_ptr<AssetSourceInterface> asi,
 			std::shared_ptr<spdlog::logger>       logger
 	):
 		mShaderCache(std::move(sci)),
@@ -543,6 +544,7 @@ namespace SKENGINE_NAME_NS {
 			regulator_params ),
 		mGframeCounter(0),
 		mGframeSelector(0),
+		mAssetSource(std::move(asi)),
 		mLogger([&]() {
 			decltype(mLogger) r;
 			if(logger) {

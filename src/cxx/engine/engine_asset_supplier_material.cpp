@@ -3,8 +3,6 @@
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
 
-#include <posixfio.hpp>
-
 #include <vk-util/error.hpp>
 
 #include <vulkan/vulkan_format_traits.hpp>
@@ -76,10 +74,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	Material AssetSupplier::requestMaterial(std::string_view locator) {
-		std::string locator_s;
-		locator_s.reserve(as_filenamePrefix.size() + locator.size());
-		locator_s.append(as_filenamePrefix);
-		locator_s.append(locator);
+		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeMaterials.find(locator_s);
 		if(existing != as_activeMaterials.end()) {
@@ -92,27 +87,14 @@ namespace SKENGINE_NAME_NS {
 			return ins.first->second;
 		}
 		else {
-			using posixfio::MemProtFlags;
-			using posixfio::MemMapFlags;
 			using mf_e  = fmamdl::material_flags_e;
 			using mf_ec = fmamdl::MaterialFlags;
 
 			Material r;
 
-			auto& log = as_engine->logger();
-			posixfio::File file;
-			try {
-				file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
-			} catch(posixfio::Errcode& ex) {
-				log.error("Failed to load material \"{}\" (errno {}), using fallback", locator_s, ex.errcode);
-				as_missingMaterials.insert(std::move(locator_s));
-				return as_fallbackMaterial;
-			}
-			auto len  = file.lseek(0, SEEK_END);
-			auto mmap = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
-			auto h    = fmamdl::MaterialView { mmap.get<std::byte>(), mmap.size() };
-
-			auto flags = mf_e(h.flags());
+			auto& log  = as_engine->logger();
+			auto  src  = as_srcInterface->asi_requestMaterialData(locator);
+			auto flags = mf_e(src.fmaHeader.flags());
 
 			auto load_texture = [&](
 					Material::Texture& dst,
@@ -139,10 +121,10 @@ namespace SKENGINE_NAME_NS {
 						(value4 >> u4_t(16)) & u4_t(0xff),
 						(value4 >> u4_t(24)) & u4_t(0xff) );
 				} else {
-					auto texture_name = h.getStringView(fma_value);
+					auto texture_name = src.fmaHeader.getStringView(fma_value);
 					std::string texture_filename;
-					texture_filename.reserve(as_filenamePrefix.size() + texture_name.size());
-					texture_filename.append(as_filenamePrefix);
+					texture_filename.reserve(src.texturePathPrefix.size() + texture_name.size());
+					texture_filename.append(src.texturePathPrefix);
 					texture_filename.append(texture_name);
 					size_t w;
 					size_t h;
@@ -156,7 +138,7 @@ namespace SKENGINE_NAME_NS {
 					}
 				}
 			};
-			#define LOAD_(T_, F_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, h.T_ ## Texture(), #T_);
+			#define LOAD_(T_, F_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, src.fmaHeader.T_ ## Texture(), #T_);
 			LOAD_(diffuse,  mf_ec::eDiffuseInlinePixel)
 			LOAD_(normal,   mf_ec::eNormalInlinePixel)
 			LOAD_(specular, mf_ec::eSpecularInlinePixel)
@@ -171,7 +153,7 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			[&](dev::MaterialUniform& uni) {
-				uni.shininess = h.specularExponent();
+				uni.shininess = src.fmaHeader.specularExponent();
 			} (* r.mat_uniform.mappedPtr<dev::MaterialUniform>());
 
 			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
@@ -195,10 +177,7 @@ namespace SKENGINE_NAME_NS {
 		auto dev     = as_engine->getDevice();
 		auto vma     = as_engine->getVmaAllocator();
 
-		std::string locator_s;
-		locator_s.reserve(as_filenamePrefix.size() + locator.size());
-		locator_s.append(as_filenamePrefix);
-		locator_s.append(locator);
+		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeMaterials.find(locator_s);
 		if(existing != as_activeMaterials.end()) {

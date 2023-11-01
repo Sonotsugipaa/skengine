@@ -3,8 +3,6 @@
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
 
-#include <posixfio.hpp>
-
 #include <vk-util/error.hpp>
 
 #include <vulkan/vulkan_format_traits.hpp>
@@ -20,9 +18,9 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	AssetSupplier::AssetSupplier(Engine& e, std::string_view filename_prefix, float max_inactive_ratio):
+	AssetSupplier::AssetSupplier(Engine& e, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio):
 			as_engine(&e),
-			as_filenamePrefix(filename_prefix),
+			as_srcInterface(std::move(asi)),
 			as_maxInactiveRatio(max_inactive_ratio)
 	{
 		create_fallback_mat(e, &as_fallbackMaterial);
@@ -32,13 +30,13 @@ namespace SKENGINE_NAME_NS {
 	AssetSupplier::AssetSupplier(AssetSupplier&& mv):
 			#define MV_(M_) M_(std::move(mv.M_))
 			MV_(as_engine),
+			MV_(as_srcInterface),
 			MV_(as_activeModels),
 			MV_(as_inactiveModels),
 			MV_(as_activeMaterials),
 			MV_(as_inactiveMaterials),
 			MV_(as_fallbackMaterial),
 			MV_(as_missingMaterials),
-			MV_(as_filenamePrefix),
 			MV_(as_maxInactiveRatio)
 			#undef MV_
 	{
@@ -77,10 +75,7 @@ namespace SKENGINE_NAME_NS {
 	DevModel AssetSupplier::requestModel(std::string_view locator) {
 		auto vma = as_engine->getVmaAllocator();
 
-		std::string locator_s;
-		locator_s.reserve(as_filenamePrefix.size() + locator.size());
-		locator_s.append(as_filenamePrefix);
-		locator_s.append(locator);
+		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeModels.find(locator_s);
 		if(existing != as_activeModels.end()) {
@@ -93,20 +88,13 @@ namespace SKENGINE_NAME_NS {
 			return ins.first->second;
 		}
 		else {
-			using posixfio::MemProtFlags;
-			using posixfio::MemMapFlags;
-
 			DevModel r;
-
-			auto file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
-			auto len  = file.lseek(0, SEEK_END);
-			auto mmap = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
-			auto h    = fmamdl::HeaderView { mmap.get<std::byte>(), mmap.size() };
-			auto materials = h.materials();
-			auto meshes    = h.meshes();
-			auto faces     = h.faces();
-			auto indices   = h.indices();
-			auto vertices  = h.vertices();
+			auto src = as_srcInterface->asi_requestModelData(locator);
+			auto materials = src.fmaHeader.materials();
+			auto meshes    = src.fmaHeader.meshes();
+			auto faces     = src.fmaHeader.faces();
+			auto indices   = src.fmaHeader.indices();
+			auto vertices  = src.fmaHeader.vertices();
 
 			if(meshes.empty()) {
 				as_engine->logger().critical(
@@ -134,7 +122,7 @@ namespace SKENGINE_NAME_NS {
 
 			for(auto& mesh : meshes) {
 				auto& first_face   = faces[mesh.firstFace];
-				auto  material_str = h.getStringView(materials[mesh.materialIndex].name);
+				auto  material_str = src.fmaHeader.getStringView(materials[mesh.materialIndex].name);
 				auto  ins = Bone {
 					.mesh = Mesh {
 						.index_count = uint32_t(mesh.indexCount),
@@ -150,6 +138,7 @@ namespace SKENGINE_NAME_NS {
 			double size_kib = indices.size_bytes() + vertices.size_bytes();
 			as_engine->logger().info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
 
+			as_srcInterface->asi_releaseModelData(locator);
 			return r;
 		}
 	}
@@ -158,10 +147,7 @@ namespace SKENGINE_NAME_NS {
 	void AssetSupplier::releaseModel(std::string_view locator) noexcept {
 		auto vma = as_engine->getVmaAllocator();
 
-		std::string locator_s;
-		locator_s.reserve(as_filenamePrefix.size() + locator.size());
-		locator_s.append(as_filenamePrefix);
-		locator_s.append(locator);
+		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeModels.find(locator_s);
 		if(existing != as_activeModels.end()) {

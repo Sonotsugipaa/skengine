@@ -2,6 +2,7 @@
 #include <random>
 
 #include <engine/engine.hpp>
+#include <engine-util/basic_asset_source.hpp>
 #include <ui/ui.hpp>
 
 #include <spdlog/spdlog.h>
@@ -426,6 +427,7 @@ int main() {
 
 	try {
 		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
+		auto* asset_source = new SKENGINE_NAME_NS_SHORT::util::BasicAssetSource("assets/", logger);
 
 		auto engine = SKENGINE_NAME_NS_SHORT::Engine(
 			SKENGINE_NAME_NS_SHORT::DeviceInitInfo {
@@ -438,6 +440,7 @@ int main() {
 					SKENGINE_VERSION_PATCH ) },
 			prefs,
 			std::shared_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache),
+			std::shared_ptr<SKENGINE_NAME_NS_SHORT::AssetSourceInterface>(asset_source),
 			logger );
 
 		auto loop = Loop(engine);

@@ -212,6 +212,7 @@ namespace SKENGINE_NAME_NS {
 			const DeviceInitInfo&,
 			const EnginePreferences&,
 			std::shared_ptr<ShaderCacheInterface>,
+			std::shared_ptr<AssetSourceInterface>,
 			std::shared_ptr<spdlog::logger> );
 
 		VkShaderModule createShaderModuleFromFile(const std::string& file_path);
@@ -316,7 +317,8 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGframeDsetLayout;
 		VkDescriptorSetLayout mMaterialDsetLayout;
 
-		std::mutex    mRendererMutex = std::mutex();
+		std::mutex mRendererMutex = std::mutex();
+		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		AssetSupplier mAssetSupplier;
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
