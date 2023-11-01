@@ -32,7 +32,7 @@ namespace {
 		prefs.target_framerate      = 60.0f;
 		prefs.target_tickrate       = 60.0f;
 		prefs.fov_y                 = glm::radians(80.0f);
-		prefs.shade_step_count      = 8;
+		prefs.shade_step_count      = 6;
 		prefs.shade_step_smoothness = 0.7f;
 		prefs.shade_step_exponent   = 4.0f;
 		return prefs;
@@ -106,7 +106,7 @@ namespace {
 
 
 		void rotateObject(skengine::WorldRenderer& wr, std::ranlux48& rng, float mul, ObjectId id) {
-			auto dist = std::uniform_real_distribution(0.0f, 0.3f * std::numbers::pi_v<float>);
+			auto dist = std::uniform_real_distribution(-0.9f, +0.9f * std::numbers::pi_v<float>);
 			auto obj = wr.modifyObject(id).value();
 			obj.direction_ypr.r += mul * dist(rng);
 		}
@@ -133,15 +133,10 @@ namespace {
 				auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
 				Renderer::NewObject o = { };
 				o.scale_xyz = { 1.0f, 1.0f, 1.0f };
+				o.position_xyz.y = 0.0f;
 				for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
 				for(s_object_id_e y = -obj_count_sqrt_half; y <= obj_count_sqrt_half; ++y) {
-					if(x == 0 && y == 0) [[unlikely]] {
-						o.model_locator = "car.fma";
-						o.position_xyz.y = 0.0f;
-					} else {
-						o.model_locator  = nameList[disti(rng)];
-						o.position_xyz.y = 0.0f;
-					}
+					o.model_locator = nameList[disti(rng)];
 					o.direction_ypr = { distf(rng), 0.0f, 0.0f };
 					float ox = x * object_spacing;
 					float oz = y * object_spacing;
@@ -310,20 +305,12 @@ namespace {
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
-			auto rng = std::ranlux48(ca.currentFrameNumber() + (ca.currentFrameNumber() == 0));
-
-			{ // Rotate the object at the center
-				constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
-				auto o = wr.modifyObject(objects[obj_count_sqrt_half][obj_count_sqrt_half]).value();
-				o.direction_ypr.x -= glm::radians(71.0 * delta);
-			}
+			auto rng = std::ranlux48(size_t(this));
 
 			{ // Randomly rotate all the objects
-				constexpr size_t obj_count_sqrt_half = obj_count_sqrt / 2;
 				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
 				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
 				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
-					if(x == obj_count_sqrt_half && y == obj_count_sqrt_half) [[unlikely]] /* Exclude the center object */ continue;
 					rotateObject(wr, rng, delta, objects[x][y]);
 				}
 			}

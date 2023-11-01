@@ -1,5 +1,7 @@
 #include "basic_asset_source.hpp"
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <posixfio_tl.hpp>
 
 
@@ -14,7 +16,19 @@ namespace SKENGINE_NAME_NS::util {
 	BasicAssetSource::BasicAssetSource(std::string_view filenamePrefix, std::shared_ptr<spdlog::logger> logger):
 			bas_filenamePrefix(filenamePrefix),
 			bas_logger(std::move(logger))
-	{ }
+	{
+		if(! bas_logger) {
+			bas_logger = std::make_shared<spdlog::logger>(
+				SKENGINE_NAME_CSTR,
+				std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
+			bas_logger->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
+			#ifdef NDEBUG
+				bas_logger->set_level(spdlog::level::info);
+			#else
+				bas_logger->set_level(spdlog::level::debug);
+			#endif
+		}
+	}
 
 
 	AssetSourceInterface::ModelSource BAS_::asi_requestModelData(std::string_view locator) {

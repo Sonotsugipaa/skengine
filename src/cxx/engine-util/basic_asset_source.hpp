@@ -35,6 +35,8 @@ namespace SKENGINE_NAME_NS::util {
 		void asi_releaseModelData(std::string_view locator) noexcept override;
 		void asi_releaseMaterialData(std::string_view locator) noexcept override;
 
+		spdlog::logger& logger() const { return *bas_logger; }
+
 	private:
 		struct ModelRef {
 			posixfio::MemMapping mmap;

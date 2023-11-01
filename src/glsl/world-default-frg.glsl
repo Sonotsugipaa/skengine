@@ -67,7 +67,7 @@ layout(location = 8) in mat3 frg_view3;
 
 layout(location = 0) out vec4 out_col;
 
-const float normal_backface_bias = -0.05;
+const float normal_backface_bias = 0.1;
 const float pi                   = 3.14159265358;
 const uint  flag_hdr_enabled     = 1;
 
@@ -99,20 +99,27 @@ float shinify_exp(float x, float exp) {
 	return pow(shinify(pow(x, exp)), exp);
 }
 
+float aoa_fade(float value, float angle_of_attack) {
+	float fade = angle_of_attack / normal_backface_bias;
+	return value * clamp(fade, 0, 1);
+}
+
 
 float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
 	float lighting = dot(
 		view_dir,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
 	float light_exp = material_ubo.shininess;
-	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
-	return shinify_exp(lighting, light_exp);
+	lighting = aoa_fade(lighting, angle_of_attack);
+	lighting = shinify_exp(lighting, light_exp);
+	return lighting;
 }
 
 float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack) {
 	float lighting = dot(tex_nrm_viewspace, light_dir_viewspace);
-	if(normal_backface_bias > angle_of_attack) lighting = 0.0;
-	return clamp(lighting, 0, 1);
+	lighting = aoa_fade(lighting, angle_of_attack);
+	lighting = clamp(lighting, 0, 1);
+	return lighting;
 }
 
 
