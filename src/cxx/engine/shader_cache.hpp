@@ -1,5 +1,7 @@
 #pragma once
 
+#include <skengine_fwd.hpp>
+
 #include <span>
 #include <string>
 #include <string_view>

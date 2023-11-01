@@ -1,7 +1,6 @@
 #include "engine.hpp"
 
 #include "init/init.hpp"
-#include "shader_cache.hpp"
 
 #include <posixfio_tl.hpp>
 
@@ -528,7 +527,7 @@ namespace SKENGINE_NAME_NS {
 	Engine::Engine(
 			const DeviceInitInfo&    di,
 			const EnginePreferences& ep,
-			std::unique_ptr<ShaderCacheInterface> sci,
+			std::shared_ptr<ShaderCacheInterface> sci,
 			std::shared_ptr<spdlog::logger>       logger
 	):
 		mShaderCache(std::move(sci)),

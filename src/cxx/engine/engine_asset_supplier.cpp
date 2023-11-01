@@ -50,8 +50,8 @@ namespace SKENGINE_NAME_NS {
 		assert(as_engine != nullptr);
 		auto dev = as_engine->getDevice();
 		auto vma = as_engine->getVmaAllocator();
-		msi_releaseAllModels();
-		msi_releaseAllMaterials();
+		releaseAllModels();
+		releaseAllMaterials();
 
 		auto destroy_model = [&](Models::value_type& model) {
 			vkutil::BufferDuplex::destroy(vma, model.second.indices);
@@ -74,7 +74,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	DevModel AssetSupplier::msi_requestModel(std::string_view locator) {
+	DevModel AssetSupplier::requestModel(std::string_view locator) {
 		auto vma = as_engine->getVmaAllocator();
 
 		std::string locator_s;
@@ -155,7 +155,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::msi_releaseModel(std::string_view locator) noexcept {
+	void AssetSupplier::releaseModel(std::string_view locator) noexcept {
 		auto vma = as_engine->getVmaAllocator();
 
 		std::string locator_s;
@@ -181,11 +181,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::msi_releaseAllModels() noexcept {
+	void AssetSupplier::releaseAllModels() noexcept {
 		std::vector<std::string> queue;
 		queue.reserve(as_activeModels.size());
 		for(auto& model : as_activeModels) queue.push_back(model.first);
-		for(auto& loc   : queue)           msi_releaseModel(loc);
+		for(auto& loc   : queue)           releaseModel(loc);
 	}
 
 }

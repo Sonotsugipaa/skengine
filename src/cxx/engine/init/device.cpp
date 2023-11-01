@@ -302,7 +302,6 @@ namespace SKENGINE_NAME_NS {
 			std::make_shared<spdlog::logger>(logger()),
 			mVma,
 			mMaterialDsetLayout,
-			mAssetSupplier,
 			mAssetSupplier );
 	}
 

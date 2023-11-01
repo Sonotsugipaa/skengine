@@ -249,7 +249,7 @@ void main() {
 	}
 
 	out_col.rgb =
-		(frg_col.rgb * (
+		max(vec3(0,0,0), frg_col.rgb * (
 			(tex_dfs.rgb * luminance.dfs.rgb * luminance.dfs.a) +
 			(tex_spc.rgb * luminance.spc.rgb * luminance.spc.a)
 		))

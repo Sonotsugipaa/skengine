@@ -244,8 +244,7 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
 			DsetLayout dset_layout,
-			ModelSupplierInterface&    mdl_si,
-			MaterialSupplierInterface& mat_si
+			AssetSupplier& asset_supplier
 	) {
 		VmaAllocatorInfo vma_info;
 		vmaGetAllocatorInfo(vma, &vma_info);
@@ -253,8 +252,7 @@ namespace SKENGINE_NAME_NS {
 		r.mDevice = vma_info.device;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
-		r.mModelSupplier    = &mdl_si;
-		r.mMaterialSupplier = &mat_si;
+		r.mAssetSupplier = &asset_supplier;
 		r.mObjects             = decltype(mObjects)            (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mModelLocators       = decltype(mModelLocators)      (OBJECT_MAP_INITIAL_CAPACITY);
 		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (OBJECT_MAP_INITIAL_CAPACITY);
@@ -489,7 +487,7 @@ namespace SKENGINE_NAME_NS {
 		if(found_locator != mModelLocators.end()) {
 			return found_locator->second;
 		} else {
-			auto r = setModel(locator, mModelSupplier->msi_requestModel(locator));
+			auto r = setModel(locator, mAssetSupplier->requestModel(locator));
 			return r;
 		}
 	}
@@ -580,7 +578,7 @@ namespace SKENGINE_NAME_NS {
 		mModelLocators.erase(model_locator);
 
 		mUnboundDrawBatches.erase(id);
-		mModelSupplier->msi_releaseModel(model_locator);
+		mAssetSupplier->releaseModel(model_locator);
 		mLogger->trace("Renderer: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 		id_generator<ModelId>.recycle(id);
@@ -593,7 +591,7 @@ namespace SKENGINE_NAME_NS {
 		if(found_locator != mMaterialLocators.end()) {
 			return found_locator->second;
 		} else {
-			return setMaterial(locator, mMaterialSupplier->msi_requestMaterial(locator));
+			return setMaterial(locator, mAssetSupplier->requestMaterial(locator));
 		}
 	}
 
@@ -651,7 +649,7 @@ namespace SKENGINE_NAME_NS {
 
 		mMaterialLocators.erase(mat_data.locator);
 
-		mMaterialSupplier->msi_releaseMaterial(mat_data.locator);
+		mAssetSupplier->releaseMaterial(mat_data.locator);
 		mMaterials.erase(id);
 		id_generator<MaterialId>.recycle(id);
 	}

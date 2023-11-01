@@ -180,7 +180,7 @@ namespace {
 
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 4.0f;
-			pl.falloffExponent = 0.8f;
+			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			pl.color    = { 1.0f, 0.0f, 0.34f };
 			camLight = wr.createPointLight(pl);
@@ -437,7 +437,7 @@ int main() {
 					SKENGINE_VERSION_MINOR,
 					SKENGINE_VERSION_PATCH ) },
 			prefs,
-			std::unique_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache),
+			std::shared_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache),
 			logger );
 
 		auto loop = Loop(engine);

@@ -75,7 +75,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	Material AssetSupplier::msi_requestMaterial(std::string_view locator) {
+	Material AssetSupplier::requestMaterial(std::string_view locator) {
 		std::string locator_s;
 		locator_s.reserve(as_filenamePrefix.size() + locator.size());
 		locator_s.append(as_filenamePrefix);
@@ -190,7 +190,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::msi_releaseMaterial(std::string_view locator) noexcept {
+	void AssetSupplier::releaseMaterial(std::string_view locator) noexcept {
 		auto missing = decltype(as_missingMaterials)::iterator();
 		auto dev     = as_engine->getDevice();
 		auto vma     = as_engine->getVmaAllocator();
@@ -222,12 +222,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::msi_releaseAllMaterials() noexcept {
+	void AssetSupplier::releaseAllMaterials() noexcept {
 		std::vector<std::string> queue;
 		queue.reserve(as_activeMaterials.size());
 		for(auto& mat : as_activeMaterials)  queue.push_back(mat.first);
 		for(auto& mat : as_missingMaterials) queue.push_back(mat);
-		for(auto& loc : queue)               msi_releaseMaterial(loc);
+		for(auto& loc : queue)               releaseMaterial(loc);
 	}
 
 }

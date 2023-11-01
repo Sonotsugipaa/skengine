@@ -57,19 +57,37 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class ModelSupplierInterface {
+	class AssetSupplier {
 	public:
-		virtual DevModel msi_requestModel(std::string_view locator) = 0;
-		virtual void     msi_releaseModel(std::string_view locator) noexcept = 0;
-		virtual void msi_releaseAllModels() noexcept = 0;
-	};
+		using Models           = std::unordered_map<std::string, DevModel>;
+		using Materials        = std::unordered_map<std::string, Material>;
+		using MissingMaterials = std::unordered_set<std::string>;
 
+		AssetSupplier(): as_engine(nullptr) { }
+		AssetSupplier(Engine& engine, std::string_view filename_prefix, float max_inactive_ratio);
+		AssetSupplier(AssetSupplier&&);
+		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
+		void destroy();
+		~AssetSupplier();
 
-	class MaterialSupplierInterface {
-	public:
-		virtual Material msi_requestMaterial(std::string_view locator) = 0;
-		virtual void     msi_releaseMaterial(std::string_view locator) noexcept = 0;
-		virtual void msi_releaseAllMaterials() noexcept = 0;
+		DevModel requestModel(std::string_view locator);
+		void     releaseModel(std::string_view locator) noexcept;
+		void releaseAllModels() noexcept;
+
+		Material requestMaterial(std::string_view locator);
+		void     releaseMaterial(std::string_view locator) noexcept;
+		void releaseAllMaterials() noexcept;
+
+	private:
+		Engine* as_engine;
+		Models    as_activeModels;
+		Models    as_inactiveModels;
+		Materials as_activeMaterials;
+		Materials as_inactiveMaterials;
+		Material  as_fallbackMaterial;
+		MissingMaterials as_missingMaterials;
+		std::string as_filenamePrefix;
+		float       as_maxInactiveRatio;
 	};
 
 
@@ -154,8 +172,7 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
 			DsetLayout material_dset_layout,
-			ModelSupplierInterface&,
-			MaterialSupplierInterface& );
+			AssetSupplier& );
 
 		static void destroy(Renderer&);
 
@@ -187,8 +204,7 @@ namespace SKENGINE_NAME_NS {
 		VkDevice     mDevice = nullptr;
 		VmaAllocator mVma;
 		std::shared_ptr<spdlog::logger> mLogger;
-		ModelSupplierInterface*    mModelSupplier;
-		MaterialSupplierInterface* mMaterialSupplier;
+		AssetSupplier* mAssetSupplier;
 
 		ModelLookup      mModelLocators;
 		MaterialLookup   mMaterialLocators;
@@ -268,8 +284,7 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger>,
 			VmaAllocator,
 			DsetLayout material_dset_layout,
-			ModelSupplierInterface&,
-			MaterialSupplierInterface& );
+			AssetSupplier& );
 
 		static void destroy(WorldRenderer&);
 

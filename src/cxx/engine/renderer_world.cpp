@@ -66,10 +66,9 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
 			DsetLayout dset_layout,
-			ModelSupplierInterface&    model_supplier,
-			MaterialSupplierInterface& mat_supplier
+			AssetSupplier& asset_supplier
 	) {
-		WorldRenderer r = Renderer::create(std::move(logger), vma, dset_layout, model_supplier, mat_supplier);
+		WorldRenderer r = Renderer::create(std::move(logger), vma, dset_layout, asset_supplier);
 		r.mViewPosXyz = { };
 		r.mViewDirYpr = { };
 		r.mLightStorage = { };

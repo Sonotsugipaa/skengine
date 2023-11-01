@@ -113,18 +113,13 @@ namespace SKENGINE_NAME_NS {
 
 	struct RpassConfig {
 		static const RpassConfig default_cfg;
-
 		std::string world_vertex_shader_file;
 		std::string world_fragment_shader_file;
-		std::string ui_vertex_shader_file;
-		std::string ui_fragment_shader_file;
 	};
 
 	inline const RpassConfig RpassConfig::default_cfg = RpassConfig {
 		.world_vertex_shader_file   = "world-vtx.spv",
-		.world_fragment_shader_file = "world-frg.spv",
-		.ui_vertex_shader_file      = "ui-vtx.spv",
-		.ui_fragment_shader_file    = "ui-frg.spv"
+		.world_fragment_shader_file = "world-frg.spv"
 	};
 
 
@@ -196,40 +191,6 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class AssetSupplier : public ModelSupplierInterface, public MaterialSupplierInterface {
-	public:
-		using Models           = std::unordered_map<std::string, DevModel>;
-		using Materials        = std::unordered_map<std::string, Material>;
-		using MissingMaterials = std::unordered_set<std::string>;
-
-		AssetSupplier(): as_engine(nullptr) { }
-		AssetSupplier(Engine& engine, std::string_view filename_prefix, float max_inactive_ratio);
-		AssetSupplier(AssetSupplier&&);
-		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
-		void destroy();
-		~AssetSupplier();
-
-		DevModel msi_requestModel(std::string_view locator) override;
-		void     msi_releaseModel(std::string_view locator) noexcept override;
-		void msi_releaseAllModels() noexcept override;
-
-		Material msi_requestMaterial(std::string_view locator) override;
-		void     msi_releaseMaterial(std::string_view locator) noexcept override;
-		void msi_releaseAllMaterials() noexcept override;
-
-	private:
-		Engine* as_engine;
-		Models    as_activeModels;
-		Models    as_inactiveModels;
-		Materials as_activeMaterials;
-		Materials as_inactiveMaterials;
-		Material  as_fallbackMaterial;
-		MissingMaterials as_missingMaterials;
-		std::string as_filenamePrefix;
-		float       as_maxInactiveRatio;
-	};
-
-
 	class Engine {
 	public:
 		friend ConcurrentAccess;
@@ -250,7 +211,7 @@ namespace SKENGINE_NAME_NS {
 		Engine(
 			const DeviceInitInfo&,
 			const EnginePreferences&,
-			std::unique_ptr<ShaderCacheInterface>,
+			std::shared_ptr<ShaderCacheInterface>,
 			std::shared_ptr<spdlog::logger> );
 
 		VkShaderModule createShaderModuleFromFile(const std::string& file_path);
@@ -330,8 +291,7 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
 		VkFormat                 mDepthAtchFmt;
 
-		std::unique_ptr<LoopInterface>        mLoop = nullptr;
-		std::unique_ptr<ShaderCacheInterface> mShaderCache;
+		std::shared_ptr<ShaderCacheInterface> mShaderCache;
 		tickreg::Regulator mGraphicsReg;
 		tickreg::Regulator mLogicReg;
 
