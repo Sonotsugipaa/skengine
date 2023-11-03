@@ -119,15 +119,31 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void recordUiDrawCommands(
-			Engine& e,
-			VkCommandBuffer cmd
-	) {
-		VkBuffer vtx_buffers[] = { e.mPlaceholderPolysBuffer, e.mPlaceholderPolysBuffer };
-		VkDeviceSize offsets[] = { 0, e.mPlaceholderPolys.vertexCount * sizeof(PolyVertex) };
+	static void recordUiDrawCommands(Engine& e, VkCommandBuffer cmd) {
+		{
+			VkViewport viewport = { }; {
+				viewport.x      = 0.0f;
+				viewport.y      = 0.0f;
+				viewport.width  = e.mPresentExtent.width;
+				viewport.height = e.mPresentExtent.height;
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+			}
+
+			VkRect2D scissor = { }; {
+				scissor.offset = { };
+				scissor.extent = { e.mPresentExtent.width, e.mPresentExtent.height };
+			}
+
+			vkCmdSetViewport(cmd, 0, 1, &viewport);
+			vkCmdSetScissor(cmd, 0, 1, &scissor);
+		}
+
+		VkBuffer vtx_buffers[] = { e.mPlaceholderShapes.vertexBuffer(), e.mPlaceholderShapes.vertexBuffer() };
+		VkDeviceSize offsets[] = { e.mPlaceholderShapes.instanceCount() * sizeof(PolyInstance), 0 };
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPlaceholderGeomPipelines.polyFill);
 		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-		vkCmdDraw(cmd, e.mPlaceholderPolys.vertexCount, e.mPlaceholderPolys.instanceCount, 0, 0);
+		vkCmdDrawIndirect(cmd, e.mPlaceholderShapes.drawIndirectBuffer(), 0, e.mPlaceholderShapes.drawCmdCount(), sizeof(VkDrawIndirectCommand));
 	}
 
 
@@ -217,6 +233,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
+			e.mPlaceholderShapes.commitVkBuffers(e.mVma);
 		}
 
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
@@ -343,27 +360,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			vkCmdBeginRenderPass(gframe->cmd_draw, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 		}
 
-		{ // Draw the UI
-			auto& cmd = gframe->cmd_draw;
-
-			VkViewport viewport = { }; {
-				viewport.x      = 0.0f;
-				viewport.y      = 0.0f;
-				viewport.width  = e.mPresentExtent.width;
-				viewport.height = e.mPresentExtent.height;
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
-			}
-
-			VkRect2D scissor = { }; {
-				scissor.offset = { };
-				scissor.extent = { e.mPresentExtent.width, e.mPresentExtent.height };
-			}
-
-			vkCmdSetViewport(cmd, 0, 1, &viewport);
-			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			recordUiDrawCommands(e, gframe->cmd_draw);
-		}
+		recordUiDrawCommands(e, gframe->cmd_draw);
 
 		#warning "WAW HAZARD: vkCmdEndRenderPass, SYNC_COLOR_ATTACHMENT_OUTPUT_COLOR_ATTACHMENT_WRITE => SYNC_IMAGE_LAYOUT_TRANSITION"
 		// SYNC-HAZARD-WRITE-AFTER-WRITE(ERROR / SPEC): msgNum: 1544472022 - Validation Error: [ SYNC-HAZARD-WRITE-AFTER-WRITE ]

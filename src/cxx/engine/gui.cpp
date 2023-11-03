@@ -19,7 +19,7 @@ namespace SKENGINE_NAME_NS::placeholder {
 		auto * const vertices  = reinterpret_cast<PolyVertex*>(r.vertexInput.get());
 		auto * const instances = reinterpret_cast<PolyInstance*>(r.vertexInput.get() + vertexSegmSize);
 
-		#define SET_(O_, IX_, IY_) vertices[O_].pos.x = b ## IX_.x; vertices[O_].pos.y = b ## IY_.y;
+		#define SET_(O_, IX_, IY_) vertices[O_].position.x = b ## IX_.x; vertices[O_].position.y = b ## IY_.y;
 		SET_(0,  0, 0)
 		SET_(1,  1, 0)
 		SET_(2,  1, 1)

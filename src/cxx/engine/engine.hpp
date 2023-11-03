@@ -2,7 +2,7 @@
 
 #include "renderer.hpp"
 #include "shader_cache.hpp"
-#include "gui.hpp"
+#include "draw-geometry/core.hpp"
 
 #include <vk-util/init.hpp>
 #include <vk-util/memory.hpp>
@@ -323,9 +323,8 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
-		placeholder::Polys    mPlaceholderPolys = placeholder::RectTemplate::instantiate(glm::vec2 { -0.01f, -0.01f }, glm::vec2 { +0.01f, +0.01f });
-		vkutil::ManagedBuffer mPlaceholderPolysBuffer;
-		geom::PipelineSet     mPlaceholderGeomPipelines;
+		geom::ShapeSet    mPlaceholderShapes;
+		geom::PipelineSet mPlaceholderGeomPipelines;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

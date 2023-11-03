@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <unordered_set>
+#include <utility>
 
 
 
@@ -23,66 +24,94 @@ namespace {
 	}
 
 
-	void createVertexBuffer(
-			VmaAllocator vma,
-			vkutil::Buffer* dstVtxBuffer,
-			vkutil::Buffer* dstDrawCmdBuffer,
-			unsigned* dstInstanceCount,
-			unsigned* dstVertexCount,
-			unsigned* dstDrawCmdCount,
-			std::span<const ShapeInstance> shapes
-	) {
-		using ShapeInstMap   = std::unordered_map<const Shape*, std::vector<const PolyInstance*>>;
-		using ShapeOffsetMap = std::unordered_map<const Shape*, unsigned>;
+	struct InputData {
 		using DrawCmds  = std::vector<VkDrawIndirectCommand>;
 		using Instances = std::vector<PolyInstance>;
 		using Vertices  = std::vector<PolyVertex>;
 		DrawCmds  drawCmds;
 		Instances instances;
 		Vertices  vertices;
+	};
 
-		assert(! shapes.empty());
 
-		{ // Sort the input data
-			auto uniqueShapes = ShapeInstMap(shapes.size());
+	InputData sortInputData(std::span<const ShapeInstance> shapes) {
+		using ShapeInstMap   = std::unordered_map<const Shape*, std::vector<const PolyInstance*>>;
+		using ShapeOffsetMap = std::unordered_map<const Shape*, unsigned>;
 
-			for(auto& shapeInst : shapes) {
-				uniqueShapes[&shapeInst.shape()].push_back(&shapeInst.instance());
-			}
+		InputData r;
+		auto uniqueShapes = ShapeInstMap(shapes.size());
 
-			auto shapeIndices = ShapeOffsetMap(uniqueShapes.size());
-			auto insertShapeGetOffset = [&](const Shape* shape) {
-				auto ins = shapeIndices.insert(ShapeOffsetMap::value_type(shape, vertices.size()));
-				if(ins.second) {
-					// The shape's vertices need to be inserted
-					vertices.insert(vertices.end(), shape->vertices().begin(), shape->vertices().end());
-				} else {
-					// The vertices already exist; NOP
-				}
-				return ins.first->second;
-			};
-
-			for(auto& shape : uniqueShapes) {
-				unsigned vtxOffset  = insertShapeGetOffset(shape.first);
-				unsigned instOffset = instances.size();
-				instances.insert(instances.end(), shape.second.begin(), shape.second.end());
-				VkDrawIndirectCommand cmd = { };
-				cmd.firstInstance = instOffset;
-				cmd.instanceCount = shape.second.size();
-				cmd.firstVertex   = vtxOffset;
-				cmd.vertexCount   = shape.first->vertices().size();
-				drawCmds.push_back(cmd);
-			}
-
-			*dstInstanceCount = instances.size();
-			*dstVertexCount   = vertices.size();
-			*dstDrawCmdCount  = drawCmds.size();
+		for(auto& shapeInst : shapes) {
+			uniqueShapes[&shapeInst.shape()].push_back(&shapeInst.instance());
 		}
 
+		auto shapeIndices = ShapeOffsetMap(uniqueShapes.size());
+		auto insertShapeGetOffset = [&](const Shape* shape) {
+			auto ins = shapeIndices.insert(ShapeOffsetMap::value_type(shape, r.vertices.size()));
+			if(ins.second) {
+				// The shape's vertices need to be inserted
+				r.vertices.insert(r.vertices.end(), shape->vertices().begin(), shape->vertices().end());
+			} else {
+				// The vertices already exist; NOP
+			}
+			return ins.first->second;
+		};
+
+		for(auto& shape : uniqueShapes) {
+			unsigned vtxOffset  = insertShapeGetOffset(shape.first);
+			unsigned instOffset = r.instances.size();
+			for(auto& ins : shape.second) r.instances.push_back(*ins);
+			VkDrawIndirectCommand cmd = { };
+			cmd.firstInstance = instOffset;
+			cmd.instanceCount = shape.second.size();
+			cmd.firstVertex   = vtxOffset;
+			cmd.vertexCount   = shape.first->vertices().size();
+			r.drawCmds.push_back(cmd);
+		}
+
+		return r;
+	}
+
+
+	void updateBuffers(
+			VmaAllocator vma,
+			vkutil::Buffer   drawCmdBuffer,
+			void*            vtxPtr,
+			const InputData& inputData
+	) {
+		VkDeviceSize vertexBytes = inputData.vertices.size() * sizeof(PolyVertex);
+		VkDeviceSize instanceBytes   = inputData.instances.size() * sizeof(PolyInstance);
+		VkDeviceSize drawCmdBytes  = inputData.drawCmds.size() * sizeof(VkDrawIndirectCommand);
+		memcpy(bufferInstancesPtr(vtxPtr), inputData.instances.data(), instanceBytes);
+		memcpy(bufferVerticesPtr(vtxPtr, inputData.instances.size()), inputData.vertices.data(), vertexBytes);
+		void* drawPtr;
+		VK_CHECK(vmaMapMemory, vma, drawCmdBuffer, &drawPtr);
+		memcpy(drawPtr, inputData.drawCmds.data(), drawCmdBytes);
+		vmaUnmapMemory(vma, drawCmdBuffer);
+	}
+
+
+	void createBuffers(
+			VmaAllocator vma,
+			vkutil::Buffer* dstVtxBuffer,
+			vkutil::Buffer* dstDrawCmdBuffer,
+			void**    dstVtxPtr,
+			unsigned* dstInstanceCount,
+			unsigned* dstVertexCount,
+			unsigned* dstDrawCmdCount,
+			std::span<const ShapeInstance> shapes
+	) {
+		assert(! shapes.empty());
+
+		auto inputData = sortInputData(shapes);
+		*dstInstanceCount = inputData.instances.size();
+		*dstVertexCount   = inputData.vertices.size();
+		*dstDrawCmdCount  = inputData.drawCmds.size();
+
 		{ // Create and write the buffers
-			VkDeviceSize instanceBytes = instances.size() * sizeof(PolyInstance);
-			VkDeviceSize vertexBytes   = vertices.size() * sizeof(PolyVertex);
-			VkDeviceSize drawCmdBytes  = drawCmds.size() * sizeof(VkDrawIndirectCommand);
+			VkDeviceSize instanceBytes = (*dstInstanceCount) * sizeof(PolyInstance);
+			VkDeviceSize vertexBytes   = (*dstVertexCount) * sizeof(PolyVertex);
+			VkDeviceSize drawCmdBytes  = (*dstDrawCmdCount) * sizeof(VkDrawIndirectCommand);
 			VkDeviceSize vtxBufferSize  = instanceBytes + vertexBytes;
 
 			vkutil::BufferCreateInfo bcInfo = { };
@@ -101,14 +130,8 @@ namespace {
 			*dstDrawCmdBuffer = vkutil::ManagedBuffer::create(vma, bcInfo, acInfo);
 
 			// Copy data
-			void* ptr;
-			VK_CHECK(vmaMapMemory, vma, *dstVtxBuffer, &ptr);
-			memcpy(bufferInstancesPtr(ptr), instances.data(), instanceBytes);
-			memcpy(bufferVerticesPtr(ptr, instances.size()), vertices.data(), vertexBytes);
-			vmaUnmapMemory(vma, *dstVtxBuffer);
-			VK_CHECK(vmaMapMemory, vma, *dstDrawCmdBuffer, &ptr);
-			memcpy(ptr, drawCmds.data(),  drawCmdBytes);
-			vmaUnmapMemory(vma, *dstDrawCmdBuffer);
+			VK_CHECK(vmaMapMemory, vma, *dstVtxBuffer, dstVtxPtr);
+			updateBuffers(vma, *dstDrawCmdBuffer, *dstVtxPtr, inputData);
 		}
 	}
 
@@ -118,9 +141,8 @@ namespace {
 
 inline namespace geom {
 
-	Shape::Shape(std::vector<PolyVertex> vtxs, const RectangleBounds& ib):
-			std::vector<PolyVertex>(std::move(vtxs)),
-			shape_innerBounds(ib)
+	Shape::Shape(std::vector<PolyVertex> vtxs):
+			std::vector<PolyVertex>(std::move(vtxs))
 	{ }
 
 
@@ -131,9 +153,10 @@ inline namespace geom {
 
 		ShapeSet r = State::eOutOfDate;
 		r.shape_set_shapes = std::move(shapes);
-		shape_impl::createVertexBuffer(
+		shape_impl::createBuffers(
 			vma,
 			&r.shape_set_vtxBuffer, &r.shape_set_drawBuffer,
+			&r.shape_set_vtxPtr,
 			&r.shape_set_instanceCount,
 			&r.shape_set_vertexCount,
 			&r.shape_set_drawCount,
@@ -142,8 +165,9 @@ inline namespace geom {
 	}
 
 
-	void ShapeSet::destroy(VmaAllocator vma, ShapeSet& shapes) {
+	void ShapeSet::destroy(VmaAllocator vma, ShapeSet& shapes) noexcept {
 		if(shapes.shape_set_state & 0b010 /* 0b010 = needs destruction */) {
+			vmaUnmapMemory(vma, shapes.shape_set_vtxBuffer);
 			vkutil::Buffer::destroy(vma, shapes.shape_set_vtxBuffer);
 			vkutil::Buffer::destroy(vma, shapes.shape_set_drawBuffer);
 		}
@@ -152,19 +176,42 @@ inline namespace geom {
 	}
 
 
-	#ifndef NDEBUG
-		ShapeSet::~ShapeSet() {
-			assert(shape_set_state == unsigned(State::eUnitialized));
+	void ShapeSet::forceNextCommit() noexcept {
+		switch(State(shape_set_state)) {
+			#ifndef NDEBUG
+				default:
+			#endif
+			case State::eUnitialized: std::unreachable(); break;
+			case State::eOutOfDate:   [[fallthrough]];
+			case State::eEmpty:       /* NOP */ break;
+			case State::eUpToDate:    shape_set_state = unsigned(State::eOutOfDate);
 		}
-	#endif
+	}
 
 
-	void ShapeSet::commitVkBuffer(VmaAllocator vma) {
+	ModifiableShapeInstance ShapeSet::modifyShapeInstance(unsigned i) noexcept {
+		assert(shape_set_state & 0b100 /* 0b100 = is initialized */);
+		ShapeSet::forceNextCommit();
+		auto ptr = shape_impl::bufferInstancesPtr(shape_set_vtxPtr) + i;
+		return { ptr->color, ptr->transform };
+	}
+
+
+	void ShapeSet::shape_set_commitBuffers(VmaAllocator vma) {
 		VkDeviceSize instanceBytes = shape_set_instanceCount * sizeof(PolyInstance);
 		VkDeviceSize vertexBytes   = shape_set_vertexCount * sizeof(PolyVertex);
 		VkDeviceSize drawCmdBytes  = shape_set_drawCount * sizeof(VkDrawIndirectCommand);
 		VK_CHECK(vmaFlushAllocation, vma, shape_set_vtxBuffer, 0, instanceBytes + vertexBytes);
 		VK_CHECK(vmaFlushAllocation, vma, shape_set_drawBuffer, 0, drawCmdBytes);
+		switch(State(shape_set_state)) {
+			#ifndef NDEBUG
+				default:
+			#endif
+			case State::eUnitialized: std::unreachable(); break;
+			case State::eOutOfDate:   shape_set_state = unsigned(State::eUpToDate); break;
+			case State::eEmpty:       [[fallthrough]];
+			case State::eUpToDate:    /* NOP */ break;
+		}
 	}
 }
 

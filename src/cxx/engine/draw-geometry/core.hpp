@@ -20,12 +20,12 @@ namespace SKENGINE_NAME_NS {
 inline namespace geom {
 
 	struct PolyVertex {
-		alignas(glm::vec4) glm::vec3 pos;
+		alignas(4 * sizeof(float)) glm::vec3 position;
 	};
 
 	struct PolyInstance {
-		alignas(glm::vec4) glm::vec4 col;
-		alignas(glm::vec4) glm::mat4 transform;
+		alignas(4 * sizeof(float)) glm::vec4 color;
+		alignas(4 * sizeof(float)) glm::mat4 transform;
 	};
 
 
@@ -58,20 +58,16 @@ inline namespace geom {
 		using Sptr = std::shared_ptr<const Shape>;
 
 		Shape() = default;
-		Shape(std::vector<PolyVertex>, const RectangleBounds& innerBounds);
+		Shape(std::vector<PolyVertex>);
 
-		const std::vector<PolyVertex>& vertices    () const noexcept { return *this; }
-		const RectangleBounds&         innerBounds () const noexcept { return shape_innerBounds; }
-
-	private:
-		RectangleBounds shape_innerBounds;
+		const std::vector<PolyVertex>& vertices() const noexcept { return *this; }
 	};
 
 
 	class ShapeInstance {
 	public:
 		ShapeInstance() = default;
-		ShapeInstance(Shape::Sptr, PolyInstance);
+		ShapeInstance(Shape::Sptr s, PolyInstance i): shape_i_shape(std::move(s)), shape_i_instance(std::move(i)) { }
 
 		const Shape& shape() const { return *shape_i_shape.get(); }
 		void setShape(Shape::Sptr newShape) { shape_i_shape = std::move(newShape); }
@@ -85,21 +81,23 @@ inline namespace geom {
 	};
 
 
+	struct ModifiableShapeInstance {
+		glm::vec4& color;
+		glm::mat4& transform;
+	};
+
+
 	class ShapeSet {
 	public:
 		ShapeSet(): shape_set_state(0b000) { }
-
-		#ifndef NDEBUG
-			~ShapeSet(); // Only needed for (c)asserting that the buffer has been destroyed
-		#endif
 
 		static ShapeSet create(VmaAllocator, std::vector<ShapeInstance>);
 		static void     destroy(VmaAllocator, ShapeSet&) noexcept;
 
 		void forceNextCommit() noexcept;
-		void commitVkBuffer(VmaAllocator vma) { if(0 == (shape_set_state & 0b001)) [[unlikely]] shape_set_commit(vma); }
+		void commitVkBuffers(VmaAllocator vma) { if(0 == (shape_set_state & 0b001)) [[unlikely]] shape_set_commitBuffers(vma); }
 
-		ShapeInstance& modifyShapeInstance(unsigned index) noexcept;
+		ModifiableShapeInstance modifyShapeInstance(unsigned index) noexcept;
 
 		vkutil::Buffer& vertexBuffer       () noexcept { return shape_set_vtxBuffer; }
 		vkutil::Buffer& drawIndirectBuffer () noexcept { return shape_set_drawBuffer; }
@@ -120,11 +118,12 @@ inline namespace geom {
 
 		ShapeSet(State state): shape_set_state(unsigned(state)) { }
 
-		void shape_set_commit(VmaAllocator);
+		void shape_set_commitBuffers(VmaAllocator);
 
 		std::vector<ShapeInstance> shape_set_shapes;
 		vkutil::Buffer shape_set_vtxBuffer;  // [  instances  ][  vertices          ]
 		vkutil::Buffer shape_set_drawBuffer; // [  draw_cmds         ]
+		void*    shape_set_vtxPtr;
 		unsigned shape_set_instanceCount;
 		unsigned shape_set_vertexCount;
 		unsigned shape_set_drawCount;

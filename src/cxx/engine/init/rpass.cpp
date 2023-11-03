@@ -15,6 +15,14 @@
 
 namespace SKENGINE_NAME_NS {
 
+	const auto placeholderUiShape = std::make_shared<geom::Shape>(
+		std::vector<PolyVertex> {
+			{{ -1.0f, -1.0f,  0.0f }},
+			{{ -1.0f, +1.0f,  0.0f }},
+			{{ +1.0f, +1.0f,  0.0f }},
+			{{ +1.0f, -1.0f,  0.0f }} });
+
+
 	struct Engine::RpassInitializer::State {
 		bool reinit         : 1;
 		bool createGframes  : 1;
@@ -507,7 +515,7 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t COLOR = 0;
 		constexpr size_t DEPTH = 1;
 
-		{ // Create the render pass
+		{ // Create the render passes
 			VkAttachmentDescription atch_descs[2]; {
 				atch_descs[COLOR] = { };
 				atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -601,18 +609,15 @@ namespace SKENGINE_NAME_NS {
 			gpsci.pipelineCache = mPipelineCache;
 			mPlaceholderGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
 
-			mPlaceholderPolysBuffer = [&]() {
-				vkutil::BufferCreateInfo bc_info = { };
-				bc_info.size =
-					(mPlaceholderPolys.vertexCount   * sizeof(PolyVertex)) +
-					(mPlaceholderPolys.instanceCount * sizeof(PolyInstance));
-				bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-				vkutil::BufferDuplex b = vkutil::BufferDuplex::createVertexInputBuffer(mVma, bc_info);
-				memcpy(b.mappedPtr(), mPlaceholderPolys.vertexInput.get(), bc_info.size);
-				pushBuffer(b);
-				return std::move(b).detachStagingBuffer(mVma);
-			} ();
+			auto shapeInst0 = geom::ShapeInstance(placeholderUiShape, { { 0.0f, 1.0f, 0.0f, 1.0f }, glm::mat4(1.0f) });
+			auto shapeInst1 = geom::ShapeInstance(placeholderUiShape, { { 0.0f, 1.0f, 0.0f, 1.0f }, glm::mat4(1.0f) });
+			mPlaceholderShapes = geom::ShapeSet::create(mVma, { std::move(shapeInst0), std::move(shapeInst1) });
 		}
+
+		auto modShape0 = mPlaceholderShapes.modifyShapeInstance(0);
+		auto modShape1 = mPlaceholderShapes.modifyShapeInstance(1);
+		modShape0.transform = glm::scale(glm::mat4(1.0f), { 30.0f / float(mPresentExtent.width),  2.0f / float(mPresentExtent.height), 1.0f });
+		modShape1.transform = glm::scale(glm::mat4(1.0f), {  2.0f / float(mPresentExtent.width), 30.0f / float(mPresentExtent.height), 1.0f });
 	}
 
 
@@ -677,7 +682,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
-			vkutil::ManagedBuffer::destroy(mVma, mPlaceholderPolysBuffer);
+			geom::ShapeSet::destroy(mVma, mPlaceholderShapes);
 			geom::PipelineSet::destroy(mDevice, mPlaceholderGeomPipelines);
 			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
@@ -703,7 +708,6 @@ namespace SKENGINE_NAME_NS {
 		for(auto& gf : mGframes) vkDestroyImageView(mDevice, gf.swapchain_image_view, nullptr);
 		if(! state.reinit) [[unlikely]] {
 			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
-			// Did this make sense?!? Wtf?    // if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 		}
 		vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 

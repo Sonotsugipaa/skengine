@@ -30,7 +30,7 @@ inline namespace geom {
 	VkPipeline createPipeline(VkDevice dev, const PipelineCreateInfo& pci) {
 		VkPipeline pipeline;
 
-		VkVertexInputAttributeDescription vtx_attr[5];
+		VkVertexInputAttributeDescription vtx_attr[6];
 		VkVertexInputBindingDescription   vtx_bind[2];
 		{ // Hard-coded input descriptions and bindings
 			constexpr size_t V_POS  = 0;
@@ -38,17 +38,19 @@ inline namespace geom {
 			constexpr size_t I_TRNX = 2;
 			constexpr size_t I_TRNY = 3;
 			constexpr size_t I_TRNZ = 4;
+			constexpr size_t I_TRNW = 5;
 			#define ATTRIB_(I_, B_, F_, L_, O_) { \
 				static_assert(I_ < std::size(vtx_attr)); \
 				vtx_attr[I_].binding  = B_; \
 				vtx_attr[I_].format   = F_; \
 				vtx_attr[I_].location = L_; \
 				vtx_attr[I_].offset   = O_; }
-			ATTRIB_(V_POS,  0, VK_FORMAT_R32G32B32_SFLOAT,    0, offsetof(PolyVertex,   pos))
-			ATTRIB_(I_COL,  1, VK_FORMAT_R32G32B32A32_SFLOAT, 1, offsetof(PolyInstance, col))
-			ATTRIB_(I_TRNX, 1, VK_FORMAT_R32G32B32_SFLOAT,    2, offsetof(PolyInstance, transform) + (0 * sizeof(glm::vec3)))
-			ATTRIB_(I_TRNY, 1, VK_FORMAT_R32G32B32_SFLOAT,    3, offsetof(PolyInstance, transform) + (1 * sizeof(glm::vec3)))
-			ATTRIB_(I_TRNZ, 1, VK_FORMAT_R32G32B32_SFLOAT,    4, offsetof(PolyInstance, transform) + (2 * sizeof(glm::vec3)))
+			ATTRIB_(V_POS,  0, VK_FORMAT_R32G32B32_SFLOAT,    V_POS,  offsetof(PolyVertex,   position))
+			ATTRIB_(I_COL,  1, VK_FORMAT_R32G32B32A32_SFLOAT, I_COL,  offsetof(PolyInstance, color))
+			ATTRIB_(I_TRNX, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNX, offsetof(PolyInstance, transform) + (0 * sizeof(glm::vec4)))
+			ATTRIB_(I_TRNY, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNY, offsetof(PolyInstance, transform) + (1 * sizeof(glm::vec4)))
+			ATTRIB_(I_TRNZ, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNZ, offsetof(PolyInstance, transform) + (2 * sizeof(glm::vec4)))
+			ATTRIB_(I_TRNW, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNW, offsetof(PolyInstance, transform) + (3 * sizeof(glm::vec4)))
 			#undef ATTRIB_
 			vtx_bind[0].binding   = 0;
 			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
@@ -86,7 +88,7 @@ inline namespace geom {
 			r.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 			r.cullMode    = VK_CULL_MODE_NONE;
 			r.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-			r.polygonMode = VK_POLYGON_MODE_FILL;
+			r.polygonMode = pci.polyMode;
 			r.lineWidth   = 1.0f;
 			r.rasterizerDiscardEnable = false;
 		}

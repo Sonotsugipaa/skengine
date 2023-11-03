@@ -1,5 +1,6 @@
 add_library(draw-geometry
-	pipeline-init.cpp )
+	pipeline-init.cpp
+	shape.cpp )
 
 target_link_libraries(draw-geometry
 	shader-compiler )
