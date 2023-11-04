@@ -416,8 +416,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		setHdrMetadata(e);
 
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, true, UINT64_MAX);
-
 		{ // Here's a present!
 			VkResult res;
 			VkPresentInfoKHR p_info = { };

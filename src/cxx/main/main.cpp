@@ -83,11 +83,14 @@ namespace {
 		static constexpr float   movement_drag     = 8.0f;
 		static constexpr float   movement_drag_mod = 0.2f;
 		static constexpr float   movement_speed    = 1.1f * movement_drag;
+		static constexpr auto    cursor_offset     = glm::vec3 { 0.0f, 0.0f, -0.2f };
 
 		Engine* engine;
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
+		std::vector<ObjectId> createdLights;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
+		ObjectId  spaceship;
 		ObjectId  world;
 		ObjectId  camLight;
 		ObjectId  movingRayLight;
@@ -95,6 +98,7 @@ namespace {
 		glm::vec3 cameraSpeed;
 		bool lightGuideVisible : 1;
 		bool active            : 1;
+		bool lightCreated      : 1;
 
 
 		void setView(skengine::WorldRenderer& wr) {
@@ -117,8 +121,16 @@ namespace {
 			o.model_locator = "world.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
-
 			world = wr.createObject(o);
+		}
+
+
+		void createSpaceship(skengine::WorldRenderer& wr) {
+			Renderer::NewObject o = { };
+			o.model_locator = "spaceship.fma";
+			o.position_xyz  = { 0.0f, 10.0f, 0.0f };
+			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
+			spaceship = wr.createObject(o);
 		}
 
 
@@ -169,13 +181,13 @@ namespace {
 
 		void createLights(skengine::WorldRenderer& wr) {
 			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 1.1f;
+			rl.intensity = 0.8f;
 			rl.direction = { 1.8f, -0.2f, 0.0f };
 			rl.color     = { 0.7f, 0.91f, 1.0f };
 			movingRayLight = wr.createRayLight(rl);
 
 			WorldRenderer::NewPointLight pl = { };
-			pl.intensity = 4.0f;
+			pl.intensity = 2.0f;
 			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			pl.color    = { 1.0f, 0.0f, 0.34f };
@@ -193,13 +205,15 @@ namespace {
 			engine(&e),
 			cameraSpeed { },
 			lightGuideVisible(false),
-			active(true)
+			active(true),
+			lightCreated(false)
 		{
 			auto  ca = engine->getConcurrentAccess();
 			auto& wr = ca->getWorldRenderer();
 
 			setView(wr);
 			createGround(wr);
+			createSpaceship(wr);
 			createTestObjects(wr);
 			createLights(wr);
 		}
@@ -208,8 +222,10 @@ namespace {
 		void loop_processEvents(tickreg::delta_t delta, tickreg::delta_t) override {
 			SDL_Event ev;
 
-			bool mouse_rel_mode = SDL_GetRelativeMouseMode();
-			bool request_ca     = false;
+			bool mouse_rel_mode  = SDL_GetRelativeMouseMode();
+			bool request_ca      = false;
+			bool do_create_light = false;
+			bool destroy_light   = false;
 
 			struct ResizeEvent {
 				uint32_t width;
@@ -218,6 +234,8 @@ namespace {
 			} resize_event;
 
 			glm::vec2 rotate_camera = { };
+
+			auto imLock = std::unique_lock(inputMutex);
 
 			// Consume events, but only the last one of each type; discard the rest
 			while(1 == SDL_PollEvent(&ev)) {
@@ -232,29 +250,23 @@ namespace {
 							request_ca = true;
 							break;
 						case SDL_WINDOWEVENT_FOCUS_LOST:
-							inputMutex.lock();
 							pressedKeys.clear();
-							inputMutex.unlock();
 							break;
 					} break;
 					case SDL_EventType::SDL_KEYDOWN:
-					switch(ev.key.keysym.sym) {
+					if(! ev.key.repeat) switch(ev.key.keysym.sym) {
 						case SDLK_LCTRL:
 							SDL_SetRelativeMouseMode(mouse_rel_mode? SDL_FALSE : SDL_TRUE);
 							mouse_rel_mode = ! mouse_rel_mode;
 							break;
 						default:
-							inputMutex.lock();
 							pressedKeys.insert(SDL_KeyCode(ev.key.keysym.sym));
-							inputMutex.unlock();
 							break;
 					} break;
 					case SDL_EventType::SDL_KEYUP:
 					switch(ev.key.keysym.sym) {
 						default:
-							inputMutex.lock();
 							pressedKeys.erase(SDL_KeyCode(ev.key.keysym.sym));
-							inputMutex.unlock();
 							break;
 					} break;
 				}
@@ -273,6 +285,23 @@ namespace {
 				}
 			}
 
+			{ // Handle light creation / reset within ticks, not frames
+				auto found = pressedKeys.find(SDLK_f);
+				if(found != pressedKeys.end()) [[unlikely]] {
+					do_create_light = true;
+					request_ca      = true;
+				} else {
+					lightCreated = false;
+					found = pressedKeys.find(SDLK_c);
+					if(found != pressedKeys.end()) [[unlikely]] {
+						destroy_light = true;
+						request_ca    = true;
+					}
+				}
+			}
+
+			imLock.unlock();
+
 			if(request_ca) {
 				auto  ca = engine->getConcurrentAccess();
 				auto& wr = ca->getWorldRenderer();
@@ -288,6 +317,34 @@ namespace {
 					dir.y += rotate_camera.y * delta;
 					dir.y  = std::clamp(dir.y, -pi_2, +pi_2);
 					wr.setViewRotation(dir, false);
+				}
+
+				if(do_create_light) [[unlikely]] {
+					glm::mat3 iview = glm::inverse(wr.getViewTransf());
+					auto      pos   = wr.getViewPosition() + (iview * cursor_offset);
+					if(lightCreated) [[likely]] {
+						assert(! createdLights.empty());
+						auto& lightId = createdLights.back();
+						auto& light   = wr.modifyPointLight(lightId);
+						light.position = pos;
+					} else {
+						WorldRenderer::NewPointLight pl = { };
+						pl.intensity = 0.5f;
+						pl.falloffExponent = 1.0f;
+						pl.position = pos;
+						pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
+						createdLights.push_back(wr.createPointLight(pl));
+						engine->logger().info("Creating light {}", object_id_e(createdLights.back()));
+						lightCreated = true;
+					}
+				}
+
+				if(destroy_light) [[unlikely]] {
+					if(! createdLights.empty()) {
+						for(auto& light : createdLights) wr.removeLight(light);
+						engine->logger().info("Destroyed lights");
+						createdLights.clear();
+					}
 				}
 			}
 		}
@@ -370,7 +427,7 @@ namespace {
 				auto* rl = &wr.modifyRayLight(movingRayLight);
 				glm::vec3 light_pos = [&]() {
 					glm::mat3 view = wr.getViewTransf();
-					return glm::transpose(view) * glm::vec3 { 0.0f, 0.0f, -0.2f };
+					return glm::transpose(view) * cursor_offset;
 				} ();
 				rl->direction = light_pos;
 

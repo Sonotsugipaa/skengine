@@ -177,6 +177,7 @@ namespace SKENGINE_NAME_NS {
 		assert(mPointLights.contains(id) || mRayLights.contains(id));
 		mLightStorageOod = true;
 		if(0 == mRayLights.erase(id)) mPointLights.erase(id);
+		id_generator<ObjectId>.recycle(id);
 	}
 
 

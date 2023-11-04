@@ -104,6 +104,16 @@ float aoa_fade(float value, float angle_of_attack) {
 	return value * clamp(fade, 0, 1);
 }
 
+vec3 color_rgb_non_zero(vec4 v) {
+	const float tiny_value = 0.000001;
+	if((v.r + v.g + v.b) < tiny_value) {
+		v.r = tiny_value;
+		v.g = tiny_value;
+		v.b = tiny_value;
+	}
+	return v.rgb;
+}
+
 
 float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
 	float lighting = dot(
@@ -112,13 +122,14 @@ float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, 
 	float light_exp = material_ubo.shininess;
 	lighting = aoa_fade(lighting, angle_of_attack);
 	lighting = shinify_exp(lighting, light_exp);
+	lighting = max(lighting, 0);
 	return lighting;
 }
 
 float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack) {
 	float lighting = dot(tex_nrm_viewspace, light_dir_viewspace);
 	lighting = aoa_fade(lighting, angle_of_attack);
-	lighting = clamp(lighting, 0, 1);
+	lighting = max(lighting, 0);
 	return lighting;
 }
 
@@ -150,21 +161,22 @@ LuminanceInfo sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 
 		float aot = dot(frg_nrm, light_dir);
 
-		luminance.dfs.a += (
+		float luminance_dfs = (
 			ray_light_buffer.lights[i].color.a
 			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
-
-		luminance.spc.a += (
+		float luminance_spc = (
 			ray_light_buffer.lights[i].color.a
 			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
+
+		luminance.dfs.a += luminance_dfs;
+		luminance.spc.a += luminance_spc;
+
+		luminance.dfs.rgb += point_light_buffer.lights[i].color.rgb * luminance_dfs;
+		luminance.spc.rgb += point_light_buffer.lights[i].color.rgb * luminance_spc;
 	}
 
-	// Sum colors
-	for(uint i = 0; i < frame_ubo.ray_light_count; ++i) {
-		luminance.dfs.rgb += ray_light_buffer.lights[i].color.rgb * luminance.dfs.a;
-		luminance.spc.rgb += ray_light_buffer.lights[i].color.rgb * luminance.dfs.a;
-	}
-
+	luminance.dfs.rgb = color_rgb_non_zero(luminance.dfs);
+	luminance.spc.rgb = color_rgb_non_zero(luminance.spc);
 	return luminance;
 }
 
@@ -189,21 +201,22 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
 		float intensity_falloff = intensity / pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 
-		luminance.dfs.a += (
+		float luminance_dfs = (
 			intensity_falloff
 			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
-
-		luminance.spc.a += (
+		float luminance_spc = (
 			intensity_falloff
 			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
+
+		luminance.dfs.a += luminance_dfs;
+		luminance.spc.a += luminance_spc;
+
+		luminance.dfs.rgb += point_light_buffer.lights[i].color.rgb * luminance_dfs;
+		luminance.spc.rgb += point_light_buffer.lights[i].color.rgb * luminance_spc;
 	}
 
-	// Sum colors
-	for(uint i = frame_ubo.ray_light_count; i < light_count; ++i) {
-		luminance.dfs.rgb += point_light_buffer.lights[i].color.rgb * luminance.dfs.a;
-		luminance.spc.rgb += point_light_buffer.lights[i].color.rgb * luminance.dfs.a;
-	}
-
+	luminance.dfs.rgb = color_rgb_non_zero(luminance.dfs);
+	luminance.spc.rgb = color_rgb_non_zero(luminance.spc);
 	return luminance;
 }
 

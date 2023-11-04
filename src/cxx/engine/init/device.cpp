@@ -149,6 +149,7 @@ namespace SKENGINE_NAME_NS {
 		{ // Select physical device
 			VkPhysicalDeviceFeatures features = vkutil::commonFeatures;
 			features.drawIndirectFirstInstance = true;
+			features.fillModeNonSolid = true;
 
 			unsigned best_dev_index;
 			vkutil::SelectBestPhysDeviceDst best_dev = {
@@ -204,6 +205,7 @@ namespace SKENGINE_NAME_NS {
 
 			auto features = vkutil::commonFeatures;
 			features.drawIndirectFirstInstance = true;
+			features.fillModeNonSolid = true;
 
 			std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
