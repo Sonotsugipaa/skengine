@@ -2,8 +2,10 @@
   - Refactor everything to follow the style guideline  
     (I can't see how this might possibly go wrong)
 
+- **cxx/ui/**
+  - Remove `Container`, an apparently useless middleman in the `Lot`-`Grid` codependency
+
 - **cxx/engine/**
-  - Enforce `Canvas` only having one row and one column
   - Figure out stencil buffer usage, which will probably help with consistent
     UI element transparency
   - Engine initialization utilities are UB, find a way to un-UBify them

@@ -83,6 +83,13 @@ inline namespace ui {
 		float height;
 	};
 
+	struct RelativeBounds {
+		float left;
+		float top;
+		float width;
+		float height;
+	};
+
 	struct LotPadding {
 		float left;
 		float top;
@@ -236,12 +243,15 @@ inline namespace ui {
 	class Container {
 	public:
 		struct Info {
-			RelativeSize    viewport;
-			RelativeSize    scissor;
+			RelativeBounds  scissor;
 			ContainerTraits traits;
+
+			Info() = default;
+			Info(ContainerTraits t): scissor { 0.0f, 0.0f, 1.0f, 1.0f }, traits(t) { }
+			Info(RelativeBounds n, ContainerTraits t): scissor(n), traits(t) { }
 		};
 
-		Container() = default;
+		Container(const Info& info, std::unique_ptr<Grid> grid): container_info(info), container_grid(std::move(grid)) { }
 		~Container() = default;
 
 		const Info& info() const noexcept { return container_info; }
@@ -278,12 +288,13 @@ inline namespace ui {
 		void      destroyElement(ElementId);
 		Element&  getElement(ElementId);
 
-		const auto* container() const noexcept { return lot_container.get(); }
-		auto*       container()       noexcept { return lot_container.get(); }
+		BasicGrid& setBasicGrid(const Container::Info&, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
+		List&      setList(const Container::Info&, ListDirection, float elemSize, init_list<float> subelemSizes = { });
+		void       setContainer(std::shared_ptr<Container>);
+		auto        container() const noexcept { return lot_container; }
+		auto        container()       noexcept { return lot_container; }
 		bool     hasContainer() const noexcept { return bool(lot_container); }
-		void     setContainer(Container::Info);            // Throws std::runtime_error if hasContainer() == true
-		void     setContainer(std::shared_ptr<Container>); // Throws std::runtime_error if hasContainer() == true
-		void  removeContainer();                           // Throws std::runtime_error if hasContainer() == false
+		void  removeContainer();
 
 	private:
 		using SptrElement   = std::shared_ptr<Element>;
@@ -301,10 +312,12 @@ inline namespace ui {
 
 	class Grid {
 	public:
+		friend Container;
+
 		Grid() = default;
 
-		Grid(std::weak_ptr<Lot> parent):
-			grid_lotIdGen(parent.lock()->parentGrid()->grid_lotIdGen),
+		Grid(Lot* parent):
+			grid_lotIdGen(parent->parentGrid()->grid_lotIdGen),
 			grid_parent(std::move(parent))
 		{ }
 
@@ -331,7 +344,7 @@ inline namespace ui {
 	protected:
 		std::shared_ptr<idgen::IdGenerator<LotId>> grid_lotIdGen;
 		std::unordered_map<LotId, std::shared_ptr<Lot>> grid_lots;
-		std::weak_ptr<Lot> grid_parent;
+		Lot* grid_parent;
 		bool grid_isModified = false;
 
 		LotId grid_genId() noexcept { return grid_lotIdGen->generate(); }
@@ -341,10 +354,11 @@ inline namespace ui {
 
 	class BasicGrid : public Grid {
 	public:
+		friend Lot; // `Lot` can create a BasicGrid
+
 		BasicGrid() = default;
 		BasicGrid(BasicGrid&&) = default;
 		BasicGrid& operator=(BasicGrid&&) = default;
-		BasicGrid(std::shared_ptr<Lot> parent, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
 		~BasicGrid() override = default;
 
 		void setRowSizes(init_list<float>);
@@ -357,6 +371,8 @@ inline namespace ui {
 		virtual GridSize grid_gridSize() const noexcept override { return basic_grid_size; }
 
 	private:
+		BasicGrid(Lot* parent, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
+
 		std::unique_ptr<float[]> basic_grid_rowSizes;
 		std::unique_ptr<float[]> basic_grid_colSizes;
 		GridSize basic_grid_size;
@@ -371,11 +387,11 @@ inline namespace ui {
 	*//**/
 	class List : public Grid {
 	public:
+		friend Lot; // `Lot` can create a List
+
 		List() = default;
 		List(List&&) = default;
 		List& operator=(List&&) = default;
-		List(std::shared_ptr<Lot> parent, float elemSize, init_list<float> subelementSizes = { });
-		List(std::shared_ptr<Lot> parent, ListDirection direction, float elemSize, init_list<float> subelementSizes = { });
 		~List() override = default;
 
 		void setElementSize(float elemSize) noexcept { list_elemSize = elemSize; }
@@ -388,6 +404,8 @@ inline namespace ui {
 		virtual GridSize grid_gridSize() const noexcept override;
 
 	private:
+		List(Lot* parent, ListDirection direction, float elemSize, init_list<float> subelementSizes = { });
+
 		std::unique_ptr<float[]> list_subelemSizes;
 		float                    list_elemSize;
 		size_t                   list_subelemCount;

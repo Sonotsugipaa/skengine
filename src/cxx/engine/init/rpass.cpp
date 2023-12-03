@@ -609,8 +609,9 @@ namespace SKENGINE_NAME_NS {
 				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
 				{ chBlank, chSize, chBlank },
 				{ chBlank, chSize, chBlank } );
+			auto ch = std::make_shared<gui::Crosshair>(mVma, 1.0f, 0.1f);
 			auto chLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
-			chLot.second->createElement(std::make_shared<gui::Crosshair>(mVma, 1.0f, 0.1f));
+			chLot.second->createElement(ch);
 		}
 	}
 

@@ -31,8 +31,9 @@ inline namespace ui {
 			// setting private member variables after construction.
 			lot_elemIdGen = std::make_shared<idgen::IdGenerator<ElementId>>();
 		} else {
-			auto parentLot = parentGrid->parentLot().lock();
-			assert(parentLot);
+			auto parentLot = parentGrid->parentLot();
+			assert(parentLot != nullptr);
+
 			lot_elemIdGen = parentLot->lot_elemIdGen;
 		}
 	}
@@ -79,6 +80,25 @@ inline namespace ui {
 	}
 
 
+	BasicGrid& Lot::setBasicGrid(const Container::Info& info, init_list<float> rowSizes, init_list<float> columnSizes) {
+		auto* rp = new BasicGrid(this, rowSizes, columnSizes); // `unique_ptr` would complain about the inaccessible constructor
+		lot_container = std::make_shared<Container>(info, std::unique_ptr<BasicGrid>(rp));
+		return *rp;
+	}
+
+
+	List& Lot::setList(const Container::Info& info, ListDirection direction, float elemSize, init_list<float> subelemSizes) {
+		auto* rp = new List(this, direction, elemSize, subelemSizes); // `unique_ptr` would complain about the inaccessible constructor
+		lot_container = std::make_shared<Container>(info, std::unique_ptr<List>(rp));
+		return *rp;
+	}
+
+
+	void Lot::setContainer(std::shared_ptr<Container> container) {
+		lot_container = std::move(container);
+	}
+
+
 	std::pair<LotId, std::shared_ptr<Lot>&> Grid::createLot(GridPosition offset, GridSize size) {
 		using Map = decltype(grid_lots);
 		setModified();
@@ -106,7 +126,7 @@ inline namespace ui {
 
 	void Grid::setModified() noexcept {
 		grid_isModified = true;
-		auto parentLot  = grid_parent.lock();
+		auto parentLot  = grid_parent;
 		auto parentGrid = parentLot->parentGrid();
 		if(parentGrid != this) parentGrid->setModified();
 	}
@@ -127,8 +147,8 @@ inline namespace ui {
 			grid_coord_t i = lowerBound;
 			for(; i < upperBound; ++i) {
 				auto tile = grid_desiredTileSize({ i, i });
-				if(i >= rectTl.row && i < rectBr.column) r.height += tile.height;
-				if(i >= rectTl.row && i < rectBr.column) r.width  += tile.width;
+				if(i >= rectTl.row    && i < rectBr.row   ) r.height += tile.height;
+				if(i >= rectTl.column && i < rectBr.column) r.width  += tile.width;
 			}
 			return r;
 		};
@@ -141,17 +161,6 @@ inline namespace ui {
 		r.viewportHeight = rect.height;
 
 		return r;
-	}
-
-
-	BasicGrid::BasicGrid(std::shared_ptr<Lot> parent, std::initializer_list<float> rows, std::initializer_list<float> cols):
-		Grid(std::move(parent)),
-		basic_grid_rowSizes(std::make_unique_for_overwrite<float[]>(rows.size())),
-		basic_grid_colSizes(std::make_unique_for_overwrite<float[]>(cols.size())),
-		basic_grid_size { .rows = rows.size(), .columns = cols.size() }
-	{
-		memcpy(basic_grid_rowSizes.get(), rows.begin(), rows.size() * sizeof(float));
-		memcpy(basic_grid_colSizes.get(), cols.begin(), cols.size() * sizeof(float));
 	}
 
 
@@ -170,15 +179,15 @@ inline namespace ui {
 
 
 	ComputedBounds BasicGrid::grid_getBounds() const noexcept {
-		auto parent = parentLot().lock();
-		assert(parent);
+		auto parent = parentLot();
+		assert(parent != nullptr);
 		return parent->getBounds();
 	}
 
 
 	RelativeSize BasicGrid::grid_desiredTileSize(GridPosition pos) const noexcept {
-		pos.row    = std::clamp<grid_coord_t>(pos.row,    0, basic_grid_size.rows);
-		pos.column = std::clamp<grid_coord_t>(pos.column, 0, basic_grid_size.columns);
+		pos.row    = std::clamp<grid_coord_t>(pos.row,    0, std::max<grid_coord_t>(0, grid_coord_t(basic_grid_size.rows   ) - 1));
+		pos.column = std::clamp<grid_coord_t>(pos.column, 0, std::max<grid_coord_t>(0, grid_coord_t(basic_grid_size.columns) - 1));
 		RelativeSize r;
 		if(basic_grid_size.rows    > 0) r.height = basic_grid_rowSizes[pos.row];    else r.height = 1.0f;
 		if(basic_grid_size.columns > 0) r.width  = basic_grid_colSizes[pos.column]; else r.width  = 1.0f;
@@ -186,19 +195,14 @@ inline namespace ui {
 	}
 
 
-	List::List(std::shared_ptr<Lot> parent, float elemSize, init_list<float> subelementSizes):
-		List(std::move(parent), ListDirection::eVertical, elemSize, subelementSizes)
-	{ }
-
-
-	List::List(std::shared_ptr<Lot> parent, ListDirection direction, float elemSize, init_list<float> subelementSizes):
+	BasicGrid::BasicGrid(Lot* parent, std::initializer_list<float> rows, std::initializer_list<float> cols):
 		Grid(std::move(parent)),
-		list_subelemSizes(std::make_unique_for_overwrite<float[]>(subelementSizes.size())),
-		list_elemSize(elemSize),
-		list_subelemCount(subelementSizes.size()),
-		list_direction(direction)
+		basic_grid_rowSizes(std::make_unique_for_overwrite<float[]>(rows.size())),
+		basic_grid_colSizes(std::make_unique_for_overwrite<float[]>(cols.size())),
+		basic_grid_size { .rows = rows.size(), .columns = cols.size() }
 	{
-		memcpy(list_subelemSizes.get(), subelementSizes.begin(), subelementSizes.size() * sizeof(float));
+		memcpy(basic_grid_rowSizes.get(), rows.begin(), rows.size() * sizeof(float));
+		memcpy(basic_grid_colSizes.get(), cols.begin(), cols.size() * sizeof(float));
 	}
 
 
@@ -209,7 +213,7 @@ inline namespace ui {
 
 
 	ComputedBounds List::grid_getBounds() const noexcept {
-		auto parent = parentLot().lock();
+		auto parent = parentLot();
 		assert(parent);
 		return parent->getBounds();
 	}
@@ -241,6 +245,17 @@ inline namespace ui {
 	}
 
 
+	List::List(Lot* parent, ListDirection direction, float elemSize, init_list<float> subelementSizes):
+		Grid(std::move(parent)),
+		list_subelemSizes(std::make_unique_for_overwrite<float[]>(subelementSizes.size())),
+		list_elemSize(elemSize),
+		list_subelemCount(subelementSizes.size()),
+		list_direction(direction)
+	{
+		memcpy(list_subelemSizes.get(), subelementSizes.begin(), subelementSizes.size() * sizeof(float));
+	}
+
+
 	Canvas::Canvas(ComputedBounds bounds, std::initializer_list<float> rowSizes, std::initializer_list<float> columnSizes):
 		BasicGrid(),
 		canvas_bounds(bounds)
@@ -254,7 +269,7 @@ inline namespace ui {
 			auto ins = grid_lots.insert(decltype(grid_lots)::value_type(
 				loopbackLotId, lot ));
 			assert(ins.second);
-			grid_parent = ins.first->second;
+			grid_parent = ins.first->second.get();
 			lot->lot_parent = this;
 		}
 
