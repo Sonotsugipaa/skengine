@@ -25,15 +25,15 @@ namespace {
 
 	const EnginePreferences engine_preferences = []() {
 		auto prefs = EnginePreferences::default_prefs;
-		prefs.init_present_extent   = { 700, 700 };
-		prefs.max_render_extent     = { 0, 400 };
+		prefs.init_present_extent   = { 100, 100 };
+		prefs.max_render_extent     = { 0, 0 };
 		prefs.asset_filename_prefix = "assets/";
 		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
 		prefs.target_framerate      = 60.0f;
 		prefs.target_tickrate       = 60.0f;
 		prefs.fov_y                 = glm::radians(80.0f);
 		prefs.shade_step_count      = 6;
-		prefs.shade_step_smoothness = 0.7f;
+		prefs.shade_step_smoothness = 4.0f;
 		prefs.shade_step_exponent   = 4.0f;
 		return prefs;
 	} ();

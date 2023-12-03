@@ -13,45 +13,53 @@
 
 
 namespace SKENGINE_NAME_NS {
-inline namespace gui {
 
-	class UpdateableElement : virtual ui::Element {
-	public:
-		bool ui_elem_hasBeenModified() const noexcept override { return upd_elem_stateCtr == upd_elem_lastDrawStateCtr; }
-
-	protected:
-		void upd_elem_fwdState() { ++ upd_elem_stateCtr; }
-		void upd_elem_update()   { upd_elem_lastDrawStateCtr = upd_elem_stateCtr; }
-
-	private:
-		uint_fast16_t  upd_elem_lastDrawStateCtr = 0;
-		uint_fast16_t  upd_elem_stateCtr         = 1;
-	};
-
-}}
+	// Forward declaration for gui::DrawContext
+	class Engine;
 
 
 
-namespace SKENGINE_NAME_NS::placeholder {
+	inline namespace gui {
 
-	class Polys {
-	public:
-		VkDeviceSize vertexCount;
-		VkDeviceSize instanceCount;
-		std::unique_ptr<std::byte[]> vertexInput;
-	};
+		struct DrawContext {
+			static constexpr uint64_t magicNumberValue = 0xff004cff01020304;
+
+			const uint64_t magicNumber;
+			Engine* engine;
+			VkCommandBuffer drawCmdBuffer;
+			geom::PipelineSet* pipelineSet;
+		};
 
 
-	struct RectTemplate {
-		static constexpr PolyVertex vertices[] = {
-			{ .position = { -1.0f, -1.0f,  1.0f } },
-			{ .position = { +1.0f, -1.0f,  1.0f } },
-			{ .position = { +1.0f, +1.0f,  1.0f } },
-			{ .position = { -1.0f, +1.0f,  1.0f } } };
-		static constexpr PolyInstance instances[] = {
-			{ .color = { 1.0f, 0.0f, 0.23529411764705882f, 0.2f }, .transform = glm::mat4(1.0f) } };
+		class DrawablePolygon : public virtual ui::Element {
+		public:
+			DrawablePolygon(bool doFill): dpoly_doFill(doFill) { }
 
-		static Polys instantiate(glm::vec2 p0, glm::vec2 p1);
-	};
+			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
+
+			auto& shapes() noexcept { return dpoly_shapeSet; }
+
+		private:
+			geom::ShapeSet dpoly_shapeSet;
+			bool dpoly_doFill;
+		};
+
+
+		class Crosshair : public DrawablePolygon {
+		public:
+			Crosshair(VmaAllocator, float strokeLengthRelative, float strokeWidthPixels);
+			~Crosshair();
+
+			ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
+			EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
+
+		private:
+			VmaAllocator ch_vma;
+			float ch_strokeLength;
+			float ch_strokeWidth;
+		};
+
+	}
 
 }

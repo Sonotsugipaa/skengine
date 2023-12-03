@@ -3,6 +3,7 @@
     (I can't see how this might possibly go wrong)
 
 - **cxx/engine/**
+  - Enforce `Canvas` only having one row and one column
   - Figure out stencil buffer usage, which will probably help with consistent
     UI element transparency
   - Engine initialization utilities are UB, find a way to un-UBify them
@@ -16,6 +17,8 @@
     so do that I guess
   - Gframe selection fences are destroyed/created during every swapchain recreation
   - Integrate cleanup queues
+    - An alternative is using `std::shared_ptr` and `std::weak_ptr` where classes
+      use dependency injection
   - `ModelSupplierInterface` and `MaterialSupplierInterface` doxygenumentation
   - Optimize object buffer update procedure for simple object modifications
     - Multithreaded `Renderer` object buffer generation (mostly for matrices)

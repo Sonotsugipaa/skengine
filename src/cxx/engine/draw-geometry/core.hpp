@@ -99,6 +99,9 @@ inline namespace geom {
 
 		ModifiableShapeInstance modifyShapeInstance(unsigned index) noexcept;
 
+		operator bool()  { return State(shape_set_state) != State::eUnitialized; }
+		bool operator!() { return State(shape_set_state) == State::eUnitialized; }
+
 		vkutil::Buffer& vertexBuffer       () noexcept { return shape_set_vtxBuffer; }
 		vkutil::Buffer& drawIndirectBuffer () noexcept { return shape_set_drawBuffer; }
 		unsigned instanceCount () const noexcept { return shape_set_instanceCount; }

@@ -3,6 +3,7 @@
 #include "renderer.hpp"
 #include "shader_cache.hpp"
 #include "draw-geometry/core.hpp"
+#include "gui.hpp"
 
 #include <vk-util/init.hpp>
 #include <vk-util/memory.hpp>
@@ -194,6 +195,7 @@ namespace SKENGINE_NAME_NS {
 	class Engine {
 	public:
 		friend ConcurrentAccess;
+		friend gui::DrawContext;
 
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
@@ -256,6 +258,8 @@ namespace SKENGINE_NAME_NS {
 		auto getMaterialDsetLayout () noexcept { return mMaterialDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
 
+		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
+		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
 		const auto& getQueueInfo            () const noexcept { return mQueues; }
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
@@ -323,8 +327,8 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
-		geom::ShapeSet    mPlaceholderShapes;
-		geom::PipelineSet mPlaceholderGeomPipelines;
+		ui::Canvas        mUiCanvas;
+		geom::PipelineSet mGeomPipelines;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

@@ -25,6 +25,7 @@ add_library(engine
 target_link_libraries(engine
 	fmamdl
 	idgen
+	ui
 	posixfio
 	tick-regulator
 	vk-util

@@ -11,17 +11,11 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <ui/ui.hpp>
+
 
 
 namespace SKENGINE_NAME_NS {
-
-	const auto placeholderUiShape = std::make_shared<geom::Shape>(
-		std::vector<PolyVertex> {
-			{{ -1.0f, -1.0f,  0.0f }},
-			{{ -1.0f, +1.0f,  0.0f }},
-			{{ +1.0f, +1.0f,  0.0f }},
-			{{ +1.0f, -1.0f,  0.0f }} });
-
 
 	struct Engine::RpassInitializer::State {
 		bool reinit         : 1;
@@ -607,17 +601,17 @@ namespace SKENGINE_NAME_NS {
 			gpsci.subpass       = 0;
 			gpsci.renderPass    = mUiRpass;
 			gpsci.pipelineCache = mPipelineCache;
-			mPlaceholderGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
+			mGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
 
-			auto shapeInst0 = geom::ShapeInstance(placeholderUiShape, { { 0.0f, 1.0f, 0.0f, 1.0f }, glm::mat4(1.0f) });
-			auto shapeInst1 = geom::ShapeInstance(placeholderUiShape, { { 0.0f, 1.0f, 0.0f, 1.0f }, glm::mat4(1.0f) });
-			mPlaceholderShapes = geom::ShapeSet::create(mVma, { std::move(shapeInst0), std::move(shapeInst1) });
+			constexpr float chSize  = 0.03f;
+			constexpr float chBlank = (1.0f - chSize) / 2.0f;
+			mUiCanvas = ui::Canvas(
+				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
+				{ chBlank, chSize, chBlank },
+				{ chBlank, chSize, chBlank } );
+			auto chLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
+			chLot.second->createElement(std::make_shared<gui::Crosshair>(mVma, 1.0f, 0.1f));
 		}
-
-		auto modShape0 = mPlaceholderShapes.modifyShapeInstance(0);
-		auto modShape1 = mPlaceholderShapes.modifyShapeInstance(1);
-		modShape0.transform = glm::scale(glm::mat4(1.0f), { 30.0f / float(mPresentExtent.width),  2.0f / float(mPresentExtent.height), 1.0f });
-		modShape1.transform = glm::scale(glm::mat4(1.0f), {  2.0f / float(mPresentExtent.width), 30.0f / float(mPresentExtent.height), 1.0f });
 	}
 
 
@@ -682,8 +676,8 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
-			geom::ShapeSet::destroy(mVma, mPlaceholderShapes);
-			geom::PipelineSet::destroy(mDevice, mPlaceholderGeomPipelines);
+			mUiCanvas = { };
+			geom::PipelineSet::destroy(mDevice, mGeomPipelines);
 			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
 			vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);
