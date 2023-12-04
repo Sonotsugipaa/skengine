@@ -125,12 +125,12 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		ui::DrawContext  uiCtx  = { &guiCtx };
 
 		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx](LotId lotId, Lot& lot) {
-			if(lot.hasContainer()) {
-				auto& grid = lot.container()->grid();
+			if(lot.hasChildGrid()) {
+				auto grid = lot.childGrid();
 				// If the grid's structure has not been modified, there's no need to prepare
-				if(doDraw || grid.isModified()) {
-					for(auto& lot : grid.lots()) drawLot(lotId, *lot.second);
-					grid.resetModified();
+				if(doDraw || grid->isModified()) {
+					for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
+					grid->resetModified();
 				}
 			}
 

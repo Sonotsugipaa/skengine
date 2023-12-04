@@ -14,6 +14,7 @@ add_library(engine
 	renderer.cpp
 	renderer_world.cpp
 	gui.cpp
+	gui_elements.cpp
 	engine.cpp
 	engine_buffer.cpp
 	engine_create_pipeline.cpp

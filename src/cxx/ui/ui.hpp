@@ -42,7 +42,6 @@ inline namespace ui {
 
 
 	class Element;
-	class Container;
 	class Lot;
 	class Grid;
 	class BasicGrid;
@@ -180,13 +179,21 @@ inline namespace ui {
 	};
 
 
-	using container_traits_t = uint_fast8_t;
+	using grid_traits_t = uint_fast8_t;
 
-	enum class ContainerTraits {
+	enum class GridTraits {
 		eIsFocusable             = 0b0001,
 		eMayYieldFocus           = 0b0010,
 		eMayOverflowHorizontally = 0b0100,
 		eMayOverflowVertically   = 0b1000
+	};
+
+
+	struct GridInfo {
+		GridTraits traits;
+
+		GridInfo(): GridInfo(GridTraits(0)) { }
+		GridInfo(GridTraits t): traits(t) { }
 	};
 
 
@@ -240,31 +247,6 @@ inline namespace ui {
 	};
 
 
-	class Container {
-	public:
-		struct Info {
-			RelativeBounds  scissor;
-			ContainerTraits traits;
-
-			Info() = default;
-			Info(ContainerTraits t): scissor { 0.0f, 0.0f, 1.0f, 1.0f }, traits(t) { }
-			Info(RelativeBounds n, ContainerTraits t): scissor(n), traits(t) { }
-		};
-
-		Container(const Info& info, std::unique_ptr<Grid> grid): container_info(info), container_grid(std::move(grid)) { }
-		~Container() = default;
-
-		const Info& info() const noexcept { return container_info; }
-
-		const Grid& grid() const noexcept { return *container_grid; }
-		Grid&       grid()       noexcept { return *container_grid; }
-
-	private:
-		Info container_info;
-		std::unique_ptr<Grid> container_grid;
-	};
-
-
 	class Lot {
 	public:
 		friend Canvas; // `Canvas` creates a special "loopback" lot
@@ -288,35 +270,33 @@ inline namespace ui {
 		void      destroyElement(ElementId);
 		Element&  getElement(ElementId);
 
-		BasicGrid& setBasicGrid(const Container::Info&, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
-		List&      setList(const Container::Info&, ListDirection, float elemSize, init_list<float> subelemSizes = { });
-		void       setContainer(std::shared_ptr<Container>);
-		auto        container() const noexcept { return lot_container; }
-		auto        container()       noexcept { return lot_container; }
-		bool     hasContainer() const noexcept { return bool(lot_container); }
-		void  removeContainer();
+		BasicGrid& setChildBasicGrid(const GridInfo&, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
+		List&      setChildList(const GridInfo&, ListDirection, float elemSize, init_list<float> subelemSizes = { });
+		void       setChildGrid(std::shared_ptr<Grid>);
+		auto        childGrid() const noexcept { return lot_child; }
+		auto        childGrid()       noexcept { return lot_child; }
+		bool     hasChildGrid() const noexcept { return bool(lot_child); }
+		void  removeChildGrid();
 
 	private:
-		using SptrElement   = std::shared_ptr<Element>;
-		using SptrContainer = std::shared_ptr<Container>;
+		using SptrElement = std::shared_ptr<Element>;
+		using SptrGrid = std::shared_ptr<Grid>;
 		std::shared_ptr<idgen::IdGenerator<ElementId>> lot_elemIdGen;
 		std::unordered_map<ElementId, SptrElement> lot_elements;
-		GridPosition  lot_gridOffset;
-		GridSize      lot_size;
-		LotPadding    lot_padding;
-		glm::mat3     lot_transform;
-		Grid*         lot_parent;
-		SptrContainer lot_container;
+		GridPosition lot_gridOffset;
+		GridSize     lot_size;
+		LotPadding   lot_padding;
+		glm::mat3    lot_transform;
+		Grid*        lot_parent;
+		SptrGrid     lot_child;
 	};
 
 
 	class Grid {
 	public:
-		friend Container;
-
 		Grid() = default;
 
-		Grid(Lot* parent):
+		Grid(const GridInfo& info, Lot* parent):
 			grid_lotIdGen(parent->parentGrid()->grid_lotIdGen),
 			grid_parent(std::move(parent))
 		{ }
@@ -335,20 +315,21 @@ inline namespace ui {
 		void setModified() noexcept;
 		void resetModified() noexcept { grid_isModified = false; }
 
-		ComputedBounds getRegionBounds(GridPosition, GridPosition) const noexcept;
+		virtual ComputedBounds grid_getRegionBounds(GridPosition, GridPosition) const noexcept;
 
 		virtual ComputedBounds grid_getBounds() const noexcept = 0;
 		virtual GridSize       grid_gridSize() const noexcept = 0;
 		virtual RelativeSize   grid_desiredTileSize(GridPosition) const noexcept = 0;
 
 	protected:
-		std::shared_ptr<idgen::IdGenerator<LotId>> grid_lotIdGen;
-		std::unordered_map<LotId, std::shared_ptr<Lot>> grid_lots;
-		Lot* grid_parent;
-		bool grid_isModified = false;
-
 		LotId grid_genId() noexcept { return grid_lotIdGen->generate(); }
 		LotId grid_recycleId() noexcept { return grid_lotIdGen->generate(); }
+
+		std::shared_ptr<idgen::IdGenerator<LotId>> grid_lotIdGen;
+		std::unordered_map<LotId, std::shared_ptr<Lot>> grid_lots;
+		GridInfo grid_info;
+		Lot*     grid_parent;
+		bool     grid_isModified = false;
 	};
 
 
@@ -371,7 +352,7 @@ inline namespace ui {
 		virtual GridSize grid_gridSize() const noexcept override { return basic_grid_size; }
 
 	private:
-		BasicGrid(Lot* parent, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
+		BasicGrid(const GridInfo&, Lot* parent, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
 
 		std::unique_ptr<float[]> basic_grid_rowSizes;
 		std::unique_ptr<float[]> basic_grid_colSizes;
@@ -399,12 +380,14 @@ inline namespace ui {
 		auto getElementSize()     const noexcept { return list_elemSize; }
 		auto getSubelementSizes() const noexcept { return std::span<float, std::dynamic_extent>(list_subelemSizes.get(), list_subelemCount); }
 
+		virtual ComputedBounds grid_getRegionBounds(GridPosition, GridPosition) const noexcept;
+
 		virtual ComputedBounds grid_getBounds() const noexcept override;
 		virtual RelativeSize grid_desiredTileSize(GridPosition) const noexcept override;
 		virtual GridSize grid_gridSize() const noexcept override;
 
 	private:
-		List(Lot* parent, ListDirection direction, float elemSize, init_list<float> subelementSizes = { });
+		List(const GridInfo&, Lot* parent, ListDirection, float elemSize, init_list<float> subelementSizes = { });
 
 		std::unique_ptr<float[]> list_subelemSizes;
 		float                    list_elemSize;

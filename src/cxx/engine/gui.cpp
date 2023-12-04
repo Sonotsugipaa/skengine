@@ -18,13 +18,6 @@ namespace SKENGINE_NAME_NS::gui {
 			return r;
 		}
 
-		const auto crosshairShape = std::make_shared<geom::Shape>(
-			std::vector<PolyVertex> {
-				{{ -1.0f, -1.0f,  0.0f }},
-				{{ -1.0f, +1.0f,  0.0f }},
-				{{ +1.0f, +1.0f,  0.0f }},
-				{{ +1.0f, -1.0f,  0.0f }} });
-
 	}
 
 
@@ -71,36 +64,28 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	Crosshair::Crosshair(VmaAllocator vma, float strokeLengthRelative, float strokeWidthPixels):
-			DrawablePolygon(true),
-			ch_vma(vma),
-			ch_strokeLength(strokeLengthRelative),
-			ch_strokeWidth(strokeWidthPixels)
-	{
-		auto& sh = shapes();
-		auto shapeInst0 = geom::ShapeInstance(crosshairShape, { { 0.8f, 0.8f, 0.8f, 1.0f }, glm::mat4(1.0f) });
-		auto shapeInst1 = geom::ShapeInstance(crosshairShape, { { 0.8f, 0.8f, 0.8f, 1.0f }, glm::mat4(1.0f) });
-		sh = geom::ShapeSet::create(vma, { std::move(shapeInst0), std::move(shapeInst1) });
-		auto modShape0 = sh.modifyShapeInstance(0);
-		auto modShape1 = sh.modifyShapeInstance(1);
-		modShape0.transform = glm::scale(glm::mat4(1.0f), { 1.0f, 0.1f, 1.0f });
-		modShape1.transform = glm::scale(glm::mat4(1.0f), { 0.1f, 1.0f, 1.0f });
-	}
-
-
-	Crosshair::~Crosshair() {
-		auto& sh = shapes();
-		if(sh) ShapeSet::destroy(ch_vma, sh);
-	}
-
-
-	ComputedBounds Crosshair::ui_elem_getBounds(const Lot& lot) const noexcept {
+	ComputedBounds DrawablePolygon::ui_elem_getBounds(const Lot& lot) const noexcept {
 		return lot.getBounds();
 	}
 
 
-	EventFeedback Crosshair::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
+	EventFeedback DrawablePolygon::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
 		return EventFeedback::ePropagateUpwards;
+	}
+
+
+	BasicElement::BasicElement(VmaAllocator vma, ShapeSet shapes, bool doFill):
+		DrawablePolygon(doFill),
+		basic_elem_vma(vma)
+	{
+		auto& sh = DrawablePolygon::shapes();
+		sh = DrawableShapeSet::create(vma, shapes);
+	}
+
+
+	BasicElement::~BasicElement() {
+		auto& sh = shapes();
+		if(sh) DrawableShapeSet::destroy(basic_elem_vma, sh);
 	}
 
 }

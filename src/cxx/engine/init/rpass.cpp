@@ -606,12 +606,24 @@ namespace SKENGINE_NAME_NS {
 			constexpr float chSize  = 0.03f;
 			constexpr float chBlank = (1.0f - chSize) / 2.0f;
 			mUiCanvas = ui::Canvas(
-				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
+				ComputedBounds { 0.0, 0.0, 0.5, 0.7 },
 				{ chBlank, chSize, chBlank },
 				{ chBlank, chSize, chBlank } );
-			auto ch = std::make_shared<gui::Crosshair>(mVma, 1.0f, 0.1f);
-			auto chLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
-			chLot.second->createElement(ch);
+			auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
+			mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
+			auto& subgrid = mUiCanvas.createLot({ 0, 1 }, { 2, 1 }).second->setChildBasicGrid({ }, { 0.25f, 0.25f, 0.25f, 0.25f }, { 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f });
+			auto makeDebugGrid = [this](ui::BasicGrid& grid, const glm::vec4& color) {
+				auto frame = std::make_shared<gui::Frame>(mVma, 0.02f, color);
+				ssize_t rows = grid.getRowSizes().size();
+				ssize_t cols = grid.getColumnSizes().size();
+				for(ssize_t row = 0; row < rows; ++row) {
+				for(ssize_t col = 0; col < cols; ++col) {
+					auto frLot = grid.createLot({ col, row }, { 1, 1 });
+					frLot.second->createElement(frame);
+				}}
+			};
+			makeDebugGrid(mUiCanvas, { 0.3f, 0.3f, 0.9f, 1.0f });
+			makeDebugGrid(subgrid,   { 0.3f, 0.9f, 0.3f, 1.0f });
 		}
 	}
 

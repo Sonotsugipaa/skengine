@@ -22,7 +22,7 @@ inline namespace ui {
 		lot_padding({ 0.0f, 0.0f, 0.0f, 0.0f }),
 		lot_transform(glm::mat3(1.0f)),
 		lot_parent(parentGrid),
-		lot_container(nullptr)
+		lot_child(nullptr)
 	{
 		lot_parent = parentGrid;
 		if(parentGrid == nullptr) {
@@ -50,7 +50,7 @@ inline namespace ui {
 		GridPosition br = lot_gridOffset;
 		br.row += lot_size.rows;
 		br.column += lot_size.columns;
-		return lot_parent->getRegionBounds(lot_gridOffset, br);
+		return lot_parent->grid_getRegionBounds(lot_gridOffset, br);
 	}
 
 
@@ -80,22 +80,22 @@ inline namespace ui {
 	}
 
 
-	BasicGrid& Lot::setBasicGrid(const Container::Info& info, init_list<float> rowSizes, init_list<float> columnSizes) {
-		auto* rp = new BasicGrid(this, rowSizes, columnSizes); // `unique_ptr` would complain about the inaccessible constructor
-		lot_container = std::make_shared<Container>(info, std::unique_ptr<BasicGrid>(rp));
+	BasicGrid& Lot::setChildBasicGrid(const GridInfo& info, init_list<float> rowSizes, init_list<float> columnSizes) {
+		auto* rp = new BasicGrid(info, this, rowSizes, columnSizes); // `unique_ptr` would complain about the inaccessible constructor
+		lot_child = SptrGrid(rp);
 		return *rp;
 	}
 
 
-	List& Lot::setList(const Container::Info& info, ListDirection direction, float elemSize, init_list<float> subelemSizes) {
-		auto* rp = new List(this, direction, elemSize, subelemSizes); // `unique_ptr` would complain about the inaccessible constructor
-		lot_container = std::make_shared<Container>(info, std::unique_ptr<List>(rp));
+	List& Lot::setChildList(const GridInfo& info, ListDirection direction, float elemSize, init_list<float> subelemSizes) {
+		auto* rp = new List(info, this, direction, elemSize, subelemSizes); // `unique_ptr` would complain about the inaccessible constructor
+		lot_child = SptrGrid(rp);
 		return *rp;
 	}
 
 
-	void Lot::setContainer(std::shared_ptr<Container> container) {
-		lot_container = std::move(container);
+	void Lot::setChildGrid(std::shared_ptr<Grid> container) {
+		lot_child = std::move(container);
 	}
 
 
@@ -132,7 +132,7 @@ inline namespace ui {
 	}
 
 
-	ComputedBounds Grid::getRegionBounds(GridPosition tl, GridPosition br) const noexcept {
+	ComputedBounds Grid::grid_getRegionBounds(GridPosition tl, GridPosition br) const noexcept {
 		ComputedBounds r;
 
 		// tl and br are not guaranteed to be the idiomatic top-left and bottom-right points
@@ -195,8 +195,8 @@ inline namespace ui {
 	}
 
 
-	BasicGrid::BasicGrid(Lot* parent, std::initializer_list<float> rows, std::initializer_list<float> cols):
-		Grid(std::move(parent)),
+	BasicGrid::BasicGrid(const GridInfo& info, Lot* parent, std::initializer_list<float> rows, std::initializer_list<float> cols):
+		Grid(info, std::move(parent)),
 		basic_grid_rowSizes(std::make_unique_for_overwrite<float[]>(rows.size())),
 		basic_grid_colSizes(std::make_unique_for_overwrite<float[]>(cols.size())),
 		basic_grid_size { .rows = rows.size(), .columns = cols.size() }
@@ -245,8 +245,8 @@ inline namespace ui {
 	}
 
 
-	List::List(Lot* parent, ListDirection direction, float elemSize, init_list<float> subelementSizes):
-		Grid(std::move(parent)),
+	List::List(const GridInfo& info, Lot* parent, ListDirection direction, float elemSize, init_list<float> subelementSizes):
+		Grid(info, std::move(parent)),
 		list_subelemSizes(std::make_unique_for_overwrite<float[]>(subelementSizes.size())),
 		list_elemSize(elemSize),
 		list_subelemCount(subelementSizes.size()),

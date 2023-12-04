@@ -64,20 +64,41 @@ inline namespace geom {
 	};
 
 
-	class ShapeInstance {
+	struct ShapeReference {
+		Shape::Sptr shape;
+		glm::vec4   color;
+		glm::mat4   transform;
+
+		ShapeReference() = default;
+
+		ShapeReference(Shape::Sptr shape, glm::vec4 color, glm::mat4 transform):
+			shape(std::move(shape)),
+			color(color),
+			transform(transform)
+		{ }
+	};
+
+
+	class ShapeSet : public std::vector<ShapeReference> {
 	public:
-		ShapeInstance() = default;
-		ShapeInstance(Shape::Sptr s, PolyInstance i): shape_i_shape(std::move(s)), shape_i_instance(std::move(i)) { }
+		using vector::vector;
+	};
 
-		const Shape& shape() const { return *shape_i_shape.get(); }
-		void setShape(Shape::Sptr newShape) { shape_i_shape = std::move(newShape); }
 
-		/* */ PolyInstance& instance()       { return shape_i_instance; }
-		const PolyInstance& instance() const { return shape_i_instance; }
+	class DrawableShapeInstance {
+	public:
+		DrawableShapeInstance() = default;
+		DrawableShapeInstance(Shape::Sptr s, PolyInstance i): dr_shape_i_shape(std::move(s)), dr_shape_i_instance(std::move(i)) { }
+
+		const Shape& shape() const { return *dr_shape_i_shape.get(); }
+		void setShape(Shape::Sptr newShape) { dr_shape_i_shape = std::move(newShape); }
+
+		/* */ PolyInstance& instance()       { return dr_shape_i_instance; }
+		const PolyInstance& instance() const { return dr_shape_i_instance; }
 
 	private:
-		Shape::Sptr  shape_i_shape;
-		PolyInstance shape_i_instance;
+		Shape::Sptr  dr_shape_i_shape;
+		PolyInstance dr_shape_i_instance;
 	};
 
 
@@ -87,26 +108,27 @@ inline namespace geom {
 	};
 
 
-	class ShapeSet {
+	class DrawableShapeSet {
 	public:
-		ShapeSet(): shape_set_state(0b000) { }
+		DrawableShapeSet(): dr_shape_set_state(0b000) { }
 
-		static ShapeSet create(VmaAllocator, std::vector<ShapeInstance>);
-		static void     destroy(VmaAllocator, ShapeSet&) noexcept;
+		static DrawableShapeSet create(VmaAllocator, std::vector<DrawableShapeInstance>);
+		static DrawableShapeSet create(VmaAllocator, ShapeSet);
+		static void     destroy(VmaAllocator, DrawableShapeSet&) noexcept;
 
 		void forceNextCommit() noexcept;
-		void commitVkBuffers(VmaAllocator vma) { if(0 == (shape_set_state & 0b001)) [[unlikely]] shape_set_commitBuffers(vma); }
+		void commitVkBuffers(VmaAllocator vma) { if(0 == (dr_shape_set_state & 0b001)) [[unlikely]] dr_shape_set_commitBuffers(vma); }
 
 		ModifiableShapeInstance modifyShapeInstance(unsigned index) noexcept;
 
-		operator bool()  { return State(shape_set_state) != State::eUnitialized; }
-		bool operator!() { return State(shape_set_state) == State::eUnitialized; }
+		operator bool()  { return State(dr_shape_set_state) != State::eUnitialized; }
+		bool operator!() { return State(dr_shape_set_state) == State::eUnitialized; }
 
-		vkutil::Buffer& vertexBuffer       () noexcept { return shape_set_vtxBuffer; }
-		vkutil::Buffer& drawIndirectBuffer () noexcept { return shape_set_drawBuffer; }
-		unsigned instanceCount () const noexcept { return shape_set_instanceCount; }
-		unsigned vertexCount   () const noexcept { return shape_set_vertexCount; }
-		unsigned drawCmdCount  () const noexcept { return shape_set_drawCount; }
+		vkutil::Buffer& vertexBuffer       () noexcept { return dr_shape_set_vtxBuffer; }
+		vkutil::Buffer& drawIndirectBuffer () noexcept { return dr_shape_set_drawBuffer; }
+		unsigned instanceCount () const noexcept { return dr_shape_set_instanceCount; }
+		unsigned vertexCount   () const noexcept { return dr_shape_set_vertexCount; }
+		unsigned drawCmdCount  () const noexcept { return dr_shape_set_drawCount; }
 
 	private:
 		enum class State : unsigned {
@@ -119,18 +141,18 @@ inline namespace geom {
 			eUpToDate    = 0b111
 		};
 
-		ShapeSet(State state): shape_set_state(unsigned(state)) { }
+		DrawableShapeSet(State state): dr_shape_set_state(unsigned(state)) { }
 
-		void shape_set_commitBuffers(VmaAllocator);
+		void dr_shape_set_commitBuffers(VmaAllocator);
 
-		std::vector<ShapeInstance> shape_set_shapes;
-		vkutil::Buffer shape_set_vtxBuffer;  // [  instances  ][  vertices          ]
-		vkutil::Buffer shape_set_drawBuffer; // [  draw_cmds         ]
-		void*    shape_set_vtxPtr;
-		unsigned shape_set_instanceCount;
-		unsigned shape_set_vertexCount;
-		unsigned shape_set_drawCount;
-		unsigned shape_set_state;
+		std::vector<DrawableShapeInstance> dr_shape_set_shapes;
+		vkutil::Buffer dr_shape_set_vtxBuffer;  // [  instances  ][  vertices          ]
+		vkutil::Buffer dr_shape_set_drawBuffer; // [  draw_cmds         ]
+		void*    dr_shape_set_vtxPtr;
+		unsigned dr_shape_set_instanceCount;
+		unsigned dr_shape_set_vertexCount;
+		unsigned dr_shape_set_drawCount;
+		unsigned dr_shape_set_state;
 	};
 
 }}

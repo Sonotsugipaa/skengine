@@ -38,26 +38,46 @@ namespace SKENGINE_NAME_NS {
 			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
+			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
+			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
+
 			auto& shapes() noexcept { return dpoly_shapeSet; }
 
 		private:
-			geom::ShapeSet dpoly_shapeSet;
+			geom::DrawableShapeSet dpoly_shapeSet;
 			bool dpoly_doFill;
 		};
 
 
-		class Crosshair : public DrawablePolygon {
+		class BasicElement : public DrawablePolygon {
 		public:
-			Crosshair(VmaAllocator, float strokeLengthRelative, float strokeWidthPixels);
-			~Crosshair();
+			BasicElement(VmaAllocator, ShapeSet, bool doFill);
+			~BasicElement();
 
-			ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
-			EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
+		protected:
+			VmaAllocator vma() noexcept { return basic_elem_vma; }
 
 		private:
-			VmaAllocator ch_vma;
-			float ch_strokeLength;
-			float ch_strokeWidth;
+			VmaAllocator basic_elem_vma;
+		};
+
+
+		class Cross : public BasicElement {
+		public:
+			Cross(VmaAllocator, float strokeLength, float strokeWidth, const glm::vec4& color);
+
+		private:
+			float cross_strokeLength;
+			float cross_strokeWidth;
+		};
+
+
+		class Frame : public BasicElement {
+		public:
+			Frame(VmaAllocator, float strokeWidth, const glm::vec4& color);
+
+		private:
+			float frame_strokeWidth;
 		};
 
 	}

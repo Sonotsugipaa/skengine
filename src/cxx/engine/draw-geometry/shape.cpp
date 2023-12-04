@@ -34,7 +34,7 @@ namespace {
 	};
 
 
-	InputData sortInputData(std::span<const ShapeInstance> shapes) {
+	InputData sortInputData(std::span<const DrawableShapeInstance> shapes) {
 		using ShapeInstMap   = std::unordered_map<const Shape*, std::vector<const PolyInstance*>>;
 		using ShapeOffsetMap = std::unordered_map<const Shape*, unsigned>;
 
@@ -99,7 +99,7 @@ namespace {
 			unsigned* dstInstanceCount,
 			unsigned* dstVertexCount,
 			unsigned* dstDrawCmdCount,
-			std::span<const ShapeInstance> shapes
+			std::span<const DrawableShapeInstance> shapes
 	) {
 		assert(! shapes.empty());
 
@@ -146,69 +146,83 @@ inline namespace geom {
 	{ }
 
 
-	ShapeSet ShapeSet::create(VmaAllocator vma, std::vector<ShapeInstance> shapes) {
+	DrawableShapeSet DrawableShapeSet::create(VmaAllocator vma, std::vector<DrawableShapeInstance> shapes) {
 		if(shapes.empty()) {
-			return ShapeSet(State::eEmpty);
+			return DrawableShapeSet(State::eEmpty);
 		}
 
-		ShapeSet r = State::eOutOfDate;
-		r.shape_set_shapes = std::move(shapes);
+		DrawableShapeSet r = State::eOutOfDate;
+		r.dr_shape_set_shapes = std::move(shapes);
 		shape_impl::createBuffers(
 			vma,
-			&r.shape_set_vtxBuffer, &r.shape_set_drawBuffer,
-			&r.shape_set_vtxPtr,
-			&r.shape_set_instanceCount,
-			&r.shape_set_vertexCount,
-			&r.shape_set_drawCount,
-			std::span<ShapeInstance>(r.shape_set_shapes.begin(), r.shape_set_shapes.end()) );
+			&r.dr_shape_set_vtxBuffer, &r.dr_shape_set_drawBuffer,
+			&r.dr_shape_set_vtxPtr,
+			&r.dr_shape_set_instanceCount,
+			&r.dr_shape_set_vertexCount,
+			&r.dr_shape_set_drawCount,
+			std::span<DrawableShapeInstance>(r.dr_shape_set_shapes.begin(), r.dr_shape_set_shapes.end()) );
 		return r;
 	}
 
 
-	void ShapeSet::destroy(VmaAllocator vma, ShapeSet& shapes) noexcept {
-		if(shapes.shape_set_state & 0b010 /* 0b010 = needs destruction */) {
-			vmaUnmapMemory(vma, shapes.shape_set_vtxBuffer);
-			vkutil::Buffer::destroy(vma, shapes.shape_set_vtxBuffer);
-			vkutil::Buffer::destroy(vma, shapes.shape_set_drawBuffer);
+	DrawableShapeSet DrawableShapeSet::create(VmaAllocator vma, ShapeSet shapes) {
+		auto shapeInstances = std::vector<DrawableShapeInstance>();
+		shapeInstances.reserve(shapes.size());
+		for(auto& shape : shapes) {
+			shapeInstances.push_back(DrawableShapeInstance(
+				std::move(shape.shape),
+				PolyInstance {
+					.color     = shape.color,
+					.transform = shape.transform } ));
 		}
-		shapes.shape_set_shapes.clear();
-		shapes.shape_set_state = unsigned(State::eUnitialized);
+		return create(vma, std::move(shapeInstances));
 	}
 
 
-	void ShapeSet::forceNextCommit() noexcept {
-		switch(State(shape_set_state)) {
+	void DrawableShapeSet::destroy(VmaAllocator vma, DrawableShapeSet& shapes) noexcept {
+		if(shapes.dr_shape_set_state & 0b010 /* 0b010 = needs destruction */) {
+			vmaUnmapMemory(vma, shapes.dr_shape_set_vtxBuffer);
+			vkutil::Buffer::destroy(vma, shapes.dr_shape_set_vtxBuffer);
+			vkutil::Buffer::destroy(vma, shapes.dr_shape_set_drawBuffer);
+		}
+		shapes.dr_shape_set_shapes.clear();
+		shapes.dr_shape_set_state = unsigned(State::eUnitialized);
+	}
+
+
+	void DrawableShapeSet::forceNextCommit() noexcept {
+		switch(State(dr_shape_set_state)) {
 			#ifndef NDEBUG
 				default:
 			#endif
 			case State::eUnitialized: std::unreachable(); break;
 			case State::eOutOfDate:   [[fallthrough]];
 			case State::eEmpty:       /* NOP */ break;
-			case State::eUpToDate:    shape_set_state = unsigned(State::eOutOfDate);
+			case State::eUpToDate:    dr_shape_set_state = unsigned(State::eOutOfDate);
 		}
 	}
 
 
-	ModifiableShapeInstance ShapeSet::modifyShapeInstance(unsigned i) noexcept {
-		assert(shape_set_state & 0b100 /* 0b100 = is initialized */);
-		ShapeSet::forceNextCommit();
-		auto ptr = shape_impl::bufferInstancesPtr(shape_set_vtxPtr) + i;
+	ModifiableShapeInstance DrawableShapeSet::modifyShapeInstance(unsigned i) noexcept {
+		assert(dr_shape_set_state & 0b100 /* 0b100 = is initialized */);
+		DrawableShapeSet::forceNextCommit();
+		auto ptr = shape_impl::bufferInstancesPtr(dr_shape_set_vtxPtr) + i;
 		return { ptr->color, ptr->transform };
 	}
 
 
-	void ShapeSet::shape_set_commitBuffers(VmaAllocator vma) {
-		VkDeviceSize instanceBytes = shape_set_instanceCount * sizeof(PolyInstance);
-		VkDeviceSize vertexBytes   = shape_set_vertexCount * sizeof(PolyVertex);
-		VkDeviceSize drawCmdBytes  = shape_set_drawCount * sizeof(VkDrawIndirectCommand);
-		VK_CHECK(vmaFlushAllocation, vma, shape_set_vtxBuffer, 0, instanceBytes + vertexBytes);
-		VK_CHECK(vmaFlushAllocation, vma, shape_set_drawBuffer, 0, drawCmdBytes);
-		switch(State(shape_set_state)) {
+	void DrawableShapeSet::dr_shape_set_commitBuffers(VmaAllocator vma) {
+		VkDeviceSize instanceBytes = dr_shape_set_instanceCount * sizeof(PolyInstance);
+		VkDeviceSize vertexBytes   = dr_shape_set_vertexCount * sizeof(PolyVertex);
+		VkDeviceSize drawCmdBytes  = dr_shape_set_drawCount * sizeof(VkDrawIndirectCommand);
+		VK_CHECK(vmaFlushAllocation, vma, dr_shape_set_vtxBuffer, 0, instanceBytes + vertexBytes);
+		VK_CHECK(vmaFlushAllocation, vma, dr_shape_set_drawBuffer, 0, drawCmdBytes);
+		switch(State(dr_shape_set_state)) {
 			#ifndef NDEBUG
 				default:
 			#endif
 			case State::eUnitialized: std::unreachable(); break;
-			case State::eOutOfDate:   shape_set_state = unsigned(State::eUpToDate); break;
+			case State::eOutOfDate:   dr_shape_set_state = unsigned(State::eUpToDate); break;
 			case State::eEmpty:       [[fallthrough]];
 			case State::eUpToDate:    /* NOP */ break;
 		}
