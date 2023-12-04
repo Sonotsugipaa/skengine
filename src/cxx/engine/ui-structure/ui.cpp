@@ -39,10 +39,10 @@ inline namespace ui {
 	}
 
 
-	RelativeSize Lot::getDesiredTileSize(GridPosition pos) const noexcept {
+	RelativeSize Lot::getTileSize(GridPosition pos) const noexcept {
 		pos.row    += lot_gridOffset.row;
 		pos.column += lot_gridOffset.column;
-		return lot_parent->grid_desiredTileSize(pos);
+		return lot_parent->grid_getTileSize(pos);
 	}
 
 
@@ -50,7 +50,14 @@ inline namespace ui {
 		GridPosition br = lot_gridOffset;
 		br.row += lot_size.rows;
 		br.column += lot_size.columns;
-		return lot_parent->grid_getRegionBounds(lot_gridOffset, br);
+		auto relBounds = lot_parent->grid_getRegionRelativeBounds(lot_gridOffset, br);
+		auto parentBounds = lot_parent->grid_getBounds();
+		ComputedBounds r;
+		r.viewportOffsetLeft = parentBounds.viewportOffsetLeft + (relBounds.left * parentBounds.viewportWidth);
+		r.viewportOffsetTop  = parentBounds.viewportOffsetTop  + (relBounds.top  * parentBounds.viewportHeight);
+		r.viewportWidth  = relBounds.width  * parentBounds.viewportWidth;
+		r.viewportHeight = relBounds.height * parentBounds.viewportHeight;
+		return r;
 	}
 
 
@@ -132,8 +139,8 @@ inline namespace ui {
 	}
 
 
-	ComputedBounds Grid::grid_getRegionBounds(GridPosition tl, GridPosition br) const noexcept {
-		ComputedBounds r;
+	RelativeBounds Grid::grid_getRegionRelativeBounds(GridPosition tl, GridPosition br) const noexcept {
+		RelativeBounds r;
 
 		// tl and br are not guaranteed to be the idiomatic top-left and bottom-right points
 		if(tl.row    > br.row   ) [[unlikely]] std::swap(tl.row,    br.row   );
@@ -144,9 +151,8 @@ inline namespace ui {
 			// This function assumes the two parameters are in increasing order
 			grid_coord_t lowerBound = std::min(rectTl.row, rectTl.column);
 			grid_coord_t upperBound = std::max(rectBr.row, rectBr.column);
-			grid_coord_t i = lowerBound;
-			for(; i < upperBound; ++i) {
-				auto tile = grid_desiredTileSize({ i, i });
+			for(grid_coord_t i = lowerBound; i <= upperBound; ++i) {
+				auto tile = grid_getTileSize({ i, i });
 				if(i >= rectTl.row    && i < rectBr.row   ) r.height += tile.height;
 				if(i >= rectTl.column && i < rectBr.column) r.width  += tile.width;
 			}
@@ -154,11 +160,11 @@ inline namespace ui {
 		};
 
 		auto rect = measureRect({ 0, 0 }, { tl.row, tl.column });
-		r.viewportOffsetLeft = rect.width;
-		r.viewportOffsetTop  = rect.height;
+		r.left = rect.width;
+		r.top  = rect.height;
 		rect = measureRect({ tl.row, tl.column }, { br.row, br.column });
-		r.viewportWidth  = rect.width;
-		r.viewportHeight = rect.height;
+		r.width  = rect.width;
+		r.height = rect.height;
 
 		return r;
 	}
@@ -185,7 +191,7 @@ inline namespace ui {
 	}
 
 
-	RelativeSize BasicGrid::grid_desiredTileSize(GridPosition pos) const noexcept {
+	RelativeSize BasicGrid::grid_getTileSize(GridPosition pos) const noexcept {
 		pos.row    = std::clamp<grid_coord_t>(pos.row,    0, std::max<grid_coord_t>(0, grid_coord_t(basic_grid_size.rows   ) - 1));
 		pos.column = std::clamp<grid_coord_t>(pos.column, 0, std::max<grid_coord_t>(0, grid_coord_t(basic_grid_size.columns) - 1));
 		RelativeSize r;
@@ -212,6 +218,23 @@ inline namespace ui {
 	}
 
 
+	RelativeBounds List::grid_getRegionRelativeBounds(GridPosition tl, GridPosition br) const noexcept {
+		GridPosition p0 = tl;
+		GridPosition p1 = br;
+		RelativeBounds r;
+		if(list_direction == ListDirection::eVertical) {
+			p0.row = p1.row = 0;
+			r = Grid::grid_getRegionRelativeBounds(p0, p1);
+			r.height = float(std::abs(tl.row - br.row));
+		} else {
+			p0.column = p1.column = 0;
+			r = Grid::grid_getRegionRelativeBounds(p0, p1);
+			r.width = float(std::abs(tl.column - br.column));
+		}
+		return r;
+	}
+
+
 	ComputedBounds List::grid_getBounds() const noexcept {
 		auto parent = parentLot();
 		assert(parent);
@@ -219,7 +242,7 @@ inline namespace ui {
 	}
 
 
-	RelativeSize List::grid_desiredTileSize(GridPosition pos) const noexcept {
+	RelativeSize List::grid_getTileSize(GridPosition pos) const noexcept {
 		// Assume the list is vertical
 		pos.column = std::clamp<grid_coord_t>(pos.column, 0, list_subelemCount);
 		RelativeSize r;

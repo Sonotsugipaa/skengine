@@ -5,7 +5,6 @@ add_executable(sketch-sim
 	main.cpp )
 
 target_link_libraries(sketch-sim
-	ui
 	posixfio
 	engine
 	engine-util

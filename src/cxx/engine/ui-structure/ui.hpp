@@ -259,7 +259,7 @@ inline namespace ui {
 		const glm::mat3& transform() const noexcept { return lot_transform; }
 		void             transform(const glm::mat3& v) noexcept { lot_transform = v; }
 
-		RelativeSize   getDesiredTileSize(GridPosition) const noexcept;
+		RelativeSize   getTileSize(GridPosition) const noexcept;
 		ComputedBounds getBounds() const noexcept;
 
 		auto                parentGrid()             noexcept { return lot_parent; }
@@ -298,6 +298,7 @@ inline namespace ui {
 
 		Grid(const GridInfo& info, Lot* parent):
 			grid_lotIdGen(parent->parentGrid()->grid_lotIdGen),
+			grid_info(info),
 			grid_parent(std::move(parent))
 		{ }
 
@@ -315,11 +316,11 @@ inline namespace ui {
 		void setModified() noexcept;
 		void resetModified() noexcept { grid_isModified = false; }
 
-		virtual ComputedBounds grid_getRegionBounds(GridPosition, GridPosition) const noexcept;
+		virtual RelativeBounds grid_getRegionRelativeBounds(GridPosition, GridPosition) const noexcept;
 
 		virtual ComputedBounds grid_getBounds() const noexcept = 0;
 		virtual GridSize       grid_gridSize() const noexcept = 0;
-		virtual RelativeSize   grid_desiredTileSize(GridPosition) const noexcept = 0;
+		virtual RelativeSize   grid_getTileSize(GridPosition) const noexcept = 0;
 
 	protected:
 		LotId grid_genId() noexcept { return grid_lotIdGen->generate(); }
@@ -348,7 +349,7 @@ inline namespace ui {
 		auto getColumnSizes() const noexcept { return std::span<float, std::dynamic_extent>(basic_grid_colSizes.get(), basic_grid_size.columns); }
 
 		virtual ComputedBounds grid_getBounds() const noexcept override;
-		virtual RelativeSize grid_desiredTileSize(GridPosition) const noexcept override;
+		virtual RelativeSize grid_getTileSize(GridPosition) const noexcept override;
 		virtual GridSize grid_gridSize() const noexcept override { return basic_grid_size; }
 
 	private:
@@ -380,10 +381,10 @@ inline namespace ui {
 		auto getElementSize()     const noexcept { return list_elemSize; }
 		auto getSubelementSizes() const noexcept { return std::span<float, std::dynamic_extent>(list_subelemSizes.get(), list_subelemCount); }
 
-		virtual ComputedBounds grid_getRegionBounds(GridPosition, GridPosition) const noexcept;
+		virtual RelativeBounds grid_getRegionRelativeBounds(GridPosition, GridPosition) const noexcept override;
 
 		virtual ComputedBounds grid_getBounds() const noexcept override;
-		virtual RelativeSize grid_desiredTileSize(GridPosition) const noexcept override;
+		virtual RelativeSize grid_getTileSize(GridPosition) const noexcept override;
 		virtual GridSize grid_gridSize() const noexcept override;
 
 	private:

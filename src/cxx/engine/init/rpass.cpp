@@ -11,7 +11,7 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <ui/ui.hpp>
+#include <ui-structure/ui.hpp>
 
 
 
@@ -527,7 +527,7 @@ namespace SKENGINE_NAME_NS {
 				atch_descs[DEPTH].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 				atch_descs[DEPTH].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
 				atch_descs[DEPTH].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-				atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 				atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			}
 
@@ -603,27 +603,34 @@ namespace SKENGINE_NAME_NS {
 			gpsci.pipelineCache = mPipelineCache;
 			mGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
 
-			constexpr float chSize  = 0.03f;
-			constexpr float chBlank = (1.0f - chSize) / 2.0f;
+			constexpr float chSize  = 0.03;
+			constexpr float chBlank = (1.0 - chSize) / 2.0;
 			mUiCanvas = ui::Canvas(
-				ComputedBounds { 0.0, 0.0, 0.5, 0.7 },
+				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
 				{ chBlank, chSize, chBlank },
 				{ chBlank, chSize, chBlank } );
 			auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
 			mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
-			auto& subgrid = mUiCanvas.createLot({ 0, 1 }, { 2, 1 }).second->setChildBasicGrid({ }, { 0.25f, 0.25f, 0.25f, 0.25f }, { 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f });
-			auto makeDebugGrid = [this](ui::BasicGrid& grid, const glm::vec4& color) {
-				auto frame = std::make_shared<gui::Frame>(mVma, 0.02f, color);
-				ssize_t rows = grid.getRowSizes().size();
-				ssize_t cols = grid.getColumnSizes().size();
-				for(ssize_t row = 0; row < rows; ++row) {
-				for(ssize_t col = 0; col < cols; ++col) {
-					auto frLot = grid.createLot({ col, row }, { 1, 1 });
+			#define W (1.0f/3.0f)
+			#define H (1.0f/5.0f)
+			auto& subgrid0 = mUiCanvas.createLot({ 1, 0 }, { 2, 1 }).second->setChildBasicGrid({ },
+					{ W, W, W }, { H, H, H, H, H } );
+			auto& subgrid1 = mUiCanvas.createLot({ 0, 0 }, { 1, 2 }).second->setChildBasicGrid({ },
+					{ H, H, H, H, H }, { W, W, W } );
+			#undef H
+			#undef W
+			auto makeDebugGridView = [this](ui::BasicGrid& grid, const glm::vec4& color) {
+				auto frame = std::make_shared<gui::Frame>(mVma, 0.04f, color);
+				size_t rows = grid.getRowSizes().size();
+				size_t cols = grid.getColumnSizes().size();
+				for(size_t row = 0; row < rows; ++row)
+				for(size_t col = 0; col < cols; ++col) {
+					auto frLot = grid.createLot({ ssize_t(row), ssize_t(col) }, { 1, 1 });
 					frLot.second->createElement(frame);
-				}}
+				}
 			};
-			makeDebugGrid(mUiCanvas, { 0.3f, 0.3f, 0.9f, 1.0f });
-			makeDebugGrid(subgrid,   { 0.3f, 0.9f, 0.3f, 1.0f });
+			makeDebugGridView(subgrid0, { 0.3f, 0.9f, 0.3f, 1.0f });
+			makeDebugGridView(subgrid1, { 0.9f, 0.3f, 0.3f, 1.0f });
 		}
 	}
 

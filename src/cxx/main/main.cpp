@@ -3,7 +3,6 @@
 
 #include <engine/engine.hpp>
 #include <engine-util/basic_asset_source.hpp>
-#include <ui/ui.hpp>
 
 #include <spdlog/spdlog.h>
 

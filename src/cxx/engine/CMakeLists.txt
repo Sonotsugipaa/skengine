@@ -7,6 +7,7 @@ find_package(SDL2)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(shader-compiler)
 add_subdirectory(draw-geometry)
+add_subdirectory(ui-structure)
 
 add_library(engine
 	init/device.cpp
@@ -26,7 +27,7 @@ add_library(engine
 target_link_libraries(engine
 	fmamdl
 	idgen
-	ui
+	ui-structure
 	posixfio
 	tick-regulator
 	vk-util

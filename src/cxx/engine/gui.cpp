@@ -30,7 +30,7 @@ namespace SKENGINE_NAME_NS::gui {
 
 	void DrawablePolygon::ui_elem_draw(LotId, Lot& lot, ui::DrawContext& uiCtx) {
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
-		auto  cbounds = lot.getBounds();
+		auto  cbounds = ui_elem_getBounds(lot);
 
 		auto& cmd    = guiCtx.drawCmdBuffer;
 		auto& extent = guiCtx.engine->getPresentExtent();
@@ -39,16 +39,16 @@ namespace SKENGINE_NAME_NS::gui {
 
 		{
 			VkViewport viewport = { }; {
-				viewport.x      = cbounds.viewportOffsetLeft * xfExtent;
-				viewport.y      = cbounds.viewportOffsetTop  * yfExtent;
-				viewport.width  = cbounds.viewportWidth      * xfExtent;
-				viewport.height = cbounds.viewportHeight     * yfExtent;
+				viewport.x      = std::floor(cbounds.viewportOffsetLeft * xfExtent);
+				viewport.y      = std::floor(cbounds.viewportOffsetTop  * yfExtent);
+				viewport.width  = std::ceil (cbounds.viewportWidth      * xfExtent);
+				viewport.height = std::ceil (cbounds.viewportHeight     * yfExtent);
 				viewport.minDepth = 0.0f;
 				viewport.maxDepth = 1.0f;
 			}
 
 			VkRect2D scissor = { }; {
-				scissor.offset = { int32_t(viewport.x),      int32_t(viewport.y) };
+				scissor.offset = {  int32_t(viewport.x),      int32_t(viewport.y) };
 				scissor.extent = { uint32_t(viewport.width), uint32_t(viewport.height) };
 			}
 
