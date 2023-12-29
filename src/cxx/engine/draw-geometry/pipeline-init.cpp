@@ -23,47 +23,95 @@ inline namespace geom {
 		VkPolygonMode       polyMode;
 		VkShaderModule      vertexShader;
 		VkShaderModule      fragmentShader;
-		VkPipeline       basePipeline;
+		VkPipeline basePipeline;
 	};
 
 
-	VkPipeline createPipeline(VkDevice dev, const PipelineCreateInfo& pci) {
-		VkPipeline pipeline;
+	template <typename T>
+	struct ArrayRef {
+		size_t size;
+		const T* data;
 
-		VkVertexInputAttributeDescription vtx_attr[6];
-		VkVertexInputBindingDescription   vtx_bind[2];
-		{ // Hard-coded input descriptions and bindings
+		template <size_t N>
+		consteval ArrayRef(const std::array<T, N>& src): size(N), data(src.data()) { }
+	};
+
+
+	template <PipelineType pl_type> constexpr ArrayRef<VkVertexInputAttributeDescription> vtxAttribs;
+
+	#define ATTRIB_(DST_, I_, B_, F_, L_, O_) { \
+		static_assert(I_ < std::size(DST_)); \
+		DST_[I_].binding  = B_; \
+		DST_[I_].format   = F_; \
+		DST_[I_].location = L_; \
+		DST_[I_].offset   = O_; }
+
+	template <> constexpr ArrayRef<VkVertexInputAttributeDescription> vtxAttribs<PipelineType::ePoly> = []() {
+		using Array = std::array<VkVertexInputAttributeDescription, 6>;
+		static constexpr Array r = []() {
+			Array r = { };
 			constexpr size_t V_POS  = 0;
 			constexpr size_t I_COL  = 1;
 			constexpr size_t I_TRNX = 2;
 			constexpr size_t I_TRNY = 3;
 			constexpr size_t I_TRNZ = 4;
 			constexpr size_t I_TRNW = 5;
-			#define ATTRIB_(I_, B_, F_, L_, O_) { \
-				static_assert(I_ < std::size(vtx_attr)); \
-				vtx_attr[I_].binding  = B_; \
-				vtx_attr[I_].format   = F_; \
-				vtx_attr[I_].location = L_; \
-				vtx_attr[I_].offset   = O_; }
-			ATTRIB_(V_POS,  0, VK_FORMAT_R32G32B32_SFLOAT,    V_POS,  offsetof(PolyVertex,   position))
-			ATTRIB_(I_COL,  1, VK_FORMAT_R32G32B32A32_SFLOAT, I_COL,  offsetof(PolyInstance, color))
-			ATTRIB_(I_TRNX, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNX, offsetof(PolyInstance, transform) + (0 * sizeof(glm::vec4)))
-			ATTRIB_(I_TRNY, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNY, offsetof(PolyInstance, transform) + (1 * sizeof(glm::vec4)))
-			ATTRIB_(I_TRNZ, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNZ, offsetof(PolyInstance, transform) + (2 * sizeof(glm::vec4)))
-			ATTRIB_(I_TRNW, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNW, offsetof(PolyInstance, transform) + (3 * sizeof(glm::vec4)))
-			#undef ATTRIB_
+			ATTRIB_(r, V_POS,  0, VK_FORMAT_R32G32B32_SFLOAT,    V_POS,  offsetof(PolyVertex,     position))
+			ATTRIB_(r, I_COL,  1, VK_FORMAT_R32G32B32A32_SFLOAT, I_COL,  offsetof(geom::Instance, color))
+			ATTRIB_(r, I_TRNX, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNX, offsetof(geom::Instance, transform) + (0 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNY, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNY, offsetof(geom::Instance, transform) + (1 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNZ, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNZ, offsetof(geom::Instance, transform) + (2 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNW, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNW, offsetof(geom::Instance, transform) + (3 * sizeof(glm::vec4)))
+			return r;
+		} ();
+		return ArrayRef<VkVertexInputAttributeDescription>(r);
+	} ();
+
+	template <> constexpr ArrayRef<VkVertexInputAttributeDescription> vtxAttribs<PipelineType::eText> = []() {
+		using Array = std::array<VkVertexInputAttributeDescription, 7>;
+		static constexpr Array r = []() {
+			Array r = { };
+			constexpr size_t V_POS  = 0;
+			constexpr size_t V_TEX  = 1;
+			constexpr size_t I_COL  = 2;
+			constexpr size_t I_TRNX = 3;
+			constexpr size_t I_TRNY = 4;
+			constexpr size_t I_TRNZ = 5;
+			constexpr size_t I_TRNW = 6;
+			ATTRIB_(r, V_POS,  0, VK_FORMAT_R32G32B32_SFLOAT,    V_POS,  offsetof(TextVertex,     position))
+			ATTRIB_(r, V_TEX,  0, VK_FORMAT_R32G32_SFLOAT,       V_TEX,  offsetof(TextVertex,     uv))
+			ATTRIB_(r, I_COL,  1, VK_FORMAT_R32G32B32A32_SFLOAT, I_COL,  offsetof(geom::Instance, color))
+			ATTRIB_(r, I_TRNX, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNX, offsetof(geom::Instance, transform) + (0 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNY, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNY, offsetof(geom::Instance, transform) + (1 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNZ, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNZ, offsetof(geom::Instance, transform) + (2 * sizeof(glm::vec4)))
+			ATTRIB_(r, I_TRNW, 1, VK_FORMAT_R32G32B32A32_SFLOAT, I_TRNW, offsetof(geom::Instance, transform) + (3 * sizeof(glm::vec4)))
+			return r;
+		} ();
+		return ArrayRef<VkVertexInputAttributeDescription>(r);
+	} ();
+
+	#undef ATTRIB_
+
+
+	template <PipelineType pl_type>
+	VkPipeline createPipeline(VkDevice dev, const PipelineCreateInfo& pci) {
+		VkPipeline pipeline;
+
+		constexpr ArrayRef vtx_attr = vtxAttribs<pl_type>;
+
+		VkVertexInputBindingDescription   vtx_bind[2]; {
 			vtx_bind[0].binding   = 0;
 			vtx_bind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-			vtx_bind[0].stride    = sizeof(PolyVertex);
+			vtx_bind[0].stride    = sizeof(geom::Vertex);
 			vtx_bind[1].binding   = 1;
 			vtx_bind[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-			vtx_bind[1].stride    = sizeof(PolyInstance);
+			vtx_bind[1].stride    = sizeof(geom::Instance);
 		}
 
 		VkPipelineVertexInputStateCreateInfo vi = { }; {
 			vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-			vi.vertexAttributeDescriptionCount = std::size(vtx_attr);
-			vi.pVertexAttributeDescriptions    = vtx_attr;
+			vi.vertexAttributeDescriptionCount = vtx_attr.size;
+			vi.pVertexAttributeDescriptions    = vtx_attr.data;
 			vi.vertexBindingDescriptionCount = std::size(vtx_bind);
 			vi.pVertexBindingDescriptions    = vtx_bind;
 		}
@@ -174,16 +222,17 @@ inline namespace geom {
 
 	PipelineSet PipelineSet::create(
 			VkDevice dev,
-			std::span<VkDescriptorSetLayout> dsetLayouts,
-			const PipelineSetCreateInfo&     psci
+			const PipelineSetCreateInfo& psci
 	) {
 		PipelineSet r;
+
+		assert(psci.polyDsetLayout == nullptr && "polygon pipelines do not use descriptors (yet?)");
 
 		{ // Pipeline layout
 			VkPipelineLayoutCreateInfo plcInfo = { };
 			plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			plcInfo.setLayoutCount = dsetLayouts.size();
-			plcInfo.pSetLayouts    = dsetLayouts.data();
+			plcInfo.setLayoutCount = 1;
+			plcInfo.pSetLayouts    = &psci.textDsetLayout;
 			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.layout);
 		}
 
@@ -191,10 +240,14 @@ inline namespace geom {
 		#define COMPILE_(NAME_, SRC_, KIND_) ShaderCompiler::glslSourceToModule(dev, NAME_, SRC_, shaderc_ ## KIND_ ## _shader)
 		auto polyVtxModule = COMPILE_("geom:poly.vtx", polyVtxSrc, vertex);
 		auto polyFrgModule = COMPILE_("geom:poly.frg", polyFrgSrc, fragment);
+		auto textVtxModule = COMPILE_("geom:text.vtx", textVtxSrc, vertex);
+		auto textFrgModule = COMPILE_("geom:text.frg", textFrgSrc, fragment);
 		#undef COMPILE_
 		auto destroyShaderModules = [&]() {
 			vkDestroyShaderModule(dev, polyVtxModule, nullptr);
 			vkDestroyShaderModule(dev, polyFrgModule, nullptr);
+			vkDestroyShaderModule(dev, textVtxModule, nullptr);
+			vkDestroyShaderModule(dev, textFrgModule, nullptr);
 		};
 
 		std::vector<VkPipeline> pipelines;
@@ -204,16 +257,21 @@ inline namespace geom {
 			pci.subpass        = psci.subpass;
 			pci.pipelineCache  = psci.pipelineCache;
 			pci.pipelineLayout = r.layout;
-
 			pci.vertexShader   = polyVtxModule;
 			pci.fragmentShader = polyFrgModule;
 			pci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
 			pci.polyMode = VK_POLYGON_MODE_FILL;
-			pipelines.push_back(r.polyFill = createPipeline(dev, pci));
+			pipelines.push_back(r.polyFill = createPipeline<PipelineType::ePoly>(dev, pci));
 			pci.basePipeline = r.polyFill;
 			pci.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
 			pci.polyMode = VK_POLYGON_MODE_LINE;
-			pipelines.push_back(r.polyLine = createPipeline(dev, pci));
+			pipelines.push_back(r.polyLine = createPipeline<PipelineType::ePoly>(dev, pci));
+			pci.basePipeline = r.polyFill;
+			pci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+			pci.polyMode = VK_POLYGON_MODE_FILL;
+			pci.vertexShader   = textVtxModule;
+			pci.fragmentShader = textFrgModule;
+			pipelines.push_back(r.text = createPipeline<PipelineType::eText>(dev, pci));
 		} catch(...) {
 			// Destroy the now useless layout and the successfully created pipelines, then resume the downwards spiral
 			destroyShaderModules();
@@ -229,6 +287,7 @@ inline namespace geom {
 	void PipelineSet::destroy(VkDevice dev, PipelineSet& ps) noexcept {
 		vkDestroyPipeline(dev, ps.polyLine, nullptr);
 		vkDestroyPipeline(dev, ps.polyFill, nullptr);
+		vkDestroyPipeline(dev, ps.text, nullptr);
 		vkDestroyPipelineLayout(dev, ps.layout, nullptr);
 	}
 

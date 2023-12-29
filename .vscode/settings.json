@@ -9,6 +9,7 @@
 		"SKENGINE_VERSION_PATCH=3",
 	],
 	"C_Cpp.default.includePath": [
+		"/usr/include/freetype2/", // What is it with native libraries not using the "" include syntax when appropriate?!?
 		"src/cxx/third-party/id-generator/src/cxx/include",
 		"src/cxx/third-party/fmamdl/include",
 		"src/cxx/third-party/rll-allocator/",

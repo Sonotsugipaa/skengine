@@ -24,10 +24,11 @@ namespace SKENGINE_NAME_NS {
 		struct DrawContext {
 			static constexpr uint64_t magicNumberValue = 0xff004cff01020304;
 
+			struct EngineAccess; // Hack to allow tight coupling, without massive headaches nor hundreds of redundant pointers
+
 			const uint64_t magicNumber;
 			Engine* engine;
 			VkCommandBuffer drawCmdBuffer;
-			geom::PipelineSet* pipelineSet;
 		};
 
 
@@ -78,6 +79,25 @@ namespace SKENGINE_NAME_NS {
 
 		private:
 			float frame_strokeWidth;
+		};
+
+
+		class PlaceholderChar : public virtual ui::Element {
+		public:
+			PlaceholderChar(VmaAllocator, const GlyphBitmap&);
+			~PlaceholderChar();
+
+			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
+
+			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
+			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
+
+			auto& shapes() noexcept { return ph_char_shapeSet; }
+
+		private:
+			VmaAllocator ph_char_vma;
+			geom::DrawableShapeSet ph_char_shapeSet;
 		};
 
 	}

@@ -102,7 +102,8 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
-		bool           fullscreen;
+		bool           fullscreen      : 1;
+		bool           composite_alpha : 1;
 	};
 
 
@@ -320,6 +321,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
 		VkDescriptorSetLayout mMaterialDsetLayout;
+		VkDescriptorSetLayout mGuiDsetLayout;
 
 		std::mutex mRendererMutex = std::mutex();
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
@@ -329,6 +331,14 @@ namespace SKENGINE_NAME_NS {
 
 		ui::Canvas        mUiCanvas;
 		geom::PipelineSet mGeomPipelines;
+		FT_Library        mFreetype;
+		geom::FontFace        mPlaceholderFont;
+		GlyphBitmap           mPlaceholderGlyph;
+		VkDescriptorPool      mPlaceholderGlyphDpool;
+		VkDescriptorSet       mPlaceholderGlyphDset;
+		vkutil::Image         mPlaceholderGlyphImage;
+		VkImageView           mPlaceholderGlyphImageView;
+		VkSampler             mPlaceholderGlyphSampler;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

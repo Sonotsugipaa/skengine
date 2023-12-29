@@ -121,7 +121,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	template <bool doPrepare, bool doDraw>
 	static void recordUiCommands(Engine& e, VkCommandBuffer cmd) {
-		gui::DrawContext guiCtx = { gui::DrawContext::magicNumberValue, &e, cmd, &e.mGeomPipelines };
+		gui::DrawContext guiCtx = { gui::DrawContext::magicNumberValue, &e, cmd };
 		ui::DrawContext  uiCtx  = { &guiCtx };
 
 		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx](LotId lotId, Lot& lot) {
@@ -480,7 +480,8 @@ namespace SKENGINE_NAME_NS {
 		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
-		.fullscreen            = false
+		.fullscreen            = false,
+		.composite_alpha       = false
 	};
 
 

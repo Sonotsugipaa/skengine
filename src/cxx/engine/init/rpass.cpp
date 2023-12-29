@@ -307,7 +307,7 @@ namespace SKENGINE_NAME_NS {
 			s_info.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 			s_info.imageArrayLayers = 1;
 			s_info.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-			s_info.compositeAlpha   = select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
+			s_info.compositeAlpha   = (! mPrefs.composite_alpha)? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
 			s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
 			s_info.clipped          = VK_TRUE;
 			s_info.oldSwapchain     = mSwapchain;
@@ -598,39 +598,34 @@ namespace SKENGINE_NAME_NS {
 			mGenericGraphicsPipeline = createPipeline("default", mWorldRpass);
 
 			geom::PipelineSetCreateInfo gpsci = { };
-			gpsci.subpass       = 0;
-			gpsci.renderPass    = mUiRpass;
-			gpsci.pipelineCache = mPipelineCache;
-			mGeomPipelines = geom::PipelineSet::create(mDevice, { }, gpsci);
+			gpsci.subpass        = 0;
+			gpsci.renderPass     = mUiRpass;
+			gpsci.pipelineCache  = mPipelineCache;
+			gpsci.polyDsetLayout = nullptr;
+			gpsci.textDsetLayout = mGuiDsetLayout;
+			mGeomPipelines = geom::PipelineSet::create(mDevice, gpsci);
+		}
 
-			constexpr float chSize  = 0.03;
-			constexpr float chBlank = (1.0 - chSize) / 2.0;
+		{ // Hardcoded GUI
+			constexpr float chSize = 50.0f;
+			float ratio = float(mPresentExtent.height) / float(mPresentExtent.width);
+			float hSize = chSize / float(mPresentExtent.height);
+			float wSize = hSize * ratio;
+			float wComp = 0.5f * (hSize - wSize);
+			float chBlank = (1.0 - hSize) / 2.0;
 			mUiCanvas = ui::Canvas(
 				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
-				{ chBlank, chSize, chBlank },
-				{ chBlank, chSize, chBlank } );
-			auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
-			mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
-			#define W (1.0f/3.0f)
-			#define H (1.0f/5.0f)
-			auto& subgrid0 = mUiCanvas.createLot({ 1, 0 }, { 2, 1 }).second->setChildBasicGrid({ },
-					{ W, W, W }, { H, H, H, H, H } );
-			auto& subgrid1 = mUiCanvas.createLot({ 0, 0 }, { 1, 2 }).second->setChildBasicGrid({ },
-					{ H, H, H, H, H }, { W, W, W } );
-			#undef H
-			#undef W
-			auto makeDebugGridView = [this](ui::BasicGrid& grid, const glm::vec4& color) {
-				auto frame = std::make_shared<gui::Frame>(mVma, 0.04f, color);
-				size_t rows = grid.getRowSizes().size();
-				size_t cols = grid.getColumnSizes().size();
-				for(size_t row = 0; row < rows; ++row)
-				for(size_t col = 0; col < cols; ++col) {
-					auto frLot = grid.createLot({ ssize_t(row), ssize_t(col) }, { 1, 1 });
-					frLot.second->createElement(frame);
-				}
-			};
-			makeDebugGridView(subgrid0, { 0.3f, 0.9f, 0.3f, 1.0f });
-			makeDebugGridView(subgrid1, { 0.9f, 0.3f, 0.3f, 1.0f });
+				{ chBlank,       hSize, chBlank },
+				{ chBlank+wComp, wSize, chBlank+wComp } );
+			// // Uncomment the next two lines (and delete this one) when the placeholder character is removed
+			// auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
+			// mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
+			{
+				auto gridChar = std::make_shared<gui::PlaceholderChar>(mVma, mPlaceholderGlyph);
+				auto gridCharLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
+				gridCharLot.second->createElement(gridChar);
+				gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.07, glm::vec4 { 1.0f, 0.0f, 0.0f, 0.9f }));
+			}
 		}
 	}
 

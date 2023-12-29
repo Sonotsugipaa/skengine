@@ -28,6 +28,7 @@ namespace SKENGINE_NAME_NS::gui {
 		}
 
 
+
 		ShapeSet makeFrameShapeSet(float strokeWidth, const glm::vec4& color) {
 			constexpr glm::mat4 mat1 = glm::mat4(1.0f);
 			auto strokeHeight = strokeWidth;

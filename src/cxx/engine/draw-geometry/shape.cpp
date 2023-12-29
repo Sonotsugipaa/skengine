@@ -15,19 +15,19 @@ namespace SKENGINE_NAME_NS {
 namespace shape_impl {
 namespace {
 
-	constexpr PolyInstance* bufferInstancesPtr(void* base) {
-		return reinterpret_cast<PolyInstance*>(base);
+	constexpr geom::Instance* bufferInstancesPtr(void* base) {
+		return reinterpret_cast<geom::Instance*>(base);
 	}
 
-	constexpr PolyVertex* bufferVerticesPtr(void* base, size_t instanceCount) {
-		return reinterpret_cast<PolyVertex*>((reinterpret_cast<PolyInstance*>(base) + instanceCount));
+	constexpr geom::Vertex* bufferVerticesPtr(void* base, size_t instanceCount) {
+		return reinterpret_cast<geom::Vertex*>((reinterpret_cast<geom::Instance*>(base) + instanceCount));
 	}
 
 
 	struct InputData {
 		using DrawCmds  = std::vector<VkDrawIndirectCommand>;
-		using Instances = std::vector<PolyInstance>;
-		using Vertices  = std::vector<PolyVertex>;
+		using Instances = std::vector<geom::Instance>;
+		using Vertices  = std::vector<geom::Vertex>;
 		DrawCmds  drawCmds;
 		Instances instances;
 		Vertices  vertices;
@@ -35,7 +35,7 @@ namespace {
 
 
 	InputData sortInputData(std::span<const DrawableShapeInstance> shapes) {
-		using ShapeInstMap   = std::unordered_map<const Shape*, std::vector<const PolyInstance*>>;
+		using ShapeInstMap   = std::unordered_map<const Shape*, std::vector<const geom::Instance*>>;
 		using ShapeOffsetMap = std::unordered_map<const Shape*, unsigned>;
 
 		InputData r;
@@ -79,8 +79,8 @@ namespace {
 			void*            vtxPtr,
 			const InputData& inputData
 	) {
-		VkDeviceSize vertexBytes = inputData.vertices.size() * sizeof(PolyVertex);
-		VkDeviceSize instanceBytes   = inputData.instances.size() * sizeof(PolyInstance);
+		VkDeviceSize vertexBytes = inputData.vertices.size() * sizeof(geom::Vertex);
+		VkDeviceSize instanceBytes   = inputData.instances.size() * sizeof(geom::Instance);
 		VkDeviceSize drawCmdBytes  = inputData.drawCmds.size() * sizeof(VkDrawIndirectCommand);
 		memcpy(bufferInstancesPtr(vtxPtr), inputData.instances.data(), instanceBytes);
 		memcpy(bufferVerticesPtr(vtxPtr, inputData.instances.size()), inputData.vertices.data(), vertexBytes);
@@ -109,8 +109,8 @@ namespace {
 		*dstDrawCmdCount  = inputData.drawCmds.size();
 
 		{ // Create and write the buffers
-			VkDeviceSize instanceBytes = (*dstInstanceCount) * sizeof(PolyInstance);
-			VkDeviceSize vertexBytes   = (*dstVertexCount) * sizeof(PolyVertex);
+			VkDeviceSize instanceBytes = (*dstInstanceCount) * sizeof(geom::Instance);
+			VkDeviceSize vertexBytes   = (*dstVertexCount) * sizeof(geom::Vertex);
 			VkDeviceSize drawCmdBytes  = (*dstDrawCmdCount) * sizeof(VkDrawIndirectCommand);
 			VkDeviceSize vtxBufferSize  = instanceBytes + vertexBytes;
 
@@ -141,8 +141,19 @@ namespace {
 
 inline namespace geom {
 
-	Shape::Shape(std::vector<PolyVertex> vtxs):
-			std::vector<PolyVertex>(std::move(vtxs))
+	Shape::Shape(const std::vector<PolyVertex>& vtxs):
+			std::vector<Vertex>(),
+			shape_type(PipelineType::ePoly)
+	{ reserve(vtxs.size()); for(auto& v : vtxs) push_back(Vertex { .poly = v }); }
+
+	Shape::Shape(const std::vector<TextVertex>& vtxs):
+			std::vector<Vertex>(),
+			shape_type(PipelineType::eText)
+	{ reserve(vtxs.size()); for(auto& v : vtxs) push_back(Vertex { .text = v }); }
+
+	Shape::Shape(std::vector<Vertex> vtxs, PipelineType type):
+			std::vector<Vertex>(std::move(vtxs)),
+			shape_type(type)
 	{ }
 
 
@@ -171,7 +182,7 @@ inline namespace geom {
 		for(auto& shape : shapes) {
 			shapeInstances.push_back(DrawableShapeInstance(
 				std::move(shape.shape),
-				PolyInstance {
+				geom::Instance {
 					.color     = shape.color,
 					.transform = shape.transform } ));
 		}
@@ -212,7 +223,7 @@ inline namespace geom {
 
 
 	void DrawableShapeSet::dr_shape_set_commitBuffers(VmaAllocator vma) {
-		VkDeviceSize instanceBytes = dr_shape_set_instanceCount * sizeof(PolyInstance);
+		VkDeviceSize instanceBytes = dr_shape_set_instanceCount * sizeof(geom::Instance);
 		VkDeviceSize vertexBytes   = dr_shape_set_vertexCount * sizeof(PolyVertex);
 		VkDeviceSize drawCmdBytes  = dr_shape_set_drawCount * sizeof(VkDrawIndirectCommand);
 		VK_CHECK(vmaFlushAllocation, vma, dr_shape_set_vtxBuffer, 0, instanceBytes + vertexBytes);
