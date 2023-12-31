@@ -14,6 +14,10 @@
 #include <glm/mat4x4.hpp>
 
 #include <vector>
+#include <string>
+#include <unordered_set>
+#include <unordered_map>
+#include <optional>
 #include <memory>
 
 #include <freetype2/ft2build.h>
@@ -82,9 +86,13 @@ inline namespace geom {
 		float size[2];
 	};
 
-	struct CharBounds {
-		float offset[2];
-		float size[2];
+
+	class TextCache;
+
+	struct CharDescriptor {
+		float widthHeightRatio;
+		float topLeft[2];
+		float bottomRight[2];
 		float baseline[2];
 	};
 
@@ -239,10 +247,12 @@ inline namespace geom {
 
 		FontFace(FontFace&& mv) = default;
 		FontFace& operator=(FontFace&& mv) = default;
+		FontFace& operator=(nullptr_t) { this->~FontFace(); return * new (this) FontFace(); }
 
-		GlyphBitmap getGlyphBitmap(codepoint_t, unsigned pixelHeight);
+		std::pair<GlyphBitmap, codepoint_t> getGlyphBitmap(codepoint_t, unsigned pixelHeight);
+		GlyphBitmap getGlyphBitmapByIndex(codepoint_t index, unsigned pixelHeight);
 
-		operator FT_Face() const noexcept { return font_face; }
+		operator FT_Face() const noexcept { return font_face.value; }
 
 	private:
 		FontFace(FT_Face face): font_face(face) { }
@@ -256,16 +266,68 @@ inline namespace geom {
 	///
 	class TextCache {
 	public:
+		using CharMap = std::unordered_map<codepoint_t, CharDescriptor>;
+
+		TextCache() = default;
+		TextCache(TextCache&&) = default;
+		TextCache(VkDevice, VmaAllocator, VkDescriptorSetLayout, std::shared_ptr<FontFace>, unsigned short pixelHeight = 0);
+		~TextCache();
+		TextCache& operator=(TextCache&&) = default;
+		TextCache& operator=(nullptr_t) { this->~TextCache(); return * new (this) TextCache(); }
+
+		const auto& device()    noexcept { return txtcache_dev.value; }
+		const auto& vma()       noexcept { return txtcache_vma; }
+		const auto& image()     noexcept { return txtcache_image.value.value; }
+		const auto& imageView() noexcept { return txtcache_imageView; }
+		const auto& sampler()   noexcept { return txtcache_sampler; }
+		const auto& dset()      noexcept { return txtcache_dset; }
+
+		const auto& imageExtent() const noexcept { return txtcache_imageExt; }
+
+		void pixelHeight(unsigned short v) noexcept { txtcache_pixelHeight = v; txtcache_imageUpToDate = false; }
+		auto pixelHeight() const noexcept { return txtcache_pixelHeight; }
+
+		void fetchChar(codepoint_t c) { if(! txtcache_charMap.contains(c)) txtcache_charQueue.insert(c); }
+		template <typename CharSeq>  void fetchChars(const CharSeq& s)  { using C = CharSeq::value_type; for(C& c : s) fetchChar(codepoint_t(c)); }
+		template <typename CharType> void fetchChars(const CharType* s) { while(*s != CharType { }) { fetchChar(codepoint_t(*s)); ++s; } }
+
+		void updateImage(VkCommandBuffer, VkFence waitBeforeStaging) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
+		const CharMap& getChars() const noexcept { return txtcache_charMap; }
+
+		void trimChars(codepoint_t maxCharCount);
+		void trimSize(uint32_t maxImageSize);
+
+		/// \brief Returns the number of times the cache's image was updated.
+		///
+		/// Between two consecutive calls to this function, if the returned values
+		/// are the same then it's safe to assume all information retrieved from
+		/// `getChars()` has not been changed; otherwise, the opposite is true.
+		///
+		/// A continuously updated cache may cause the counter to overflow, which
+		/// is well-defined behavior for unsigned integers. <br>
+		/// This may cause the user to mistakenly use out-of-date character
+		/// information if the cache is updated exactely UINT_FAST32_MAX times
+		/// between two calls - which is unreasonably improbable.
+		///
+		uint_fast32_t getUpdateCounter() const noexcept { return txtcache_updateCounter; }
 
 	private:
-		std::unordered_map<codepoint_t, CharBounds> txtcache_charmap;
-		util::Moveable<VmaAllocator> txtcache_vma;
-		VkDescriptorPool txtcache_dpool;
-		VkDescriptorSet  txtcache_dset;
-		VkImage          txtcache_image;
-		VkImageView      txtcache_imageView;
-		VkSampler        txtcache_sampler;
-		unsigned short   txtcache_pixelHeight;
+		std::shared_ptr<FontFace> txtcache_font;
+		CharMap txtcache_charMap;
+		std::unordered_set<codepoint_t> txtcache_charQueue;
+		util::Moveable<VkDevice>       txtcache_dev;
+		VmaAllocator                   txtcache_vma;
+		VkDescriptorPool               txtcache_dpool;
+		VkDescriptorSet                txtcache_dset;
+		util::Moveable<vkutil::Buffer> txtcache_stagingBuffer;
+		util::Moveable<vkutil::Image>  txtcache_image;
+		VkImageView                    txtcache_imageView;
+		VkSampler                      txtcache_sampler;
+		VkExtent2D     txtcache_imageExt;
+		size_t         txtcache_stagingBufferSize;
+		uint_fast32_t  txtcache_updateCounter;
+		unsigned short txtcache_pixelHeight;
+		bool txtcache_imageUpToDate;
 	};
 
 

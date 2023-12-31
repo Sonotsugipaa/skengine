@@ -47,7 +47,7 @@
 /// and submitted to the engine's underlying low-level API.
 /// Every gframe is started by an lframe, but the two are
 /// not entirely synchronized; a gframe calls
-/// `LoopInterface::loop_preRender` and `LoopInterface::loop_postRender`.
+/// `LoopInterface::loop_async_preRender` and `LoopInterface::loop_async_postRender`.
 ///
 /// In Vulkan terms, a gframe prepares, starts, ends and submits a render pass.
 ///
@@ -332,13 +332,9 @@ namespace SKENGINE_NAME_NS {
 		ui::Canvas        mUiCanvas;
 		geom::PipelineSet mGeomPipelines;
 		FT_Library        mFreetype;
-		geom::FontFace        mPlaceholderFont;
-		GlyphBitmap           mPlaceholderGlyph;
-		VkDescriptorPool      mPlaceholderGlyphDpool;
-		VkDescriptorSet       mPlaceholderGlyphDset;
-		vkutil::Image         mPlaceholderGlyphImage;
-		VkImageView           mPlaceholderGlyphImageView;
-		VkSampler             mPlaceholderGlyphSampler;
+		std::shared_ptr<geom::FontFace> mPlaceholderFont;
+		TextCache mPlaceholderTextCache;
+		public: std::shared_ptr<gui::PlaceholderChar> mPlaceholderChar; private:
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

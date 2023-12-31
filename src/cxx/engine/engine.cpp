@@ -124,24 +124,32 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		gui::DrawContext guiCtx = { gui::DrawContext::magicNumberValue, &e, cmd };
 		ui::DrawContext  uiCtx  = { &guiCtx };
 
-		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx](LotId lotId, Lot& lot) {
+		#warning "TODO: can this std::function be un-std'd?"
+		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx, &cmd, &e](LotId lotId, Lot& lot) {
 			if(lot.hasChildGrid()) {
 				auto grid = lot.childGrid();
-				// If the grid's structure has not been modified, there's no need to prepare
+				// If the grid's structure has not been modified, there's no need to recursively prepare;
+				// there is, however, always need to recursively draw.
 				if(doDraw || grid->isModified()) {
 					for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
 					grid->resetModified();
 				}
 			}
 
-			for(auto& elem : lot.elements()) {
-				if constexpr(doPrepare) elem.second->ui_elem_prepareForDraw(lotId, lot, uiCtx);
-				if constexpr(doDraw)    elem.second->ui_elem_draw(lotId, lot, uiCtx);
+			if constexpr(doPrepare) {
+				for(auto& elem : lot.elements()) elem.second->ui_elem_prepareForDraw(lotId, lot, uiCtx);
+			}
+			if constexpr(doDraw) {
+				for(auto& elem : lot.elements()) elem.second->ui_elem_draw(lotId, lot, uiCtx);
 			}
 		};
 
 		for(auto& lot : e.mUiCanvas.lots()) {
 			drawLot(lot.first, *lot.second);
+		}
+
+		if constexpr(doPrepare) {
+			e.mPlaceholderTextCache.updateImage(cmd, VkFence(VK_NULL_HANDLE) /* Null fence, assuming every gframe waits for the last gframe; access to the staging buffer is incidentally synchronized */);
 		}
 	}
 
@@ -205,6 +213,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+		e.mPlaceholderTextCache.trimChars(512);
 
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 

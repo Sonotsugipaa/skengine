@@ -9,14 +9,9 @@
 #include <charconv>
 #include <unordered_set>
 
-#include <SDL2/SDL.h>
-
 
 
 namespace SKENGINE_NAME_NS {
-
-	unsigned long sdl_init_counter = 0;
-
 
 	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii) {
@@ -41,57 +36,6 @@ namespace SKENGINE_NAME_NS {
 		destroyVkDev();
 		destroyVkInst();
 		destroySdl();
-	}
-
-
-	void Engine::DeviceInitializer::initSdl(const DeviceInitInfo* device_init_info) {
-		if(0 == mPrefs.init_present_extent.width * mPrefs.init_present_extent.height) {
-			throw std::invalid_argument("Initial window area cannot be 0");
-		}
-
-		if(! sdl_init_counter) {
-			if(0 != SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-				using namespace std::string_literals;
-				const char* err = SDL_GetError();
-				throw std::runtime_error(("failed initialize the SDL Video subsystem ("s + err) + ")");
-			}
-
-			if(0 != SDL_Vulkan_LoadLibrary(nullptr)) {
-				using namespace std::string_literals;
-				const char* err = SDL_GetError();
-				throw std::runtime_error(("failed to load a Vulkan library ("s + err) + ")");
-			}
-		}
-		++ sdl_init_counter;
-
-		uint32_t window_flags =
-			SDL_WINDOW_SHOWN |
-			SDL_WINDOW_VULKAN |
-			SDL_WINDOW_RESIZABLE |
-			(SDL_WINDOW_FULLSCREEN * mPrefs.fullscreen);
-
-		mSdlWindow = SDL_CreateWindow(
-			device_init_info->window_title.c_str(),
-			0, 0,
-			mPrefs.init_present_extent.width, mPrefs.init_present_extent.height,
-			window_flags );
-
-		{ // Change the present extent, as the window decided it to be
-			int w, h;
-			auto& w0 = mPrefs.init_present_extent.width;
-			auto& h0 = mPrefs.init_present_extent.height;
-			SDL_Vulkan_GetDrawableSize(mSdlWindow, &w, &h);
-			if(uint32_t(w) != w0 || uint32_t(h) != h0) {
-				mPrefs.init_present_extent = { uint32_t(w), uint32_t(h) };
-				logger().warn("Requested window size {}x{}, got {}x{}", w0, h0, w, h);
-			}
-		}
-
-		if(mSdlWindow == nullptr) {
-			using namespace std::string_literals;
-			const char* err = SDL_GetError();
-			throw std::runtime_error(("failed to create an SDL window ("s + err) + ")");
-		}
 	}
 
 
@@ -327,173 +271,14 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initFreetype() {
 		auto error = FT_Init_FreeType(&mFreetype);
 		if(error) throw FontError("failed to initialize FreeType", error);
-{
-auto cmd = [&](){
-	VkCommandBufferAllocateInfo ca_info = { };
-	ca_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	ca_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	ca_info.commandPool = mTransferCmdPool;
-	ca_info.commandBufferCount = 1;
-	VkCommandBuffer cmd;
-	VK_CHECK(vkAllocateCommandBuffers, mDevice, &ca_info, &cmd);
-	return cmd;
-} ();
-auto beginCmd = [&]() {
-	VkCommandBufferBeginInfo cbbInfo = { };
-	cbbInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	cbbInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	VK_CHECK(vkBeginCommandBuffer, cmd, &cbbInfo);
-};
-auto endCmd = [&]() {
-	VK_CHECK(vkEndCommandBuffer, cmd);
-};
-auto submitCmd = [&]() {
-	auto cmdFence = [&]() {
-		VkFence r;
-		VkFenceCreateInfo fc_info = { };
-		fc_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		vkCreateFence(mDevice, &fc_info, nullptr, &r);
-		return r;
-	} ();
-	VkSubmitInfo s_info = { };
-	s_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	s_info.commandBufferCount = 1;
-	s_info.pCommandBuffers    = &cmd;
-	VK_CHECK(vkQueueSubmit, mQueues.graphics, 1, &s_info, cmdFence);
-	VK_CHECK(vkWaitForFences, mDevice, 1, &cmdFence, true, UINT64_MAX);
-	vkDestroyFence(mDevice, cmdFence, nullptr);
-};
-mPlaceholderFont = FontFace::fromFile(mFreetype, "/usr/share/fonts/gnu-free/FreeMono.otf");
-mPlaceholderGlyph = mPlaceholderFont.getGlyphBitmap('/', 32);
-VkDescriptorPoolCreateInfo dpcInfo = { };
-VkDescriptorPoolSize sizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 } };
-dpcInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-dpcInfo.maxSets = 1;
-dpcInfo.poolSizeCount = std::size(sizes);
-dpcInfo.pPoolSizes = sizes;
-VK_CHECK(vkCreateDescriptorPool, mDevice, &dpcInfo, nullptr, &mPlaceholderGlyphDpool);
-VkDescriptorSetAllocateInfo dsaInfo = { };
-dsaInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-dsaInfo.descriptorPool = mPlaceholderGlyphDpool;
-dsaInfo.descriptorSetCount = 1;
-dsaInfo.pSetLayouts = &mGuiDsetLayout;
-mLogger->critical("GLYPH BASELINE ({}, {}) SIZE {}x{}", mPlaceholderGlyph.xBaseline, mPlaceholderGlyph.yBaseline, mPlaceholderGlyph.width, mPlaceholderGlyph.height);
-
-vkutil::BufferCreateInfo bcInfo = { };
-size_t glyphPixCount = mPlaceholderGlyph.byteCount();
-bcInfo.size  = glyphPixCount * 4; // The glyph has a 1-byte grayscale texel, the image wants a 4-byte RGBA texel because GLSL said so
-bcInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-auto stagingBuffer = vkutil::ManagedBuffer::createStagingBuffer(mVma, bcInfo);
-vkutil::ImageCreateInfo icInfo = { };
-icInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-icInfo.extent = { mPlaceholderGlyph.width, mPlaceholderGlyph.height, 1 };
-icInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-icInfo.type = VK_IMAGE_TYPE_2D;
-icInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-icInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-icInfo.tiling = VK_IMAGE_TILING_LINEAR;
-icInfo.arrayLayers = 1;
-icInfo.mipLevels = 1;
-vkutil::AllocationCreateInfo acInfo = { };
-acInfo.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-acInfo.vmaFlags = { };
-acInfo.vmaUsage = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-mPlaceholderGlyphImage = vkutil::Image::create(mVma, icInfo, acInfo);
-void* devGlyphPtr;
-VK_CHECK(vmaMapMemory, mVma, stagingBuffer, &devGlyphPtr);
-#define P_ reinterpret_cast<uint8_t*>(devGlyphPtr)
-for(size_t i = 0; i < glyphPixCount; ++i) {
-	auto v = uint8_t(mPlaceholderGlyph.bytes[i]);
-	P_[(i*4)+0] = 0xff; P_[(i*4)+1] = 0xff; P_[(i*4)+2] = 0xff; P_[(i*4)+3] = v;
-}
-#undef P_
-vmaUnmapMemory(mVma, stagingBuffer);
-VkBufferImageCopy cp = { };
-cp.bufferRowLength   = mPlaceholderGlyph.width;
-cp.bufferImageHeight = mPlaceholderGlyph.height;
-cp.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-cp.imageSubresource.layerCount = 1;
-cp.imageExtent = icInfo.extent;
-VkImageMemoryBarrier2 bar0 = { };
-VkImageMemoryBarrier2 bar1;
-bar0.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-bar0.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-bar0.srcAccessMask = VK_ACCESS_2_NONE;
-bar0.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-bar0.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-bar0.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-bar0.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-bar0.srcQueueFamilyIndex = bar0.dstQueueFamilyIndex = mQueues.families.graphicsIndex;
-bar0.image = mPlaceholderGlyphImage;
-bar0.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-bar0.subresourceRange.levelCount = 1;
-bar0.subresourceRange.layerCount = 1;
-bar1 = bar0;
-bar1.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-bar1.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-bar1.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-bar1.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-bar1.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-bar1.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-VkDependencyInfo depInfo = { };
-depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-depInfo.imageMemoryBarrierCount = 1;
-depInfo.pImageMemoryBarriers = &bar0;
-beginCmd();
-vkCmdPipelineBarrier2(cmd, &depInfo);
-vkCmdCopyBufferToImage(cmd, stagingBuffer, mPlaceholderGlyphImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
-depInfo.pImageMemoryBarriers = &bar1;
-vkCmdPipelineBarrier2(cmd, &depInfo);
-endCmd();
-submitCmd();
-vkutil::ManagedBuffer::destroy(mVma, stagingBuffer);
-VkImageViewCreateInfo ivcInfo = { };
-ivcInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-ivcInfo.image = mPlaceholderGlyphImage;
-ivcInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-ivcInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-ivcInfo.components = { };
-ivcInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-ivcInfo.subresourceRange.levelCount = 1;
-ivcInfo.subresourceRange.layerCount = 1;
-VK_CHECK(vkCreateImageView, mDevice, &ivcInfo, nullptr, &mPlaceholderGlyphImageView);
-VkSamplerCreateInfo scInfo = { };
-scInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-scInfo.magFilter = scInfo.minFilter = VK_FILTER_NEAREST;
-scInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-scInfo.addressModeU = scInfo.addressModeV = scInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-scInfo.mipLodBias = 1.0f;
-scInfo.anisotropyEnable = true;
-scInfo.maxAnisotropy = mDevProps.limits.maxSamplerAnisotropy;
-scInfo.maxLod = icInfo.mipLevels;
-VK_CHECK(vkCreateSampler, mDevice, &scInfo, nullptr, &mPlaceholderGlyphSampler);
-
-// IMAGE, IMAGEVIEW AND SAMPLER HAVE TO BE CREATED HERE OR SOONER
-VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsaInfo, &mPlaceholderGlyphDset);
-VkDescriptorImageInfo diInfo = { };
-diInfo.sampler = mPlaceholderGlyphSampler;
-diInfo.imageView = mPlaceholderGlyphImageView;
-diInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-VkWriteDescriptorSet wDset = { };
-wDset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-wDset.dstSet = mPlaceholderGlyphDset;
-wDset.dstBinding = 0;
-wDset.descriptorCount = 1;
-wDset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-wDset.pImageInfo = &diInfo;
-vkUpdateDescriptorSets(mDevice, 1, &wDset, 0, nullptr);
-
-vkFreeCommandBuffers(mDevice, mTransferCmdPool, 1, &cmd);
-}
+mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, "/usr/share/fonts/gnu-free/FreeMono.otf"));
+mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 32);
 	}
 
 
 	void Engine::DeviceInitializer::destroyFreetype() {
-vkDestroyDescriptorPool(mDevice, mPlaceholderGlyphDpool, nullptr);
-vkDestroySampler(mDevice, mPlaceholderGlyphSampler, nullptr);
-vkDestroyImageView(mDevice, mPlaceholderGlyphImageView, nullptr);
-vkutil::Image::destroy(mVma, mPlaceholderGlyphImage);
-mPlaceholderFont = { };
+mPlaceholderTextCache = nullptr;
+mPlaceholderFont = nullptr;
 		FT_Done_FreeType(mFreetype);
 	}
 
@@ -505,6 +290,7 @@ mPlaceholderFont = { };
 
 
 	void Engine::DeviceInitializer::destroyDsetLayouts() {
+		vkDestroyDescriptorSetLayout(mDevice, mGuiDsetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(mDevice, mMaterialDsetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
 	}
@@ -538,22 +324,6 @@ mPlaceholderFont = { };
 	void Engine::DeviceInitializer::destroyVkInst() {
 		if(mVkInstance != nullptr) {
 			vkDestroyInstance(mVkInstance, nullptr);
-		}
-	}
-
-
-	void Engine::DeviceInitializer::destroySdl() {
-		if(mSdlWindow != nullptr) {
-			SDL_DestroyWindow(mSdlWindow);
-			mSdlWindow = nullptr;
-		}
-
-		assert(sdl_init_counter > 0);
-		-- sdl_init_counter;
-		if(sdl_init_counter == 0) {
-			SDL_Vulkan_UnloadLibrary();
-			SDL_QuitSubSystem(SDL_INIT_VIDEO);
-			SDL_Quit();
 		}
 	}
 

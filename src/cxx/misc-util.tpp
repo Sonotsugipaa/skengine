@@ -60,12 +60,6 @@ namespace util {
 			mv.value = uz;
 			return *this;
 		}
-
-		operator T&() & { return value; }
-		operator const T&() const & { return value; }
-
-		operator T&&() && { return std::move(value); }
-		operator const T&&() const && { return std::move(value); }
 	};
 
 }

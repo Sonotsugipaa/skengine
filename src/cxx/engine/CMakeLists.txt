@@ -10,6 +10,7 @@ add_subdirectory(draw-geometry)
 add_subdirectory(ui-structure)
 
 add_library(engine
+	init/device_sdl.cpp
 	init/device.cpp
 	init/rpass.cpp
 	renderer.cpp
@@ -37,5 +38,4 @@ target_link_libraries(engine
 	draw-geometry
 	spdlog::spdlog )
 
-# Enable unity builds
 set_property(TARGET engine PROPERTY UNITY_BUILD true)

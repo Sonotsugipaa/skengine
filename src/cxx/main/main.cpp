@@ -25,13 +25,13 @@ namespace {
 	const EnginePreferences engine_preferences = []() {
 		auto prefs = EnginePreferences::default_prefs;
 		prefs.init_present_extent   = { 100, 100 };
-		prefs.max_render_extent     = { 0, 0 };
+		prefs.max_render_extent     = { 500, 500 };
 		prefs.asset_filename_prefix = "assets/";
 		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
 		prefs.target_framerate      = 60.0f;
 		prefs.target_tickrate       = 60.0f;
 		prefs.fov_y                 = glm::radians(80.0f);
-		prefs.shade_step_count      = 6;
+		prefs.shade_step_count      = 4;
 		prefs.shade_step_smoothness = 4.0f;
 		prefs.shade_step_exponent   = 4.0f;
 		return prefs;
@@ -354,7 +354,9 @@ namespace {
 		}
 
 
-		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
+		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override {
+			if(pressedKeys.contains(SDLK_h)) [[unlikely]] { engine->mPlaceholderChar->setChar((engine->mPlaceholderChar->getChar() + 1) % (1<<20)); }
+		}
 
 
 		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {

@@ -9,6 +9,7 @@
 #include <glm/mat3x3.hpp>
 
 #include <memory>
+#include <map>
 #include <unordered_map>
 #include <cstdint>
 #include <vector>
@@ -282,7 +283,7 @@ inline namespace ui {
 		using SptrElement = std::shared_ptr<Element>;
 		using SptrGrid = std::shared_ptr<Grid>;
 		std::shared_ptr<idgen::IdGenerator<ElementId>> lot_elemIdGen;
-		std::unordered_map<ElementId, SptrElement> lot_elements;
+		std::map<ElementId, SptrElement> lot_elements;
 		GridPosition lot_gridOffset;
 		GridSize     lot_size;
 		LotPadding   lot_padding;

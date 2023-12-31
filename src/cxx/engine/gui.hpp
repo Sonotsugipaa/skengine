@@ -84,7 +84,7 @@ namespace SKENGINE_NAME_NS {
 
 		class PlaceholderChar : public virtual ui::Element {
 		public:
-			PlaceholderChar(VmaAllocator, const GlyphBitmap&);
+			PlaceholderChar(VmaAllocator, codepoint_t);
 			~PlaceholderChar();
 
 			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
@@ -95,9 +95,36 @@ namespace SKENGINE_NAME_NS {
 
 			auto& shapes() noexcept { return ph_char_shapeSet; }
 
+			auto getChar() const noexcept { return ph_char_codepoint; }
+			void setChar(codepoint_t c) noexcept { ph_char_codepoint = c; ph_char_upToDate = false; }
+
 		private:
 			VmaAllocator ph_char_vma;
 			geom::DrawableShapeSet ph_char_shapeSet;
+			codepoint_t ph_char_codepoint;
+			geom::CharDescriptor ph_char_preparedChar;
+			uint_fast32_t ph_char_lastCacheUpdate;
+			bool ph_char_upToDate;
+		};
+
+
+		class PlaceholderTextCacheView : public virtual ui::Element {
+		public:
+			PlaceholderTextCacheView(VmaAllocator, TextCache&);
+			~PlaceholderTextCacheView();
+
+			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
+
+			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
+			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
+
+			auto& shapes() noexcept { return tcv_shapeSet; }
+
+		private:
+			VmaAllocator tcv_vma;
+			TextCache* tcv_cache;
+			geom::DrawableShapeSet tcv_shapeSet;
 		};
 
 	}

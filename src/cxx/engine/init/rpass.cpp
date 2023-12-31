@@ -621,10 +621,13 @@ namespace SKENGINE_NAME_NS {
 			// auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
 			// mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
 			{
-				auto gridChar = std::make_shared<gui::PlaceholderChar>(mVma, mPlaceholderGlyph);
+				mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, 0);
 				auto gridCharLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
-				gridCharLot.second->createElement(gridChar);
-				gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.07, glm::vec4 { 1.0f, 0.0f, 0.0f, 0.9f }));
+				gridCharLot.second->createElement(mPlaceholderChar);
+				gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.05, glm::vec4 { 0.5f, 0.5f, 0.5f, 0.9f }));
+				auto tcView = std::make_shared<gui::PlaceholderTextCacheView>(mVma, mPlaceholderTextCache);
+				auto tcViewLot = mUiCanvas.createLot({ 0, 2 }, { 1, 1 });
+				tcViewLot.second->createElement(tcView);
 			}
 		}
 	}
@@ -691,6 +694,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
+mPlaceholderChar = nullptr;
 			mUiCanvas = { };
 			geom::PipelineSet::destroy(mDevice, mGeomPipelines);
 			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
