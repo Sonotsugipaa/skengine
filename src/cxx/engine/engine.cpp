@@ -13,6 +13,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <random>
+#include <deque>
 
 
 
@@ -137,7 +138,22 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			}
 
 			if constexpr(doPrepare) {
-				for(auto& elem : lot.elements()) elem.second->ui_elem_prepareForDraw(lotId, lot, uiCtx);
+				std::deque<ui::Element*> repeatList;
+				for(auto& elem : lot.elements()) {
+					auto ps = elem.second->ui_elem_prepareForDraw(lotId, lot, 0, uiCtx);
+					if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back(elem.second.get());
+				}
+				unsigned repeatCount = 0;
+				std::deque<ui::Element*> repeatListSwap;
+				while(! repeatList.empty()) {
+					for(auto& elem : repeatList) {
+						auto ps = elem->ui_elem_prepareForDraw(lotId, lot, repeatCount, uiCtx);
+						if(ps == ui::Element::PrepareState::eDefer) repeatListSwap.push_back(elem);
+					}
+					repeatList = std::move(repeatListSwap);
+					++ repeatCount;
+assert(repeatListSwap.empty());
+				}
 			}
 			if constexpr(doDraw) {
 				for(auto& elem : lot.elements()) elem.second->ui_elem_draw(lotId, lot, uiCtx);
@@ -146,10 +162,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		for(auto& lot : e.mUiCanvas.lots()) {
 			drawLot(lot.first, *lot.second);
-		}
-
-		if constexpr(doPrepare) {
-			e.mPlaceholderTextCache.updateImage(cmd, VkFence(VK_NULL_HANDLE) /* Null fence, assuming every gframe waits for the last gframe; access to the staging buffer is incidentally synchronized */);
 		}
 	}
 
@@ -213,8 +225,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-
-		e.mPlaceholderTextCache.trimChars(512);
 
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 
@@ -444,6 +454,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		loop.loop_async_postRender(concurrent_access, delta, e.mGraphicsReg.lastDelta());
 
 		e.mGraphicsReg.endCycle();
+
+		e.mPlaceholderTextCache.trimChars(256);
 
 		return true;
 	}

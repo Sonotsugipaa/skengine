@@ -241,9 +241,16 @@ inline namespace ui {
 
 	class Element {
 	public:
+		// DOCUMENTATION HINT:
+		// if `ui_elem_prepareForDraw` returns `eDefer` for an element, the caller must ensure that it's called for the
+		// same element again, but only after calling the same function for all other (relevant) elements exactly once -
+		// allowing single elements to have multiple preparation phases that may depend on a shared resource, such
+		// as a cache that is regularly reset and needs to be re-populated and updated before the element is drawn.
+		enum class PrepareState { eReady, eDefer };
+
 		virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept = 0;
 		virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) = 0;
-		virtual void           ui_elem_prepareForDraw(LotId, Lot&, DrawContext&) = 0;
+		virtual PrepareState   ui_elem_prepareForDraw(LotId, Lot&, unsigned repeatCount, DrawContext&) = 0;
 		virtual void           ui_elem_draw(LotId, Lot&, DrawContext&) = 0;
 	};
 

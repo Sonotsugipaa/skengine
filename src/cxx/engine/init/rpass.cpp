@@ -621,7 +621,7 @@ namespace SKENGINE_NAME_NS {
 			// auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
 			// mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
 			{
-				mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, 0);
+				mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, '-');
 				auto gridCharLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
 				gridCharLot.second->createElement(mPlaceholderChar);
 				gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.05, glm::vec4 { 0.5f, 0.5f, 0.5f, 0.9f }));

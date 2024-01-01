@@ -271,14 +271,14 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initFreetype() {
 		auto error = FT_Init_FreeType(&mFreetype);
 		if(error) throw FontError("failed to initialize FreeType", error);
-mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, "/usr/share/fonts/gnu-free/FreeMono.otf"));
-mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 32);
+		mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, false, "/usr/share/fonts/gsfonts/C059-Roman.otf"));
+		mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 32);
 	}
 
 
 	void Engine::DeviceInitializer::destroyFreetype() {
-mPlaceholderTextCache = nullptr;
-mPlaceholderFont = nullptr;
+		mPlaceholderTextCache = nullptr;
+		mPlaceholderFont = nullptr;
 		FT_Done_FreeType(mFreetype);
 	}
 

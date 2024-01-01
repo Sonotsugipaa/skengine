@@ -90,10 +90,11 @@ inline namespace geom {
 	class TextCache;
 
 	struct CharDescriptor {
-		float widthHeightRatio;
-		float topLeft[2];
-		float bottomRight[2];
+		float topLeftUv[2];
+		float bottomRightUv[2];
+		float size[2]; // Relative to the font height
 		float baseline[2];
+		float advance[2];
 	};
 
 
@@ -209,8 +210,12 @@ inline namespace geom {
 	struct GlyphBitmap {
 		unsigned xBaseline;
 		unsigned yBaseline;
+		unsigned xAdvance;
+		unsigned yAdvance;
 		unsigned width;
 		unsigned height;
+		unsigned pitch;
+		bool isGrayscale;
 		std::unique_ptr<std::byte[]> bytes;
 
 		GlyphBitmap() = default;
@@ -218,8 +223,12 @@ inline namespace geom {
 		GlyphBitmap(const GlyphBitmap& cp):
 			xBaseline (cp.xBaseline),
 			yBaseline (cp.yBaseline),
+			xAdvance  (cp.xAdvance),
+			yAdvance  (cp.yAdvance),
 			width     (cp.width),
 			height    (cp.height),
+			pitch     (cp.pitch),
+			isGrayscale(cp.isGrayscale),
 			bytes(std::make_unique_for_overwrite<std::byte[]>(cp.byteCount()))
 		{
 			memcpy(bytes.get(), cp.bytes.get(), byteCount());
@@ -234,13 +243,13 @@ inline namespace geom {
 
 		GlyphBitmap& operator=(GlyphBitmap&&) = default;
 
-		unsigned byteCount() const noexcept { return width * height; }
+		unsigned byteCount() const noexcept { return isGrayscale? (width * height) : (height * pitch); }
 	};
 
 
 	class FontFace {
 	public:
-		static FontFace fromFile(FT_Library, const char* path);
+		static FontFace fromFile(FT_Library, bool useGrayscale, const char* path);
 
 		FontFace(): font_face(nullptr) { }
 		~FontFace();
@@ -249,15 +258,18 @@ inline namespace geom {
 		FontFace& operator=(FontFace&& mv) = default;
 		FontFace& operator=(nullptr_t) { this->~FontFace(); return * new (this) FontFace(); }
 
-		std::pair<GlyphBitmap, codepoint_t> getGlyphBitmap(codepoint_t, unsigned pixelHeight);
-		GlyphBitmap getGlyphBitmapByIndex(codepoint_t index, unsigned pixelHeight);
+		bool usesGrayscale() const noexcept { return font_useGrayscale; }
+
+		void setPixelSize(unsigned pixelWidth, unsigned pixelHeight);
+
+		std::pair<GlyphBitmap, codepoint_t> getGlyphBitmap(codepoint_t);
+		GlyphBitmap getGlyphBitmapByIndex(codepoint_t index);
 
 		operator FT_Face() const noexcept { return font_face.value; }
 
 	private:
-		FontFace(FT_Face face): font_face(face) { }
-
 		util::Moveable<FT_Face> font_face;
+		bool font_useGrayscale;
 	};
 
 

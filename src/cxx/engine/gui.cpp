@@ -6,9 +6,6 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#warning "DBG SPDLOG"
-#include <spdlog/spdlog.h>
-
 
 
 namespace SKENGINE_NAME_NS::gui {
@@ -50,9 +47,10 @@ namespace SKENGINE_NAME_NS::gui {
 	using Ea = DrawContext::EngineAccess;
 
 
-	void DrawablePolygon::ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext& uiCtx) {
+	Element::PrepareState DrawablePolygon::ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext& uiCtx) {
 		auto& guiCtx = getGuiDrawContext(uiCtx);
 		dpoly_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
+		return PrepareState::eReady;
 	}
 
 
@@ -120,15 +118,41 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	void PlaceholderChar::ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext& uiCtx) {
+	Element::PrepareState PlaceholderChar::ui_elem_prepareForDraw(LotId, Lot&, unsigned repeat, ui::DrawContext& uiCtx) {
 		auto& guiCtx   = getGuiDrawContext(uiCtx);
 		auto& txtCache = Ea::placeholderTextCache(guiCtx);
 
-		txtCache.fetchChar(ph_char_codepoint);
-constexpr codepoint_t blk = 256;
-codepoint_t b0 = (ph_char_codepoint / blk) * blk;
-codepoint_t b1 = b0 + blk;
-for(auto i = b0; i < b1; ++i) txtCache.fetchChar(i);
+		auto fetch = [&]() {
+			txtCache.fetchChar(ph_char_codepoint);
+		};
+
+		auto commit = [&]() {
+			txtCache.updateImage(guiCtx.drawCmdBuffer, VkFence(VK_NULL_HANDLE));
+			auto& chars = txtCache.getChars();
+			auto& charBounds = chars.find(ph_char_codepoint)->second;
+			if(ph_char_lastCacheUpdate != txtCache.getUpdateCounter()) ph_char_upToDate = false;
+			if(! ph_char_upToDate) { // Update the shape set
+				float u[2] = { charBounds.topLeftUv[0], charBounds.bottomRightUv[0] };
+				float v[2] = { charBounds.topLeftUv[1], charBounds.bottomRightUv[1] };
+				float x[2] = { -charBounds.size[0], +charBounds.size[0] };
+				float y[2] = { -charBounds.size[1], +charBounds.size[1] };
+				auto shape = std::make_shared<Shape>(std::vector<TextVertex> {
+					{{ x[0], y[0], 0.0f }, { u[0], v[0] }}, {{ x[0], y[1], 0.0f }, { u[0], v[1] }},
+					{{ x[1], y[1], 0.0f }, { u[1], v[1] }}, {{ x[1], y[0], 0.0f }, { u[1], v[0] }} });
+				auto shapeRef = ShapeReference(shape, { 1.0f, 1.0f, 1.0f, 1.0f }, glm::mat4(1.0f));
+				if(ph_char_shapeSet) DrawableShapeSet::destroy(ph_char_vma, ph_char_shapeSet);
+				ph_char_shapeSet = DrawableShapeSet::create(ph_char_vma, ShapeSet { shapeRef });
+				ph_char_preparedChar = charBounds;
+				ph_char_upToDate = true;
+			}
+			ph_char_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
+		};
+
+		switch(repeat) {
+			case 0: fetch();  return PrepareState::eDefer;
+			case 1: commit(); return PrepareState::eReady;
+			default: std::unreachable(); abort();
+		}
 	}
 
 
@@ -142,37 +166,16 @@ for(auto i = b0; i < b1; ++i) txtCache.fetchChar(i);
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
-		// The shape has to be committed after all elements referencing the text cache have fed the latter their characters
-		auto& chars = txtCache.getChars();
-		auto& charBounds = chars.find(ph_char_codepoint)->second;
-		if(ph_char_lastCacheUpdate != txtCache.getUpdateCounter()) ph_char_upToDate = false;
-		if(! ph_char_upToDate) { // Update the shape set
-			const float& whRatio = charBounds.widthHeightRatio;
-			float x[2] = { -whRatio, +whRatio };
-			float y[2] = { -1.0f, +1.0f };
-			float u[2] = { charBounds.topLeft[0], charBounds.bottomRight[0] };
-			float v[2] = { charBounds.topLeft[1], charBounds.bottomRight[1] };
-			auto shape = std::make_shared<Shape>(std::vector<TextVertex> {
-				{{ x[0], y[0], 0.0f }, { u[0], v[0] }}, {{ x[0], y[1], 0.0f }, { u[0], v[1] }},
-				{{ x[1], y[1], 0.0f }, { u[1], v[1] }}, {{ x[1], y[0], 0.0f }, { u[1], v[0] }} });
-			auto shapeRef = ShapeReference(shape, { 1.0f, 1.0f, 1.0f, 1.0f }, glm::mat4(1.0f));
-			if(ph_char_shapeSet) DrawableShapeSet::destroy(ph_char_vma, ph_char_shapeSet);
-			ph_char_shapeSet = DrawableShapeSet::create(ph_char_vma, ShapeSet { shapeRef });
-			ph_char_preparedChar = charBounds;
-			ph_char_upToDate = true;
-		}
-		ph_char_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
-
 		VkViewport viewport;
 		VkRect2D scissor;
 		setViewportScissor(viewport, scissor, xfExtent, yfExtent, cbounds);
 
-		// float shift[2] = {
-		// 	(ph_char_preparedChar.baseline[0] * viewport.width)  - viewport.width ,
-		// 	(ph_char_preparedChar.baseline[1] * viewport.height) - viewport.height };
-		// viewport.y -= shift[1];
-		// scissor.offset.y -= shift[1];
-//spdlog::critical("BASELINE {}", shift[1]);
+		auto& chars = txtCache.getChars();
+		auto& charBounds = chars.find(ph_char_codepoint)->second;
+		float baselineToBottom = charBounds.size[1] - charBounds.baseline[1];
+		float shift = baselineToBottom * viewport.height;
+		scissor.offset.y += std::clamp<float>(shift, 0, yfExtent - scissor.extent.height);
+		viewport.y       += std::clamp<float>(shift, 0, yfExtent - viewport.height);
 
 		vkCmdSetViewport(cmd, 0, 1, &viewport);
 		vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -193,6 +196,12 @@ for(auto i = b0; i < b1; ++i) txtCache.fetchChar(i);
 
 	EventFeedback PlaceholderChar::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
 		return EventFeedback::ePropagateUpwards;
+	}
+
+
+	void PlaceholderChar::setChar(codepoint_t c) noexcept {
+		ph_char_codepoint = c;
+		ph_char_upToDate = false;
 	}
 
 
@@ -218,9 +227,10 @@ for(auto i = b0; i < b1; ++i) txtCache.fetchChar(i);
 	}
 
 
-	void PlaceholderTextCacheView::ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext& uiCtx) {
+	Element::PrepareState PlaceholderTextCacheView::ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext& uiCtx) {
 		auto& guiCtx = getGuiDrawContext(uiCtx);
 		tcv_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
+		return PrepareState::eReady;
 	}
 
 

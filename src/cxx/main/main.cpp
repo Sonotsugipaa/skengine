@@ -355,7 +355,7 @@ namespace {
 
 
 		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override {
-			if(pressedKeys.contains(SDLK_h)) [[unlikely]] { engine->mPlaceholderChar->setChar((engine->mPlaceholderChar->getChar() + 1) % (1<<20)); }
+			if(pressedKeys.contains(SDLK_h)) [[unlikely]] { engine->mPlaceholderChar->setChar((engine->mPlaceholderChar->getChar() + 1) % (1<<9)); }
 		}
 
 

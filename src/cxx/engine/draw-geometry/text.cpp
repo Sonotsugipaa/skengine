@@ -32,11 +32,12 @@ inline namespace geom {
 	{ }
 
 
-	FontFace FontFace::fromFile(FT_Library ft, const char* path) {
-		FT_Face r;
-		auto error = FT_New_Face(ft, path, 0, &r);
+	FontFace FontFace::fromFile(FT_Library ft, bool useGrayscale, const char* path) {
+		FontFace r;
+		r.font_useGrayscale = useGrayscale;
+		auto error = FT_New_Face(ft, path, 0, &r.font_face.value);
 		if(error) throw FontError(fmt::format("failed to load font face \"{}\"", path), error);
-		return FontFace(r);
+		return r;
 	}
 
 
@@ -49,39 +50,46 @@ inline namespace geom {
 	}
 
 
-	std::pair<GlyphBitmap, codepoint_t> FontFace::getGlyphBitmap(codepoint_t c, unsigned pixelHeight) {
-		codepoint_t index = FT_Get_Char_Index(font_face.value, c);
-		if(index == 0) [[unlikely]] { index = FT_Get_Char_Index(font_face.value, unknownCharReplacement); }
-		if(index == 0) [[unlikely]] { throw std::runtime_error(fmt::format("failed to map required character '{}'", unknownCharReplacement)); }
-
-		return std::pair(getGlyphBitmapByIndex(index, pixelHeight), index);
+	void FontFace::setPixelSize(unsigned pixelWidth, unsigned pixelHeight) {
+		auto error = FT_Set_Pixel_Sizes(font_face.value, pixelWidth, pixelHeight);
+		if(error) throw FontError(fmt::format("failed to set font face size"), error);
 	}
 
 
-	GlyphBitmap FontFace::getGlyphBitmapByIndex(codepoint_t index, unsigned pixelHeight) {
-		auto error = FT_Set_Pixel_Sizes(font_face.value, 0, pixelHeight);
-		if(error) throw FontError(fmt::format("failed to set font face size"), error);
+	std::pair<GlyphBitmap, codepoint_t> FontFace::getGlyphBitmap(codepoint_t c) {
+		codepoint_t index = FT_Get_Char_Index(font_face.value, c);
+		if(index == 0) [[unlikely]] { index = FT_Get_Char_Index(font_face.value, unknownCharReplacement); }
+		if(index == 0) [[unlikely]] { throw std::runtime_error(fmt::format("failed to map required character '{}'", unknownCharReplacement)); }
+		return std::pair(getGlyphBitmapByIndex(index), index);
+	}
 
-		error = FT_Load_Glyph(font_face.value, index, FT_LOAD_DEFAULT);
+
+	GlyphBitmap FontFace::getGlyphBitmapByIndex(codepoint_t index) {
+		auto error = FT_Load_Glyph(font_face.value, index, FT_LOAD_DEFAULT);
 		if(error) throw FontError(fmt::format("failed to load glyph #0x{:x}", uintmax_t(index)), error);
-		error = FT_Render_Glyph(font_face.value->glyph, FT_RENDER_MODE_NORMAL);
+		error = FT_Render_Glyph(font_face.value->glyph, (font_useGrayscale? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO));
 		if(error) throw FontError(fmt::format("failed to render glyph #0x{:x}", uintmax_t(index)), error);
-		assert(font_face.value->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY);
+		assert(font_face.value->glyph->bitmap.pixel_mode == (font_useGrayscale? FT_PIXEL_MODE_GRAY : FT_PIXEL_MODE_MONO));
 
 		GlyphBitmap ins;
-		ins.xBaseline = font_face.value->glyph->bitmap_left;
-		ins.yBaseline = font_face.value->glyph->bitmap_top;
-		ins.width     = font_face.value->glyph->bitmap.width;
-		ins.height    = font_face.value->glyph->bitmap.rows;
+		auto* ftGlyph = font_face.value->glyph;
+		ins.xBaseline = ftGlyph->bitmap_left;
+		ins.yBaseline = ftGlyph->bitmap_top;
+		ins.xAdvance  = ftGlyph->linearHoriAdvance >> 16;
+		ins.yAdvance  = ftGlyph->linearVertAdvance >> 16;
+		ins.width     = ftGlyph->bitmap.width;
+		ins.height    = ftGlyph->bitmap.rows;
+		ins.pitch     = std::abs(ftGlyph->bitmap.pitch);
+		ins.isGrayscale = font_useGrayscale;
 		auto byteCount = ins.byteCount();
 		ins.bytes = std::make_unique_for_overwrite<std::byte[]>(byteCount);
-		memcpy(ins.bytes.get(), font_face.value->glyph->bitmap.buffer, byteCount);
+		memcpy(ins.bytes.get(), ftGlyph->bitmap.buffer, byteCount);
 		///// This unused code block may be useful once I find out that bitmaps are padded in some way
 		// for(unsigned i = 0; i < ins.height; ++i) {
 		// 	auto rowCursor = i * ins.width;
 		// 	memcpy(
 		// 		ins.bytes.get() + rowCursor,
-		// 		font_face.value->glyph->bitmap.buffer + rowCursor,
+		// 		ftGlyph->bitmap.buffer + rowCursor,
 		// 		ins.width );
 		// }
 		return ins;
@@ -142,18 +150,24 @@ inline namespace geom {
 		using UnknownCpSet = std::unordered_set<codepoint_t>;
 		using coord_t = uint32_t;
 
+		{ // Early return check
+			bool updateRequested     = ! (txtcache_charQueue.empty() && txtcache_imageUpToDate);
+			bool fallbackCharMissing = txtcache_charMap.empty();
+			if(! (updateRequested || fallbackCharMissing)) {
+				// Even if the queue is empty, the fallback character is always inserted; this
+				// ensures that a valid VkImage always exists upon calling this function.
+				// This is why the function should not return immediately when no character
+				// is cached.
+				return;
+			}
+		}
+
 		auto queue = std::move(txtcache_charQueue);
-		txtcache_charQueue.clear();
+		assert(txtcache_charQueue.empty());
 
 		if(! (queue.empty() && txtcache_imageUpToDate)) {
 			for(auto& mapping : txtcache_charMap) queue.insert(mapping.first);
 		}
-
-		// Even if the queue is empty, the fallback character is always inserted; this
-		// ensures that a valid VkImage always exists upon calling this function.
-		// This is why the function should not return immediately when no character
-		// is cached.
-		if(queue.empty() && (! txtcache_charMap.empty())) return;
 
 		Layout layout;
 		InsMap ins;
@@ -184,19 +198,21 @@ inline namespace geom {
 		};
 
 		{ // Fallback character
-			auto bmpRes = txtcache_font->getGlyphBitmap(unknownCharReplacement, txtcache_pixelHeight);
+			auto bmpRes = txtcache_font->getGlyphBitmap(unknownCharReplacement);
 			fallbackCp = unknownCharReplacement;
 			auto& bmp = ins.insert(InsPair(unknownCharReplacement, std::move(bmpRes.first))).first->second;
 			appendToRow(fallbackCp, bmp);
 			queue.erase(unknownCharReplacement);
 		}
 
+		txtcache_font->setPixelSize(0, txtcache_pixelHeight);
+
 		for(codepoint_t c : queue) {
 			auto bmpIdx = FT_Get_Char_Index(*txtcache_font, c);
 			if(bmpIdx == 0) {
 				unknownChars.insert(c);
 			} else {
-				auto  bmpRes = txtcache_font->getGlyphBitmapByIndex(bmpIdx, txtcache_pixelHeight);
+				auto  bmpRes = txtcache_font->getGlyphBitmapByIndex(bmpIdx);
 				auto& bmp = ins.insert(InsPair(c, bmpRes)).first->second;
 				appendToRow(c, bmp);
 			}
@@ -214,17 +230,19 @@ inline namespace geom {
 			auto& charWidth  = maxWidth;
 			auto& charHeight = maxHeight;
 			auto& rowWidth   = maxRowWidth;
+			float fCharWidth  = charWidth;
+			float fCharHeight = charHeight;
 
 			vkutil::ImageCreateInfo icInfo = { };
 			assert(layout.size() < UINT_MAX); // There are less than 1024 Unicode planes, I believe
 			icInfo.extent = { charWidth * rowWidth, charHeight * unsigned(layout.size()), 1 };
 			txtcache_imageExt = { icInfo.extent.width, icInfo.extent.height };
-			VkDeviceSize imageByteSize = icInfo.extent.width * icInfo.extent.height * 4;
+			VkDeviceSize imageByteSize = icInfo.extent.width * icInfo.extent.height * 4; // The glyph has a 1-byte grayscale texel, the image wants a 4-byte RGBA texel because GLSL said so
 
 			if(waitBeforeStaging != nullptr) vkWaitForFences(txtcache_dev.value, 1, &waitBeforeStaging, VK_TRUE, UINT64_MAX);
 			{ // Enlarge the staging buffer, if necessary
 				vkutil::BufferCreateInfo bcInfo = { };
-				bcInfo.size  = icInfo.extent.width * icInfo.extent.height * 4; // The glyph has a 1-byte grayscale texel, the image wants a 4-byte RGBA texel because GLSL said so
+				bcInfo.size  = imageByteSize;
 				bcInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 				bool bufferExists   = ! (txtcache_stagingBuffer.value.value == nullptr);
 				bool bufferTooSmall = txtcache_stagingBufferSize < imageByteSize;
@@ -298,27 +316,43 @@ inline namespace geom {
 					assert(bmpIter != ins.end());
 					auto& bmp = bmpIter->second;
 				#endif
-				for(size_t yPix = 0; yPix < bmp.height; ++yPix)
-				for(size_t xPix = 0; xPix < bmp.width;  ++xPix) {
-					auto v = uint8_t(bmp.bytes[(yPix * bmp.width) + xPix]);
-					auto pixel = pixelAt(xSlot, ySlot, xPix, yPix);
-					pixel[0] = pixel[1] = pixel[2] = 0xff;
-					pixel[3] = v;
+				if(txtcache_font->usesGrayscale()) {
+					for(size_t yPix = 0; yPix < bmp.height; ++yPix)
+					for(size_t xPix = 0; xPix < bmp.width;  ++xPix) {
+						auto v = uint8_t(bmp.bytes[(yPix * bmp.width) + xPix]);
+						auto pixel = pixelAt(xSlot, ySlot, xPix, yPix);
+						pixel[0] = pixel[1] = pixel[2] = 0xff;
+						pixel[3] = v;
+					}
+				} else {
+					for(size_t yPix = 0; yPix < bmp.height; ++yPix)
+					for(size_t xPix = 0; xPix < bmp.width;  ++xPix) {
+						auto i = (yPix * bmp.pitch) + (xPix / 8);
+						auto byte = uint8_t(bmp.bytes[i]);
+						auto pixel = pixelAt(xSlot, ySlot, xPix, yPix);
+						pixel[0] = pixel[1] = pixel[2] = 0xff;
+						pixel[3] = ((byte >> (7 - (xPix % 8))) & 1) * 0xff;
+					}
 				}
+				float fBmpSize[2] = { float(bmp.width), float(bmp.height) };
 				float topLeft[2] = {
-					(float(xSlot) * charWidth ) / fImgWidth,
-					(float(ySlot) * charHeight) / fImgHeight };
+					(float(xSlot) * fCharWidth ) / fImgWidth,
+					(float(ySlot) * fCharHeight) / fImgHeight };
+				float bottomRight[2] = {
+					((float(xSlot) * fCharWidth ) + fBmpSize[0]) / fImgWidth,
+					((float(ySlot) * fCharHeight) + fBmpSize[1]) / fImgHeight };
 				txtcache_charMap.insert(CharMap::value_type(
 					c,
 					CharDescriptor {
-						.widthHeightRatio = float(charWidth) / float(charHeight),
-						.topLeft { topLeft[0], topLeft[1] },
-						.bottomRight {
-							topLeft[0] + (bmp.width  / fImgWidth),
-							topLeft[1] + (bmp.height / fImgHeight) },
+						.topLeftUv { topLeft[0], topLeft[1] },
+						.bottomRightUv { bottomRight[0], bottomRight[1] },
+						.size { fBmpSize[0] / float(txtcache_pixelHeight), fBmpSize[1] / float(txtcache_pixelHeight) },
 						.baseline {
-							bmp.xBaseline / fImgWidth,
-							bmp.yBaseline / fImgHeight } }));
+							float(bmp.xBaseline) / float(txtcache_pixelHeight),
+							float(bmp.yBaseline) / float(txtcache_pixelHeight) },
+						.advance {
+							float(bmp.xAdvance) / float(txtcache_pixelHeight),
+							float(bmp.yAdvance) / float(txtcache_pixelHeight) } }));
 			};
 			for(unsigned y = 0; auto& row : layout) {
 				for(unsigned x = 0; codepoint_t c : row.second) {
@@ -423,7 +457,7 @@ inline namespace geom {
 		}
 		if(txtcache_charMap.size() <= maxCharCount) return;
 
-		auto rng = std::minstd_rand(size_t(txtcache_image.value.value) + txtcache_charMap.size());
+		auto rng = std::minstd_rand(txtcache_updateCounter);
 
 		auto selectVictim = [&](size_t firstCandidate) {
 			firstCandidate = firstCandidate % txtcache_charMap.bucket_count();
@@ -437,7 +471,7 @@ inline namespace geom {
 		};
 
 		txtcache_imageUpToDate = false;
-		size_t victimIdx = rng();
+		size_t victimIdx = rng() - decltype(rng)::min();
 		while(txtcache_charMap.size() > maxCharCount) {
 			victimIdx = selectVictim(victimIdx);
 			auto victim = txtcache_charMap.begin(victimIdx);

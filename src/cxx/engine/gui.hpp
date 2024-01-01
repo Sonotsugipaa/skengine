@@ -36,7 +36,7 @@ namespace SKENGINE_NAME_NS {
 		public:
 			DrawablePolygon(bool doFill): dpoly_doFill(doFill) { }
 
-			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			Element::PrepareState ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
@@ -87,7 +87,7 @@ namespace SKENGINE_NAME_NS {
 			PlaceholderChar(VmaAllocator, codepoint_t);
 			~PlaceholderChar();
 
-			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			Element::PrepareState ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
@@ -96,7 +96,7 @@ namespace SKENGINE_NAME_NS {
 			auto& shapes() noexcept { return ph_char_shapeSet; }
 
 			auto getChar() const noexcept { return ph_char_codepoint; }
-			void setChar(codepoint_t c) noexcept { ph_char_codepoint = c; ph_char_upToDate = false; }
+			void setChar(codepoint_t c) noexcept;
 
 		private:
 			VmaAllocator ph_char_vma;
@@ -113,7 +113,7 @@ namespace SKENGINE_NAME_NS {
 			PlaceholderTextCacheView(VmaAllocator, TextCache&);
 			~PlaceholderTextCacheView();
 
-			void ui_elem_prepareForDraw(LotId, Lot&, ui::DrawContext&) override;
+			Element::PrepareState ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;

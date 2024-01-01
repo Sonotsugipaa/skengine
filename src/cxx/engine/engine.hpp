@@ -333,7 +333,7 @@ namespace SKENGINE_NAME_NS {
 		geom::PipelineSet mGeomPipelines;
 		FT_Library        mFreetype;
 		std::shared_ptr<geom::FontFace> mPlaceholderFont;
-		TextCache mPlaceholderTextCache;
+		public: TextCache mPlaceholderTextCache; private:
 		public: std::shared_ptr<gui::PlaceholderChar> mPlaceholderChar; private:
 
 		std::shared_ptr<spdlog::logger> mLogger;
