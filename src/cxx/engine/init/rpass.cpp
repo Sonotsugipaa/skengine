@@ -614,14 +614,14 @@ namespace SKENGINE_NAME_NS {
 			float wComp = 0.5f * (hSize - wSize);
 			float chBlank = (1.0 - hSize) / 2.0;
 			mUiCanvas = ui::Canvas(
-				ComputedBounds { 0.0, 0.0, 1.0, 1.0 },
+				ComputedBounds { 0.05, 0.05, 0.9, 0.9 },
 				{ chBlank,       hSize, chBlank },
 				{ chBlank+wComp, wSize, chBlank+wComp } );
 			// // Uncomment the next two lines (and delete this one) when the placeholder character is removed
 			// auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
 			// mUiCanvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
 			{
-				mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, '-');
+				mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, 'p');
 				auto gridCharLot = mUiCanvas.createLot({ 1, 1 }, { 1, 1 });
 				gridCharLot.second->createElement(mPlaceholderChar);
 				gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.05, glm::vec4 { 0.5f, 0.5f, 0.5f, 0.9f }));

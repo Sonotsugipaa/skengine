@@ -19,19 +19,19 @@ namespace SKENGINE_NAME_NS::gui {
 		}
 
 
-		void setViewportScissor(VkViewport& vp, VkRect2D& sc, float extWidth, float extHeight, const ui::ComputedBounds& cbounds) {
-			vp = { }; {
-				vp.x      = std::floor(cbounds.viewportOffsetLeft * extWidth);
-				vp.y      = std::floor(cbounds.viewportOffsetTop  * extHeight);
-				vp.width  = std::ceil (cbounds.viewportWidth      * extWidth);
-				vp.height = std::ceil (cbounds.viewportHeight     * extHeight);
-				vp.minDepth = 0.0f;
-				vp.maxDepth = 1.0f;
+		void setViewportScissor(ViewportScissor& vs, float extWidth, float extHeight, const ui::ComputedBounds& cbounds) {
+			vs.viewport = { }; {
+				vs.viewport.x      = std::floor(cbounds.viewportOffsetLeft * extWidth);
+				vs.viewport.y      = std::floor(cbounds.viewportOffsetTop  * extHeight);
+				vs.viewport.width  = std::ceil (cbounds.viewportWidth      * extWidth);
+				vs.viewport.height = std::ceil (cbounds.viewportHeight     * extHeight);
+				vs.viewport.minDepth = 0.0f;
+				vs.viewport.maxDepth = 1.0f;
 			}
 
-			sc = { }; {
-				sc.offset = {  int32_t(vp.x),      int32_t(vp.y) };
-				sc.extent = { uint32_t(vp.width), uint32_t(vp.height) };
+			vs.scissor = { }; {
+				vs.scissor.offset = {  int32_t(vs.viewport.x),      int32_t(vs.viewport.y) };
+				vs.scissor.extent = { uint32_t(vs.viewport.width), uint32_t(vs.viewport.height) };
 			}
 		}
 
@@ -47,6 +47,19 @@ namespace SKENGINE_NAME_NS::gui {
 	using Ea = DrawContext::EngineAccess;
 
 
+	void DrawContext::insertDrawJob(VkPipeline pl, VkDescriptorSet imageDset, const ViewportScissor& vs, DrawableShapeSet* ds) {
+		drawJobs
+		[pl]
+		[vs]
+		[imageDset]
+		= {
+			.pipeline = pl,
+			.viewportScissor = vs,
+			.imageDset = imageDset,
+			.shapeSet = ds };
+	}
+
+
 	Element::PrepareState DrawablePolygon::ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext& uiCtx) {
 		auto& guiCtx = getGuiDrawContext(uiCtx);
 		dpoly_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
@@ -58,22 +71,14 @@ namespace SKENGINE_NAME_NS::gui {
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
 		auto  cbounds = ui_elem_getBounds(lot);
 
-		auto& cmd    = guiCtx.drawCmdBuffer;
 		auto& extent = guiCtx.engine->getPresentExtent();
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
-		VkViewport viewport;
-		VkRect2D scissor;
-		setViewportScissor(viewport, scissor, xfExtent, yfExtent, cbounds);
-		vkCmdSetViewport(cmd, 0, 1, &viewport);
-		vkCmdSetScissor(cmd, 0, 1, &scissor);
+		ViewportScissor vs;
+		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
-		VkBuffer vtx_buffers[] = { dpoly_shapeSet.vertexBuffer(), dpoly_shapeSet.vertexBuffer() };
-		VkDeviceSize offsets[] = { dpoly_shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Ea::pipelineSet(guiCtx).polyFill);
-		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-		vkCmdDrawIndirect(cmd, dpoly_shapeSet.drawIndirectBuffer(), 0, dpoly_shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).polyFill, nullptr, vs, &dpoly_shapeSet);
 	}
 
 
@@ -127,15 +132,19 @@ namespace SKENGINE_NAME_NS::gui {
 		};
 
 		auto commit = [&]() {
-			txtCache.updateImage(guiCtx.drawCmdBuffer, VkFence(VK_NULL_HANDLE));
+			txtCache.updateImage(guiCtx.prepareCmdBuffer, VkFence(VK_NULL_HANDLE));
 			auto& chars = txtCache.getChars();
 			auto& charBounds = chars.find(ph_char_codepoint)->second;
 			if(ph_char_lastCacheUpdate != txtCache.getUpdateCounter()) ph_char_upToDate = false;
 			if(! ph_char_upToDate) { // Update the shape set
 				float u[2] = { charBounds.topLeftUv[0], charBounds.bottomRightUv[0] };
 				float v[2] = { charBounds.topLeftUv[1], charBounds.bottomRightUv[1] };
-				float x[2] = { -charBounds.size[0], +charBounds.size[0] };
-				float y[2] = { -charBounds.size[1], +charBounds.size[1] };
+				float x[2] = {
+					-1.0f,
+					-1.0f + (charBounds.size[0] * 2.0f) };
+				float y[2] = {
+					+1.0f - (charBounds.size[1] * 2.0f),
+					+1.0f };
 				auto shape = std::make_shared<Shape>(std::vector<TextVertex> {
 					{{ x[0], y[0], 0.0f }, { u[0], v[0] }}, {{ x[0], y[1], 0.0f }, { u[0], v[1] }},
 					{{ x[1], y[1], 0.0f }, { u[1], v[1] }}, {{ x[1], y[0], 0.0f }, { u[1], v[0] }} });
@@ -160,32 +169,22 @@ namespace SKENGINE_NAME_NS::gui {
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
 		auto  cbounds = ui_elem_getBounds(lot);
 
-		auto& cmd      = guiCtx.drawCmdBuffer;
 		auto& extent   = guiCtx.engine->getPresentExtent();
 		auto& txtCache = Ea::placeholderTextCache(guiCtx);
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
-		VkViewport viewport;
-		VkRect2D scissor;
-		setViewportScissor(viewport, scissor, xfExtent, yfExtent, cbounds);
+		ViewportScissor vs;
+		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
 		auto& chars = txtCache.getChars();
 		auto& charBounds = chars.find(ph_char_codepoint)->second;
 		float baselineToBottom = charBounds.size[1] - charBounds.baseline[1];
-		float shift = baselineToBottom * viewport.height;
-		scissor.offset.y += std::clamp<float>(shift, 0, yfExtent - scissor.extent.height);
-		viewport.y       += std::clamp<float>(shift, 0, yfExtent - viewport.height);
+		float shift = baselineToBottom * vs.viewport.height;
+		vs.scissor.offset.y += std::clamp<float>(shift, 0, yfExtent - vs.scissor.extent.height);
+		vs.viewport.y       += std::clamp<float>(shift, 0, yfExtent - vs.viewport.height);
 
-		vkCmdSetViewport(cmd, 0, 1, &viewport);
-		vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-		VkBuffer vtx_buffers[] = { ph_char_shapeSet.vertexBuffer(), ph_char_shapeSet.vertexBuffer() };
-		VkDeviceSize offsets[] = { ph_char_shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Ea::pipelineSet(guiCtx).text);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Ea::pipelineSet(guiCtx).layout, 0, 1, &Ea::placeholderTextCache(guiCtx).dset(), 0, nullptr);
-		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-		vkCmdDrawIndirect(cmd, ph_char_shapeSet.drawIndirectBuffer(), 0, ph_char_shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, Ea::placeholderTextCache(guiCtx).dset(), vs, &ph_char_shapeSet);
 	}
 
 
@@ -238,23 +237,14 @@ namespace SKENGINE_NAME_NS::gui {
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
 		auto  cbounds = ui_elem_getBounds(lot);
 
-		auto& cmd    = guiCtx.drawCmdBuffer;
 		auto& extent = guiCtx.engine->getPresentExtent();
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
-		VkViewport viewport;
-		VkRect2D scissor;
-		setViewportScissor(viewport, scissor, xfExtent, yfExtent, cbounds);
-		vkCmdSetViewport(cmd, 0, 1, &viewport);
-		vkCmdSetScissor(cmd, 0, 1, &scissor);
+		ViewportScissor vs;
+		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
-		VkBuffer vtx_buffers[] = { tcv_shapeSet.vertexBuffer(), tcv_shapeSet.vertexBuffer() };
-		VkDeviceSize offsets[] = { tcv_shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Ea::pipelineSet(guiCtx).text);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Ea::pipelineSet(guiCtx).layout, 0, 1, &tcv_cache->dset(), 0, nullptr);
-		vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-		vkCmdDrawIndirect(cmd, tcv_shapeSet.drawIndirectBuffer(), 0, tcv_shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, Ea::placeholderTextCache(guiCtx).dset(), vs, &tcv_shapeSet);
 	}
 
 

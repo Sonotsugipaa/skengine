@@ -272,7 +272,7 @@ namespace SKENGINE_NAME_NS {
 		auto error = FT_Init_FreeType(&mFreetype);
 		if(error) throw FontError("failed to initialize FreeType", error);
 		mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, false, "/usr/share/fonts/gsfonts/C059-Roman.otf"));
-		mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 32);
+		mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 24);
 	}
 
 

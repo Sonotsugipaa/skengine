@@ -9,6 +9,9 @@
 #include <vk-util/memory.hpp>
 
 #include <memory>
+#include <map>
+#include <bit>
+#include <cstring>
 
 
 
@@ -21,6 +24,53 @@ namespace SKENGINE_NAME_NS {
 
 	inline namespace gui {
 
+		struct ViewportScissor {
+			struct HashCmp;
+			VkViewport viewport;
+			VkRect2D   scissor;
+
+			bool operator==(const ViewportScissor& r) const noexcept {
+				static_assert((  sizeof(ViewportScissor) == sizeof(viewport) + sizeof(VkRect2D::extent) + sizeof(VkRect2D::offset)  ) && "Padding may result in false negatives");
+				return 0 == memcmp(this, &r, sizeof(ViewportScissor));
+			}
+		};
+
+		struct DrawJob {
+			VkPipeline        pipeline;
+			ViewportScissor   viewportScissor;
+			VkDescriptorSet   imageDset;
+			DrawableShapeSet* shapeSet;
+		};
+
+		struct ViewportScissor::HashCmp {
+			size_t operator()(const ViewportScissor& vs) const noexcept {
+				constexpr auto ftoi = [](float f) -> size_t {
+					return f * float(1<<10);
+				};
+				constexpr size_t sh = SIZE_WIDTH / 10;
+				return size_t(0)
+					^ std::rotl(ftoi(vs.viewport.x       ),    0*sh)
+					^ std::rotl(ftoi(vs.viewport.y       ),    1*sh)
+					^ std::rotl(ftoi(vs.viewport.width   ),    2*sh)
+					^ std::rotl(ftoi(vs.viewport.height  ),    3*sh)
+					^ std::rotl(ftoi(vs.viewport.minDepth),    4*sh)
+					^ std::rotl(ftoi(vs.viewport.maxDepth),    5*sh)
+					^ std::rotl(vs.scissor.extent.width,     6*sh)
+					^ std::rotl(vs.scissor.extent.height,    7*sh)
+					^ std::rotl(size_t(vs.scissor.offset.x), 8*sh)
+					^ std::rotl(size_t(vs.scissor.offset.y), 9*sh);
+			}
+
+			bool operator()(const ViewportScissor& l, const ViewportScissor& r) const noexcept {
+				return operator()(l) < operator()(r);
+			}
+		};
+
+		using DrawJobDsetSet = std::map<VkDescriptorSet, DrawJob>;
+		using DrawJobVsSet   = std::map<ViewportScissor, DrawJobDsetSet, ViewportScissor::HashCmp>;
+		using DrawJobSet     = std::map<VkPipeline,      DrawJobVsSet>;
+
+
 		struct DrawContext {
 			static constexpr uint64_t magicNumberValue = 0xff004cff01020304;
 
@@ -28,7 +78,10 @@ namespace SKENGINE_NAME_NS {
 
 			const uint64_t magicNumber;
 			Engine* engine;
-			VkCommandBuffer drawCmdBuffer;
+			VkCommandBuffer prepareCmdBuffer;
+			DrawJobSet drawJobs;
+
+			void insertDrawJob(VkPipeline, VkDescriptorSet imageDset, const ViewportScissor&, DrawableShapeSet*);
 		};
 
 
@@ -103,7 +156,7 @@ namespace SKENGINE_NAME_NS {
 			geom::DrawableShapeSet ph_char_shapeSet;
 			codepoint_t ph_char_codepoint;
 			geom::CharDescriptor ph_char_preparedChar;
-			uint_fast32_t ph_char_lastCacheUpdate;
+			TextCache::update_counter_t ph_char_lastCacheUpdate;
 			bool ph_char_upToDate;
 		};
 

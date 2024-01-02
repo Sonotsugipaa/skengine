@@ -142,7 +142,7 @@ inline namespace geom {
 	}
 
 
-	void TextCache::updateImage(VkCommandBuffer cmd, VkFence waitBeforeStaging) noexcept {
+	bool TextCache::updateImage(VkCommandBuffer cmd, VkFence waitBeforeStaging) noexcept {
 		using InsMap = std::unordered_map<codepoint_t, GlyphBitmap>;
 		using InsPair = InsMap::value_type;
 		using Layout = std::unordered_map<codepoint_t, std::vector<codepoint_t>>;
@@ -158,7 +158,7 @@ inline namespace geom {
 				// ensures that a valid VkImage always exists upon calling this function.
 				// This is why the function should not return immediately when no character
 				// is cached.
-				return;
+				return false;
 			}
 		}
 
@@ -446,6 +446,8 @@ inline namespace geom {
 		}
 
 		txtcache_imageUpToDate = true;
+
+		return true;
 	}
 
 

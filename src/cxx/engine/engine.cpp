@@ -122,8 +122,14 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 	template <bool doPrepare, bool doDraw>
 	static void recordUiCommands(Engine& e, VkCommandBuffer cmd) {
-		gui::DrawContext guiCtx = { gui::DrawContext::magicNumberValue, &e, cmd };
-		ui::DrawContext  uiCtx  = { &guiCtx };
+		static_assert(doPrepare != doDraw);
+
+		gui::DrawContext guiCtx = gui::DrawContext {
+			.magicNumber = gui::DrawContext::magicNumberValue,
+			.engine = &e,
+			.prepareCmdBuffer = doPrepare? cmd : nullptr,
+			.drawJobs = { } };
+		ui::DrawContext uiCtx = { &guiCtx };
 
 		#warning "TODO: can this std::function be un-std'd?"
 		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx, &cmd, &e](LotId lotId, Lot& lot) {
@@ -152,7 +158,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					}
 					repeatList = std::move(repeatListSwap);
 					++ repeatCount;
-assert(repeatListSwap.empty());
 				}
 			}
 			if constexpr(doDraw) {
@@ -162,6 +167,38 @@ assert(repeatListSwap.empty());
 
 		for(auto& lot : e.mUiCanvas.lots()) {
 			drawLot(lot.first, *lot.second);
+		}
+
+		if constexpr(doDraw) {
+			VkPipeline             lastPl = nullptr;
+			const ViewportScissor* lastVs = nullptr;
+			VkDescriptorSet        lastImageDset = nullptr;
+			for(auto& jobPl : guiCtx.drawJobs) {
+				if(lastPl != jobPl.first) {
+					lastPl = jobPl.first;
+					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPl);
+				}
+				for(auto& jobVs : jobPl.second) {
+					if(lastVs != &jobVs.first) {
+						lastVs = &jobVs.first;
+						vkCmdSetViewport(cmd, 0, 1, &lastVs->viewport);
+						vkCmdSetScissor(cmd, 0, 1, &lastVs->scissor);
+					}
+					for(auto& jobDs : jobVs.second) {
+						if(lastImageDset != jobDs.first) {
+							lastImageDset = jobDs.second.imageDset;
+							if(lastImageDset != nullptr) {
+								vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGeomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
+							}
+						}
+						auto& shapeSet = *jobDs.second.shapeSet;
+						VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
+						VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
+						vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+						vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+					}
+				}
+			}
 		}
 	}
 

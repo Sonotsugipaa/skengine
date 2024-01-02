@@ -279,6 +279,7 @@ inline namespace geom {
 	class TextCache {
 	public:
 		using CharMap = std::unordered_map<codepoint_t, CharDescriptor>;
+		using update_counter_t = uint_fast32_t;
 
 		TextCache() = default;
 		TextCache(TextCache&&) = default;
@@ -300,14 +301,12 @@ inline namespace geom {
 		auto pixelHeight() const noexcept { return txtcache_pixelHeight; }
 
 		void fetchChar(codepoint_t c) { if(! txtcache_charMap.contains(c)) txtcache_charQueue.insert(c); }
-		template <typename CharSeq>  void fetchChars(const CharSeq& s)  { using C = CharSeq::value_type; for(C& c : s) fetchChar(codepoint_t(c)); }
-		template <typename CharType> void fetchChars(const CharType* s) { while(*s != CharType { }) { fetchChar(codepoint_t(*s)); ++s; } }
+		template <typename CharSeq> void fetchChars(const CharSeq& s) { using C = CharSeq::value_type; for(C& c : s) fetchChar(codepoint_t(c)); }
 
-		void updateImage(VkCommandBuffer, VkFence waitBeforeStaging) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
+		bool updateImage(VkCommandBuffer, VkFence waitBeforeStaging) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
 		const CharMap& getChars() const noexcept { return txtcache_charMap; }
 
 		void trimChars(codepoint_t maxCharCount);
-		void trimSize(uint32_t maxImageSize);
 
 		/// \brief Returns the number of times the cache's image was updated.
 		///
@@ -321,7 +320,7 @@ inline namespace geom {
 		/// information if the cache is updated exactely UINT_FAST32_MAX times
 		/// between two calls - which is unreasonably improbable.
 		///
-		uint_fast32_t getUpdateCounter() const noexcept { return txtcache_updateCounter; }
+		update_counter_t getUpdateCounter() const noexcept { return txtcache_updateCounter; }
 
 	private:
 		std::shared_ptr<FontFace> txtcache_font;
@@ -335,10 +334,10 @@ inline namespace geom {
 		util::Moveable<vkutil::Image>  txtcache_image;
 		VkImageView                    txtcache_imageView;
 		VkSampler                      txtcache_sampler;
-		VkExtent2D     txtcache_imageExt;
-		size_t         txtcache_stagingBufferSize;
-		uint_fast32_t  txtcache_updateCounter;
-		unsigned short txtcache_pixelHeight;
+		VkExtent2D       txtcache_imageExt;
+		size_t           txtcache_stagingBufferSize;
+		update_counter_t txtcache_updateCounter;
+		unsigned short   txtcache_pixelHeight;
 		bool txtcache_imageUpToDate;
 	};
 
