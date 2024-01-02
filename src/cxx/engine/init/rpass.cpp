@@ -424,7 +424,7 @@ namespace SKENGINE_NAME_NS {
 		VkCommandBufferAllocateInfo cba_info = { };
 		cba_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		cba_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		VkCommandBuffer cmd[2];
+		VkCommandBuffer cmd[3];
 		cba_info.commandBufferCount = std::size(cmd);
 		VkDescriptorSetAllocateInfo dsa_info = { };
 		dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -469,7 +469,7 @@ namespace SKENGINE_NAME_NS {
 			cba_info.commandPool = gf.cmd_pool;
 			VK_CHECK(vkAllocateCommandBuffers, mDevice, &cba_info, cmd);
 			gf.cmd_prepare = cmd[0];
-			gf.cmd_draw    = cmd[1];
+			memcpy(gf.cmd_draw, cmd+1, sizeof(gf.cmd_draw));
 
 			gf.frame_ubo     = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
 			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(mVma, light_storage_bc_info);
@@ -489,7 +489,8 @@ namespace SKENGINE_NAME_NS {
 			gf.atch_depthstencil = vkutil::ManagedImage::create(mVma, ic_info, ac_info);
 
 			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_prepare);
-			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_draw);
+			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_drawWorld);
+			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_drawGui);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_prepare);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gff);
@@ -735,7 +736,8 @@ mPlaceholderChar = nullptr;
 			vkDestroyFence     (mDevice, gframe_sel_fence, nullptr);
 			vkDestroyFence     (mDevice, gf.fence_draw, nullptr);
 			vkDestroyFence     (mDevice, gf.fence_prepare, nullptr);
-			vkDestroySemaphore (mDevice, gf.sem_draw, nullptr);
+			vkDestroySemaphore (mDevice, gf.sem_drawGui, nullptr);
+			vkDestroySemaphore (mDevice, gf.sem_drawWorld, nullptr);
 			vkDestroySemaphore (mDevice, gf.sem_prepare, nullptr);
 
 			vkutil::ManagedImage::destroy(mVma, gf.atch_color);

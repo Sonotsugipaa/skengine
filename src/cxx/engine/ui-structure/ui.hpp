@@ -411,7 +411,7 @@ inline namespace ui {
 		Canvas(Canvas&&) = default;
 		Canvas& operator=(Canvas&&) = default;
 
-		Canvas(ComputedBounds bounds, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
+		Canvas(ComputedBounds, init_list<float> rowSizes = { }, init_list<float> columnSizes = { });
 
 		ComputedBounds grid_getBounds() const noexcept override { return canvas_bounds; }
 

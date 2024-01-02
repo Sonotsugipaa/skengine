@@ -266,7 +266,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
-		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw, &cbb_info);
+		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[0], &cbb_info);
+		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[1], &cbb_info);
 
 		{ // Prepare the gframe buffers
 			e.mRendererMutex.lock();
@@ -294,12 +295,16 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
 
-		VkImageMemoryBarrier imb[2] = { }; {
-			imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		VkImageMemoryBarrier2 imb[2] = { }; {
+			imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			imb[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			imb[0].subresourceRange.layerCount = 1;
 			imb[0].subresourceRange.levelCount = 1;
 			imb[1] = imb[0];
+		}
+		VkDependencyInfo imbDep = { }; {
+			imbDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			imbDep.pImageMemoryBarriers = imb;
 		}
 
 		{ // Begin the world render pass
@@ -318,11 +323,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			rpb_info.pClearValues    = clears;
 			rpb_info.renderArea      = { VkOffset2D { 0, 0 }, e.mRenderExtent };
 
-			vkCmdBeginRenderPass(gframe->cmd_draw, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBeginRenderPass(gframe->cmd_draw[0], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 		}
 
 		{ // Draw the objects
-			auto& cmd = gframe->cmd_draw;
+			auto& cmd = gframe->cmd_draw[0];
 
 			VkViewport viewport = { }; {
 				viewport.x      = 0.0f;
@@ -343,27 +348,25 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			recordWorldDrawCommands(e, cmd, sc_img_idx, e.mWorldRenderer);
 		}
 
-		vkCmdEndRenderPass(gframe->cmd_draw);
+		vkCmdEndRenderPass(gframe->cmd_draw[0]);
 
 		{ // Barrier the color attachment and swapchain images for transfer
 			imb[0].image = gframe->atch_color;
 			imb[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			imb[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			imb[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imb[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			imb[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 			imb[1].image = gframe->swapchain_image;
 			imb[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			imb[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imb[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			imb[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			vkCmdPipelineBarrier(
-				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, { },
-				0, nullptr, 0, nullptr, 1, imb+0 );
-			vkCmdPipelineBarrier(
-				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, { },
-				0, nullptr, 0, nullptr, 1, imb+1 );
+			imb[1].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			imb[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			imb[1].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			imb[1].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			imbDep.imageMemoryBarrierCount = 2;
+			vkCmdPipelineBarrier2(gframe->cmd_draw[0], &imbDep);
 		}
 
 		{ // Blit the image
@@ -383,28 +386,21 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			blit.filter = VK_FILTER_NEAREST;
 			blit.regionCount = 1;
 			blit.pRegions = &region;
-			vkCmdBlitImage2(gframe->cmd_draw, &blit);
+			vkCmdBlitImage2(gframe->cmd_draw[0], &blit);
 		}
+
+		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw[0]);
 
 		{ // Barrier the swapchain image [0] for drawing the UI, and the color attachment [1] for... color attaching?
 			imb[0].image = gframe->swapchain_image;
 			imb[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			imb[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			imb[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-			imb[1].image = gframe->atch_color;
-			imb[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			imb[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			imb[1].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			imb[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			vkCmdPipelineBarrier(
-				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, { },
-				0, nullptr, 0, nullptr, 1, imb+0 );
-			vkCmdPipelineBarrier(
-				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, { },
-				0, nullptr, 0, nullptr, 1, imb+1 );
+			imb[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			imb[0].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			imbDep.imageMemoryBarrierCount = 1;
+			vkCmdPipelineBarrier2(gframe->cmd_draw[1], &imbDep);
 		}
 
 		{ // Begin the ui render pass
@@ -413,61 +409,55 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			rpb_info.framebuffer = gframe->uiFramebuffer;
 			rpb_info.renderPass  = e.mUiRpass;
 			rpb_info.renderArea  = { VkOffset2D { 0, 0 }, e.mRenderExtent };
-			vkCmdBeginRenderPass(gframe->cmd_draw, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBeginRenderPass(gframe->cmd_draw[1], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 		}
 
-		recordUiCommands<false, true>(e, gframe->cmd_draw);
+		recordUiCommands<false, true>(e, gframe->cmd_draw[1]);
 
-		#warning "WAW HAZARD: vkCmdEndRenderPass, SYNC_COLOR_ATTACHMENT_OUTPUT_COLOR_ATTACHMENT_WRITE => SYNC_IMAGE_LAYOUT_TRANSITION"
-		// SYNC-HAZARD-WRITE-AFTER-WRITE(ERROR / SPEC): msgNum: 1544472022 - Validation Error: [ SYNC-HAZARD-WRITE-AFTER-WRITE ]
-		// Object 0: handle = 0xa2eb680000000026, type = VK_OBJECT_TYPE_IMAGE;
-		// MessageID = 0x5c0ec5d6
-		// vkCmdPipelineBarrier: Hazard WRITE_AFTER_WRITE for image barrier 0 VkImage gframe->swapchain_image.
-		// Access info (
-		//   usage: SYNC_IMAGE_LAYOUT_TRANSITION,
-		//   prior_usage: SYNC_COLOR_ATTACHMENT_OUTPUT_COLOR_ATTACHMENT_WRITE,
-		//   write_barriers: 0,
-		//   command: vkCmdEndRenderPass,
-		//   seq_no: 26,renderpass: VkRenderPass e.mUiRpass, reset_no: 2
-		// ).
-		// Objects: 1
-		//   [0] 0xa2eb680000000026, type: 10, name: NULL
-		vkCmdEndRenderPass(gframe->cmd_draw);
+		vkCmdEndRenderPass(gframe->cmd_draw[1]);
 
-		{ // Barrier the swapchain image for presenting (borrow the barrier info from the previous vkCmdPipelineBarrier)
+		{ // Barrier the swapchain image for presenting
 			imb[0].image = gframe->swapchain_image;
-			imb[0].oldLayout = imb[0].newLayout;
+			imb[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			imb[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			imb[0].srcAccessMask = imb[0].dstAccessMask;
-			imb[0].dstAccessMask = VK_ACCESS_NONE;
-			vkCmdPipelineBarrier(
-				gframe->cmd_draw,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, { },
-				0, nullptr, 0, nullptr, 1, imb+0 );
+			imb[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			imb[0].dstAccessMask = VK_ACCESS_2_NONE;
+			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+			imbDep.imageMemoryBarrierCount = 1;
+			vkCmdPipelineBarrier2(gframe->cmd_draw[1], &imbDep);
 		}
 
-		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw);
+		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw[1]);
 
-		VkSubmitInfo subm[2] = { };
+		VkSubmitInfo subm = { };
 
 		{ // Submit the prepare and draw commands
-			constexpr VkPipelineStageFlags prepare_wait_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			constexpr VkPipelineStageFlags draw_wait_stages    = VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-			subm->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			subm->commandBufferCount   = 1;
-			subm->signalSemaphoreCount = 1;
-			subm->pCommandBuffers    = &gframe->cmd_prepare;
-			subm->pWaitDstStageMask  = &prepare_wait_stages;
-			subm->pSignalSemaphores  = &gframe->sem_prepare;
-			VK_CHECK(vkResetFences, e.mDevice,          1,      &gframe->fence_prepare);
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_prepare);
-			subm->pCommandBuffers    = &gframe->cmd_draw;
-			subm->waitSemaphoreCount = 1;
-			subm->pWaitSemaphores    = &gframe->sem_prepare;
-			subm->pWaitDstStageMask  = &draw_wait_stages;
-			subm->pSignalSemaphores  = &gframe->sem_draw;
-			VK_CHECK(vkResetFences, e.mDevice,          1,      &gframe->fence_draw);
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, subm, gframe->fence_draw);
+			constexpr VkPipelineStageFlags waitStages[3] = {
+				0,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT };
+			subm.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			subm.commandBufferCount = 1;
+			subm.pCommandBuffers    = &gframe->cmd_prepare;
+			subm.pWaitDstStageMask  = waitStages + 0;
+			subm.signalSemaphoreCount = 1;
+			subm.pSignalSemaphores    = &gframe->sem_prepare;
+			VK_CHECK(vkResetFences, e.mDevice,          1,       &gframe->fence_prepare);
+			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, gframe->fence_prepare);
+			VkSemaphore drawSems[3] = { gframe->sem_prepare, gframe->sem_drawWorld, gframe->sem_drawGui };
+			subm.waitSemaphoreCount = 1;
+			subm.pCommandBuffers    = gframe->cmd_draw + 0;
+			subm.pWaitDstStageMask  = waitStages       + 1;
+			subm.pWaitSemaphores    = drawSems         + 0;
+			subm.pSignalSemaphores  = drawSems         + 1;
+			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, nullptr);
+			subm.pCommandBuffers    = gframe->cmd_draw + 1;
+			subm.pWaitDstStageMask  = waitStages       + 2;
+			subm.pWaitSemaphores    = drawSems         + 1;
+			subm.pSignalSemaphores  = drawSems         + 2;
+			VK_CHECK(vkResetFences, e.mDevice,          1,       &gframe->fence_draw);
+			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, gframe->fence_draw);
 		}
 
 		setHdrMetadata(e);
@@ -481,7 +471,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			p_info.pSwapchains    = &e.mSwapchain;
 			p_info.pImageIndices  = &sc_img_idx;
 			p_info.waitSemaphoreCount = 1;
-			p_info.pWaitSemaphores    = &gframe->sem_draw;
+			p_info.pWaitSemaphores    = &gframe->sem_drawGui;
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 

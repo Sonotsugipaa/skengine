@@ -107,12 +107,6 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	struct ViewportPosition {
-		float x;
-		float y;
-	};
-
-
 	struct RpassConfig {
 		static const RpassConfig default_cfg;
 		std::string world_vertex_shader_file;
@@ -144,11 +138,12 @@ namespace SKENGINE_NAME_NS {
 		VkImageView atch_depthstencil_view;
 		VkCommandPool cmd_pool;
 		VkCommandBuffer cmd_prepare;
-		VkCommandBuffer cmd_draw;
+		VkCommandBuffer cmd_draw[2] /* One for each render pass */;
 		VkFramebuffer worldFramebuffer;
 		VkFramebuffer uiFramebuffer;
 		VkSemaphore sem_prepare;
-		VkSemaphore sem_draw;
+		VkSemaphore sem_drawWorld;
+		VkSemaphore sem_drawGui;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
 		uint32_t    light_storage_capacity;
