@@ -73,6 +73,7 @@ inline namespace geom {
 
 		GlyphBitmap ins;
 		auto* ftGlyph = font_face.value->glyph;
+		assert((ftGlyph->bitmap.pitch >= 0) && "I don't know how to deal with a negative pitch");
 		ins.xBaseline = ftGlyph->bitmap_left;
 		ins.yBaseline = ftGlyph->bitmap_top;
 		ins.xAdvance  = ftGlyph->linearHoriAdvance >> 16;
@@ -100,6 +101,7 @@ inline namespace geom {
 		txtcache_font(std::move(font)),
 		txtcache_dev(dev),
 		txtcache_vma(vma),
+		txtcache_lock(nullptr),
 		txtcache_imageExt({ }),
 		txtcache_stagingBufferSize(0),
 		txtcache_updateCounter(0),
@@ -142,7 +144,7 @@ inline namespace geom {
 	}
 
 
-	bool TextCache::updateImage(VkCommandBuffer cmd, VkFence waitBeforeStaging) noexcept {
+	bool TextCache::updateImage(VkCommandBuffer cmd) noexcept {
 		using InsMap = std::unordered_map<codepoint_t, GlyphBitmap>;
 		using InsPair = InsMap::value_type;
 		using Layout = std::unordered_map<codepoint_t, std::vector<codepoint_t>>;
@@ -158,6 +160,7 @@ inline namespace geom {
 				// ensures that a valid VkImage always exists upon calling this function.
 				// This is why the function should not return immediately when no character
 				// is cached.
+				txtcache_lock = nullptr;
 				return false;
 			}
 		}
@@ -239,7 +242,11 @@ inline namespace geom {
 			txtcache_imageExt = { icInfo.extent.width, icInfo.extent.height };
 			VkDeviceSize imageByteSize = icInfo.extent.width * icInfo.extent.height * 4; // The glyph has a 1-byte grayscale texel, the image wants a 4-byte RGBA texel because GLSL said so
 
-			if(waitBeforeStaging != nullptr) vkWaitForFences(txtcache_dev.value, 1, &waitBeforeStaging, VK_TRUE, UINT64_MAX);
+			if(txtcache_lock != nullptr) {
+				VK_CHECK(vkWaitForFences, txtcache_dev.value, 1, &txtcache_lock, VK_TRUE, UINT64_MAX);
+				txtcache_lock = nullptr;
+			}
+
 			{ // Enlarge the staging buffer, if necessary
 				vkutil::BufferCreateInfo bcInfo = { };
 				bcInfo.size  = imageByteSize;
@@ -480,17 +487,5 @@ inline namespace geom {
 			txtcache_charMap.erase(victim->first);
 		}
 	}
-
-
-	/*
-	TextLine TextLine::create(VmaAllocator vma, FontFace& face, const std::vector<codepoint_t>& str) {
-
-	}
-
-
-	void TextLine::destroy(VmaAllocator vma, TextLine& ln) {
-
-	}
-	*/
 
 }}

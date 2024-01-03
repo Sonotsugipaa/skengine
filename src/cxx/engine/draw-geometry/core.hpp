@@ -208,10 +208,10 @@ inline namespace geom {
 
 
 	struct GlyphBitmap {
-		unsigned xBaseline;
-		unsigned yBaseline;
-		unsigned xAdvance;
-		unsigned yAdvance;
+		int xBaseline;
+		int yBaseline;
+		int xAdvance;
+		int yAdvance;
 		unsigned width;
 		unsigned height;
 		unsigned pitch;
@@ -301,9 +301,12 @@ inline namespace geom {
 		auto pixelHeight() const noexcept { return txtcache_pixelHeight; }
 
 		void fetchChar(codepoint_t c) { if(! txtcache_charMap.contains(c)) txtcache_charQueue.insert(c); }
-		template <typename CharSeq> void fetchChars(const CharSeq& s) { using C = CharSeq::value_type; for(C& c : s) fetchChar(codepoint_t(c)); }
+		template <typename CharSeq> void fetchChars(const CharSeq& s) { using C = CharSeq::value_type; for(const C& c : s) fetchChar(codepoint_t(c)); }
 
-		bool updateImage(VkCommandBuffer, VkFence waitBeforeStaging) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
+		void syncWithFence(VkFence fence) noexcept { txtcache_lock = fence; } // DOCUMENTATION HINT: a non-null fence may be waited upon on the next call to `updateImage`.
+		void forgetFence(VkFence fence) noexcept { if(txtcache_lock == fence) txtcache_lock = nullptr; }
+
+		bool updateImage(VkCommandBuffer) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
 		const CharMap& getChars() const noexcept { return txtcache_charMap; }
 
 		void trimChars(codepoint_t maxCharCount);
@@ -334,6 +337,7 @@ inline namespace geom {
 		util::Moveable<vkutil::Image>  txtcache_image;
 		VkImageView                    txtcache_imageView;
 		VkSampler                      txtcache_sampler;
+		VkFence                        txtcache_lock;
 		VkExtent2D       txtcache_imageExt;
 		size_t           txtcache_stagingBufferSize;
 		update_counter_t txtcache_updateCounter;

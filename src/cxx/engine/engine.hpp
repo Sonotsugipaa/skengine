@@ -106,6 +106,7 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
 		uint32_t       font_height;
+		uint32_t       font_maxCacheSize;
 		bool           fullscreen      : 1;
 		bool           composite_alpha : 1;
 	};
@@ -156,8 +157,10 @@ namespace SKENGINE_NAME_NS {
 
 	struct GuiState {
 		std::unique_ptr<ui::Canvas> canvas;
+		std::unordered_map<unsigned short, TextCache> textCaches;
 		geom::PipelineSet geomPipelines;
-		TextCache textCache;
+
+		TextCache& getTextCache(Engine&, unsigned short size);
 	};
 
 
@@ -206,6 +209,7 @@ namespace SKENGINE_NAME_NS {
 		friend ConcurrentAccess;
 		friend gui::DrawContext;
 		friend GuiManager;
+		friend GuiState;
 
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
@@ -235,6 +239,8 @@ namespace SKENGINE_NAME_NS {
 		void destroyShaderModule(VkShaderModule);
 
 		VkPipeline createPipeline(std::string_view material_type_name, VkRenderPass);
+
+		FontFace createFontFace();
 
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
@@ -338,10 +344,8 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
-		FT_Library        mFreetype;
-		GuiState          mGuiState;
-		std::shared_ptr<geom::FontFace> mPlaceholderFont;
-		public: std::shared_ptr<gui::PlaceholderChar> mPlaceholderChar; private:
+		FT_Library mFreetype;
+		GuiState   mGuiState;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

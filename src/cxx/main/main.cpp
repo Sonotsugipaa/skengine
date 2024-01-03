@@ -55,9 +55,9 @@ namespace {
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
 		std::vector<ObjectId> createdLights;
-		std::shared_ptr<ui::BasicGrid> crosshairGrid;
-		std::shared_ptr<ui::Lot> crosshairLot;
-		std::shared_ptr<gui::BasicPolygon> crosshair;
+		std::weak_ptr<ui::BasicGrid> crosshairGrid;
+		std::weak_ptr<ui::Lot> crosshairLot;
+		std::weak_ptr<gui::BasicPolygon> crosshair;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  spaceship;
 		ObjectId  world;
@@ -86,16 +86,16 @@ namespace {
 
 
 		void setCrosshairGridSize() {
-			float ext[2]   = { engine->getPresentExtent().width, engine->getPresentExtent().height };
+			float ext[2]   = { float(engine->getPresentExtent().width), float(engine->getPresentExtent().height) };
 			float size[2]  = { crosshair_size_px / ext[0], crosshair_size_px / ext[1] };
 			float space[2] = { (1.0f - size[0]) / 2.0f, (1.0f - size[1]) / 2.0f };
-			crosshairGrid->setColumnSizes({ space[0], size[0] });
-			crosshairGrid->setRowSizes({ space[1], size[1] });
+			auto chGrid = crosshairGrid.lock();
+			chGrid->setColumnSizes({ space[0], size[0] });
+			chGrid->setRowSizes({ space[1], size[1] });
 		}
 
 
-		ShapeSet makeCrosshairShapeSet(skengine::GuiManager& gui) {
-			auto& ext = engine->getPresentExtent();
+		ShapeSet makeCrosshairShapeSet() {
 			constexpr float pixelWidth = crosshair_width_px / crosshair_size_px;
 			return makeCrossShapeSet(pixelWidth, pixelWidth, 0.1f, { 1.0f, 1.0f, 1.0f, 1.0f });
 		}
@@ -188,13 +188,14 @@ namespace {
 
 		void createGui(skengine::GuiManager& gui) {
 			auto& canvas = gui.canvas();
-			auto& ext    = engine->getPresentExtent();
 			crosshairGrid =
 				canvas.createLot({ 0, 0 }, { 3, 3 }).second
 				->setChildBasicGrid({ }, { }, { });
 			setCrosshairGridSize();
-			crosshairLot  = crosshairGrid->createLot({ 1, 1 }, { 1, 1 }).second;
-			crosshair     = gui.createBasicShape(*crosshairLot, makeCrosshairShapeSet(gui), true).second;
+			auto chGrid  = crosshairGrid.lock();
+			crosshairLot = chGrid->createLot({ 1, 1 }, { 1, 1 }).second;
+			auto chLot   = crosshairLot.lock();
+			crosshair    = gui.createBasicShape(*chLot, makeCrosshairShapeSet(), true).second;
 		}
 
 
@@ -215,6 +216,13 @@ namespace {
 			createTestObjects(wr);
 			createLights(wr);
 			createGui(gui);
+		}
+
+
+		~Loop() {
+			crosshairGrid = { };
+			crosshairLot = { };
+			crosshair = { };
 		}
 
 
@@ -306,10 +314,8 @@ namespace {
 				auto& wr = ca->getWorldRenderer();
 
 				if(resize_event.triggered) {
-					auto gui = ca->gui();
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
 					setCrosshairGridSize();
-					crosshair->setShapes(makeCrosshairShapeSet(gui));
 				}
 
 				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
@@ -357,9 +363,7 @@ namespace {
 		}
 
 
-		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override {
-			if(pressedKeys.contains(SDLK_h)) [[unlikely]] { engine->mPlaceholderChar->setChar((engine->mPlaceholderChar->getChar() + 1) % (1<<9)); }
-		}
+		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
 
 
 		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {

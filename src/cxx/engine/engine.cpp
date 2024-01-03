@@ -121,18 +121,19 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	template <bool doPrepare, bool doDraw>
-	static void recordUiCommands(Engine& e, VkCommandBuffer cmd) {
+	static void recordUiCommands(Engine& e, GframeData& gframe) {
 		static_assert(doPrepare != doDraw);
 
 		gui::DrawContext guiCtx = gui::DrawContext {
 			.magicNumber = gui::DrawContext::magicNumberValue,
 			.engine = &e,
-			.prepareCmdBuffer = doPrepare? cmd : nullptr,
+			.prepareCmdBuffer = doPrepare? gframe.cmd_prepare : nullptr,
 			.drawJobs = { } };
 		ui::DrawContext uiCtx = { &guiCtx };
 
-		#warning "TODO: can this std::function be un-std'd?"
-		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx, &cmd, &e](LotId lotId, Lot& lot) {
+		std::deque<std::pair<LotId, Lot*>> recursiveVisitList;
+
+		std::function<void(LotId, Lot&)> drawLot = [&](LotId lotId, Lot& lot) {
 			if(lot.hasChildGrid()) {
 				auto grid = lot.childGrid();
 				// // // Disregard the commented comments, grids can set themselves as modified but elements can't;
@@ -144,36 +145,45 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				// 	grid->resetModified();
 				// }
 				for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
-				if constexpr(doPrepare) grid->resetModified();
 			}
 
-			if constexpr(doPrepare) {
-				std::deque<ui::Element*> repeatList;
-				for(auto& elem : lot.elements()) {
-					auto ps = elem.second->ui_elem_prepareForDraw(lotId, lot, 0, uiCtx);
-					if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back(elem.second.get());
-				}
-				unsigned repeatCount = 0;
-				std::deque<ui::Element*> repeatListSwap;
-				while(! repeatList.empty()) {
-					for(auto& elem : repeatList) {
-						auto ps = elem->ui_elem_prepareForDraw(lotId, lot, repeatCount, uiCtx);
-						if(ps == ui::Element::PrepareState::eDefer) repeatListSwap.push_back(elem);
-					}
-					repeatList = std::move(repeatListSwap);
-					++ repeatCount;
-				}
-			}
-			if constexpr(doDraw) {
-				for(auto& elem : lot.elements()) elem.second->ui_elem_draw(lotId, lot, uiCtx);
-			}
+			recursiveVisitList.push_back({ lotId, &lot });
 		};
 
 		for(auto& lot : e.mGuiState.canvas->lots()) {
 			drawLot(lot.first, *lot.second);
 		}
 
+		if constexpr(doPrepare) {
+			std::deque<std::tuple<LotId, Lot*, Element*>> repeatList;
+			for(auto& lot : recursiveVisitList) {
+				for(auto& elem : lot.second->elements()) {
+					auto ps = elem.second->ui_elem_prepareForDraw(lot.first, *lot.second, 0, uiCtx);
+					if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back({ lot.first, lot.second, elem.second.get() });
+				}
+			}
+			unsigned repeatCount = 0;
+			std::deque<std::tuple<LotId, Lot*, Element*>> repeatListSwap;
+			while(! repeatList.empty()) {
+				for(auto& row : repeatList) {
+					auto ps = std::get<2>(row)->ui_elem_prepareForDraw(std::get<0>(row), *std::get<1>(row), repeatCount, uiCtx);
+					if(ps == ui::Element::PrepareState::eDefer) repeatListSwap.push_back(row);
+				}
+				repeatList = std::move(repeatListSwap);
+				++ repeatCount;
+			}
+		}
+
 		if constexpr(doDraw) {
+			for(auto& lot : recursiveVisitList) {
+				for(auto& elem : lot.second->elements()) elem.second->ui_elem_draw(lot.first, *lot.second, uiCtx);
+			}
+
+			// The caches will need for this draw op to finish before preparing for the next one
+			// (unless they're up to date, in which case they won't do anything)
+			for(auto& ln : e.mGuiState.textCaches) ln.second.syncWithFence(gframe.fence_draw);
+
+			auto& cmd = gframe.cmd_draw[1];
 			VkPipeline             lastPl = nullptr;
 			const ViewportScissor* lastVs = nullptr;
 			VkDescriptorSet        lastImageDset = nullptr;
@@ -260,7 +270,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			gframe = e.mGframes.data() + sc_img_idx;
 			VK_CHECK(vkWaitForFences, e.mDevice, 1, &sc_img_fence,       VK_TRUE, UINT64_MAX);
 			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, VK_TRUE, UINT64_MAX);
-			VK_CHECK(vkResetFences,   e.mDevice, 1, &gframe->fence_draw);
 			VK_CHECK(vkResetCommandPool, e.mDevice, gframe->cmd_pool, 0);
 		}
 
@@ -296,7 +305,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
-			recordUiCommands<true, false>(e, gframe->cmd_prepare);
+			recordUiCommands<true, false>(e, *gframe);
 		}
 
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
@@ -418,7 +427,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			vkCmdBeginRenderPass(gframe->cmd_draw[1], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 		}
 
-		recordUiCommands<false, true>(e, gframe->cmd_draw[1]);
+		recordUiCommands<false, true>(e, *gframe);
 
 		vkCmdEndRenderPass(gframe->cmd_draw[1]);
 
@@ -488,7 +497,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mGraphicsReg.endCycle();
 
-		e.mGuiState.textCache.trimChars(256);
+		for(auto& ln : e.mGuiState.textCaches) ln.second.trimChars(e.mPrefs.font_maxCacheSize);
 
 		return true;
 	}
@@ -537,6 +546,7 @@ namespace SKENGINE_NAME_NS {
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
 		.font_height           = 24,
+		.font_maxCacheSize     = 512,
 		.fullscreen            = false,
 		.composite_alpha       = false
 	};
@@ -548,6 +558,21 @@ namespace SKENGINE_NAME_NS {
 		.compensationFactor = 0.0,
 		.strategyMask       = tickreg::strategy_flag_t(tickreg::WaitStrategyFlags::eSleepUntil) };
 
+
+
+	TextCache& GuiState::getTextCache(Engine& e, unsigned short size) {
+		using Caches = decltype(e.mGuiState.textCaches);
+		auto& caches = e.mGuiState.textCaches;
+		auto found = caches.find(size);
+		if(found == caches.end()) {
+			found = caches.insert(Caches::value_type(size, TextCache(
+				e.mDevice, e.mVma,
+				e.mGuiDsetLayout,
+				std::make_shared<FontFace>(e.createFontFace()),
+				size ))).first;
+		}
+		return found->second;
+	}
 
 
 	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
@@ -695,6 +720,11 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::destroyShaderModule(VkShaderModule module) {
 		vkDestroyShaderModule(mDevice, module, nullptr);
+	}
+
+
+	FontFace Engine::createFontFace() {
+		return FontFace::fromFile(mFreetype, false, mPrefs.font_location.c_str());
 	}
 
 

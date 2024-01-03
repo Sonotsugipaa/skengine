@@ -12,6 +12,7 @@
 #include <map>
 #include <bit>
 #include <deque>
+#include <string>
 #include <cstring>
 
 
@@ -24,6 +25,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	inline namespace gui {
+
+		constexpr unsigned short defaultFontSize = 24;
+
 
 		struct ViewportScissor {
 			struct HashCmp;
@@ -90,6 +94,8 @@ namespace SKENGINE_NAME_NS {
 		public:
 			DrawablePolygon(bool doFill): dpoly_doFill(doFill) { }
 
+			DrawablePolygon(DrawablePolygon&&) = delete;
+
 			Element::PrepareState ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
@@ -119,29 +125,13 @@ namespace SKENGINE_NAME_NS {
 		};
 
 
-		class Cross : public BasicPolygon {
+		class TextLine : public ui::Element {
 		public:
-			Cross(VmaAllocator, float strokeLength, float strokeWidth, const glm::vec4& color);
+			TextLine(VmaAllocator, std::string_view = { }, unsigned short fontSize = defaultFontSize);
+			TextLine(VmaAllocator, std::u32string, unsigned short fontSize = defaultFontSize);
+			~TextLine();
 
-		private:
-			float cross_strokeLength;
-			float cross_strokeWidth;
-		};
-
-
-		class Frame : public BasicPolygon {
-		public:
-			Frame(VmaAllocator, float strokeWidth, const glm::vec4& color);
-
-		private:
-			float frame_strokeWidth;
-		};
-
-
-		class PlaceholderChar : public virtual ui::Element {
-		public:
-			PlaceholderChar(VmaAllocator, codepoint_t);
-			~PlaceholderChar();
+			TextLine(TextLine&&) = delete;
 
 			Element::PrepareState ui_elem_prepareForDraw(LotId, Lot&, unsigned, ui::DrawContext&) override;
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
@@ -149,18 +139,20 @@ namespace SKENGINE_NAME_NS {
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
 			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
-			auto& shapes() noexcept { return ph_char_shapeSet; }
+			unsigned short fontSize() const noexcept { return txt_fontSize; }
+			void fontSize(unsigned short) noexcept;
 
-			auto getChar() const noexcept { return ph_char_codepoint; }
-			void setChar(codepoint_t c) noexcept;
+			void set(std::string_view) noexcept;
+			void set(std::u32string) noexcept;
 
 		private:
-			VmaAllocator ph_char_vma;
-			geom::DrawableShapeSet ph_char_shapeSet;
-			codepoint_t ph_char_codepoint;
-			geom::CharDescriptor ph_char_preparedChar;
-			TextCache::update_counter_t ph_char_lastCacheUpdate;
-			bool ph_char_upToDate;
+			VmaAllocator txt_vma;
+			geom::DrawableShapeSet txt_shapeSet;
+			std::u32string txt_str;
+			TextCache::update_counter_t txt_lastCacheUpdate;
+			float txt_baselineBottom;
+			unsigned short txt_fontSize;
+			bool txt_upToDate;
 		};
 
 
