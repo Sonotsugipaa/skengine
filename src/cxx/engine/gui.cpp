@@ -40,8 +40,8 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	struct DrawContext::EngineAccess {
-		static auto& pipelineSet(gui::DrawContext& c) { return c.engine->mGeomPipelines; };
-		static auto& placeholderTextCache(gui::DrawContext& c) { return c.engine->mPlaceholderTextCache; };
+		static auto& pipelineSet(gui::DrawContext& c) { return c.engine->mGuiState.geomPipelines; };
+		static auto& placeholderTextCache(gui::DrawContext& c) { return c.engine->mGuiState.textCache; };
 	};
 
 	using Ea = DrawContext::EngineAccess;
@@ -52,11 +52,11 @@ namespace SKENGINE_NAME_NS::gui {
 		[pl]
 		[vs]
 		[imageDset]
-		= {
+		.push_back(DrawJob {
 			.pipeline = pl,
 			.viewportScissor = vs,
 			.imageDset = imageDset,
-			.shapeSet = ds };
+			.shapeSet = ds });
 	}
 
 
@@ -93,7 +93,7 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	#warning "TODO: move this logic to `DrawablePolygon` "
-	BasicElement::BasicElement(VmaAllocator vma, ShapeSet shapes, bool doFill):
+	BasicPolygon::BasicPolygon(VmaAllocator vma, ShapeSet shapes, bool doFill):
 		DrawablePolygon(doFill),
 		basic_elem_vma(vma)
 	{
@@ -102,9 +102,16 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	BasicElement::~BasicElement() {
+	BasicPolygon::~BasicPolygon() {
 		auto& sh = shapes();
 		if(sh) DrawableShapeSet::destroy(basic_elem_vma, sh);
+	}
+
+
+	void BasicPolygon::setShapes(ShapeSet newShapes) {
+		auto& oldShapes = shapes();
+		if(oldShapes) DrawableShapeSet::destroy(basic_elem_vma, oldShapes);
+		oldShapes = DrawableShapeSet::create(basic_elem_vma, std::move(newShapes));
 	}
 
 

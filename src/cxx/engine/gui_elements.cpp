@@ -44,14 +44,14 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	Cross::Cross(VmaAllocator vma, float strokeLength, float strokeWidth, const glm::vec4& color):
-			BasicElement(vma, makeCrossShapeSet(strokeWidth, color), true),
+			BasicPolygon(vma, makeCrossShapeSet(strokeWidth, color), true),
 			cross_strokeLength(strokeLength),
 			cross_strokeWidth(strokeWidth)
 	{ }
 
 
 	Frame::Frame(VmaAllocator vma, float strokeWidth, const glm::vec4& color):
-			BasicElement(vma, makeFrameShapeSet(strokeWidth, color), true),
+			BasicPolygon(vma, makeFrameShapeSet(strokeWidth, color), true),
 			frame_strokeWidth(strokeWidth)
 	{ }
 

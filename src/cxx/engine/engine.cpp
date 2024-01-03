@@ -135,12 +135,16 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		std::function<void(LotId, Lot&)> drawLot = [&drawLot, &uiCtx, &cmd, &e](LotId lotId, Lot& lot) {
 			if(lot.hasChildGrid()) {
 				auto grid = lot.childGrid();
-				// If the grid's structure has not been modified, there's no need to recursively prepare;
-				// there is, however, always need to recursively draw.
-				if(doDraw || grid->isModified()) {
-					for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
-					grid->resetModified();
-				}
+				// // // Disregard the commented comments, grids can set themselves as modified but elements can't;
+				// // // making it so that they can would probably be a nightmare.
+				// // If the grid's structure has not been modified, there's no need to recursively prepare;
+				// // there is, however, always need to recursively draw.
+				// if(doDraw || grid->isModified()) {
+				// 	for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
+				// 	grid->resetModified();
+				// }
+				for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
+				if constexpr(doPrepare) grid->resetModified();
 			}
 
 			if constexpr(doPrepare) {
@@ -165,7 +169,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			}
 		};
 
-		for(auto& lot : e.mUiCanvas.lots()) {
+		for(auto& lot : e.mGuiState.canvas->lots()) {
 			drawLot(lot.first, *lot.second);
 		}
 
@@ -186,16 +190,18 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					}
 					for(auto& jobDs : jobVs.second) {
 						if(lastImageDset != jobDs.first) {
-							lastImageDset = jobDs.second.imageDset;
+							lastImageDset = jobDs.first;
 							if(lastImageDset != nullptr) {
-								vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGeomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
+								vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGuiState.geomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
 							}
 						}
-						auto& shapeSet = *jobDs.second.shapeSet;
-						VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
-						VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-						vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-						vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+						for(auto& job : jobDs.second) {
+							auto& shapeSet = *job.shapeSet;
+							VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
+							VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
+							vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+							vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+						}
 					}
 				}
 			}
@@ -482,7 +488,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mGraphicsReg.endCycle();
 
-		e.mPlaceholderTextCache.trimChars(256);
+		e.mGuiState.textCache.trimChars(256);
 
 		return true;
 	}
@@ -515,6 +521,7 @@ namespace SKENGINE_NAME_NS {
 	const EnginePreferences EnginePreferences::default_prefs = EnginePreferences {
 		.phys_device_uuid      = "",
 		.asset_filename_prefix = "",
+		.font_location         = "font.otf",
 		.init_present_extent   = { 600, 400 },
 		.max_render_extent     = { 0, 0 },
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
@@ -529,6 +536,7 @@ namespace SKENGINE_NAME_NS {
 		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
+		.font_height           = 24,
 		.fullscreen            = false,
 		.composite_alpha       = false
 	};

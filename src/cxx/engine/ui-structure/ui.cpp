@@ -22,20 +22,20 @@ inline namespace ui {
 		lot_padding({ 0.0f, 0.0f, 0.0f, 0.0f }),
 		lot_transform(glm::mat3(1.0f)),
 		lot_parent(parentGrid),
+		lot_parentRegion(parentGrid),
 		lot_child(nullptr)
-	{
-		lot_parent = parentGrid;
-		if(parentGrid == nullptr) {
-			// This is only meant to be the case when creating a top-level lot,
-			// by avoiding "chain-climbing" member function calls or manually
-			// setting private member variables after construction.
-			lot_elemIdGen = std::make_shared<idgen::IdGenerator<ElementId>>();
-		} else {
-			auto parentLot = parentGrid->parentLot();
-			assert(parentLot != nullptr);
+	{ }
 
-			lot_elemIdGen = parentLot->lot_elemIdGen;
-		}
+
+	Lot::Lot(Grid* parentGrid, Region* parentRegion, GridPosition gridOffset, GridSize size):
+		Lot(parentGrid, gridOffset, size)
+	{
+		lot_parentRegion = parentRegion;
+	}
+
+
+	void Lot::setSize(GridSize size) noexcept {
+		lot_size = size;
 	}
 
 
@@ -51,7 +51,7 @@ inline namespace ui {
 		br.row += lot_size.rows;
 		br.column += lot_size.columns;
 		auto relBounds = lot_parent->grid_getRegionRelativeBounds(lot_gridOffset, br);
-		auto parentBounds = lot_parent->grid_getBounds();
+		auto parentBounds = lot_parentRegion->region_getBounds();
 		ComputedBounds r;
 		r.viewportOffsetLeft = parentBounds.viewportOffsetLeft + (relBounds.left * parentBounds.viewportWidth);
 		r.viewportOffsetTop  = parentBounds.viewportOffsetTop  + (relBounds.top  * parentBounds.viewportHeight);
@@ -64,7 +64,7 @@ inline namespace ui {
 	std::pair<ElementId, std::shared_ptr<Element>&> Lot::createElement(std::shared_ptr<Element> elem) {
 		using Map = decltype(lot_elements);
 		auto ins = lot_elements.insert(Map::value_type(
-			lot_elemIdGen->generate(),
+			lot_parent->grid_elemIdGen->generate(),
 			std::move(elem) ));
 		return std::pair<ElementId, std::shared_ptr<Element>&>(ins.first->first, ins.first->second);
 	}
@@ -78,7 +78,7 @@ inline namespace ui {
 		#ifndef NDEBUG
 			assert(removed == 1);
 		#endif
-		lot_elemIdGen->recycle(id);
+		lot_parent->grid_elemIdGen->recycle(id);
 	}
 
 
@@ -87,22 +87,29 @@ inline namespace ui {
 	}
 
 
-	BasicGrid& Lot::setChildBasicGrid(const GridInfo& info, init_list<float> rowSizes, init_list<float> columnSizes) {
+	std::shared_ptr<BasicGrid> Lot::setChildBasicGrid(const GridInfo& info, init_list<float> rowSizes, init_list<float> columnSizes) {
 		auto* rp = new BasicGrid(info, this, rowSizes, columnSizes); // `unique_ptr` would complain about the inaccessible constructor
-		lot_child = SptrGrid(rp);
-		return *rp;
+		auto  srp = std::shared_ptr<BasicGrid>(rp);
+		lot_child = srp;
+		return srp;
 	}
 
 
-	List& Lot::setChildList(const GridInfo& info, ListDirection direction, float elemSize, init_list<float> subelemSizes) {
+	std::shared_ptr<List> Lot::setChildList(const GridInfo& info, ListDirection direction, float elemSize, init_list<float> subelemSizes) {
 		auto* rp = new List(info, this, direction, elemSize, subelemSizes); // `unique_ptr` would complain about the inaccessible constructor
-		lot_child = SptrGrid(rp);
-		return *rp;
+		auto  srp = std::shared_ptr<List>(rp);
+		lot_child = srp;
+		return srp;
 	}
 
 
 	void Lot::setChildGrid(std::shared_ptr<Grid> container) {
 		lot_child = std::move(container);
+	}
+
+
+	void Lot::removeChildGrid() {
+		lot_child = nullptr;
 	}
 
 
@@ -184,7 +191,7 @@ inline namespace ui {
 	}
 
 
-	ComputedBounds BasicGrid::grid_getBounds() const noexcept {
+	ComputedBounds BasicGrid::region_getBounds() const noexcept {
 		auto parent = parentLot();
 		assert(parent != nullptr);
 		return parent->getBounds();
@@ -202,7 +209,17 @@ inline namespace ui {
 
 
 	BasicGrid::BasicGrid(const GridInfo& info, Lot* parent, std::initializer_list<float> rows, std::initializer_list<float> cols):
-		Grid(info, std::move(parent)),
+		Grid(info, parent),
+		basic_grid_rowSizes(std::make_unique_for_overwrite<float[]>(rows.size())),
+		basic_grid_colSizes(std::make_unique_for_overwrite<float[]>(cols.size())),
+		basic_grid_size { .rows = rows.size(), .columns = cols.size() }
+	{
+		memcpy(basic_grid_rowSizes.get(), rows.begin(), rows.size() * sizeof(float));
+		memcpy(basic_grid_colSizes.get(), cols.begin(), cols.size() * sizeof(float));
+	}
+
+	BasicGrid::BasicGrid(const GridInfo& info, std::initializer_list<float> rows, std::initializer_list<float> cols):
+		Grid(info),
 		basic_grid_rowSizes(std::make_unique_for_overwrite<float[]>(rows.size())),
 		basic_grid_colSizes(std::make_unique_for_overwrite<float[]>(cols.size())),
 		basic_grid_size { .rows = rows.size(), .columns = cols.size() }
@@ -235,7 +252,7 @@ inline namespace ui {
 	}
 
 
-	ComputedBounds List::grid_getBounds() const noexcept {
+	ComputedBounds List::region_getBounds() const noexcept {
 		auto parent = parentLot();
 		assert(parent);
 		return parent->getBounds();
@@ -280,24 +297,15 @@ inline namespace ui {
 
 
 	Canvas::Canvas(ComputedBounds bounds, std::initializer_list<float> rowSizes, std::initializer_list<float> columnSizes):
-		BasicGrid(),
+		canvas_grid(std::unique_ptr<BasicGrid>(
+			new BasicGrid(GridInfo(GridTraits::eMayYieldFocus), rowSizes, columnSizes))),
 		canvas_bounds(bounds)
 	{
-		constexpr LotId loopbackLotId = LotId(-1);
-
-		grid_lotIdGen = std::make_shared<idgen::IdGenerator<LotId>>();
-
-		{ // This replicates the behavior of `Lot::createLot`
-			auto lot = std::make_shared<Lot>(nullptr, GridPosition { }, GridSize { rowSizes.size(), columnSizes.size() });
-			auto ins = grid_lots.insert(decltype(grid_lots)::value_type(
-				loopbackLotId, lot ));
-			assert(ins.second);
-			grid_parent = ins.first->second.get();
-			lot->lot_parent = this;
+		{ // Replicate the behavior of `Grid::createLot`
+			canvas_grid->grid_isModified = true;
+			canvas_lot = std::unique_ptr<Lot>(new Lot(canvas_grid.get(), this, GridPosition { 0, 0 }, canvas_grid->basic_grid_size));
+			canvas_grid->grid_parent = canvas_lot.get();
 		}
-
-		setRowSizes(rowSizes);
-		setColumnSizes(columnSizes);
 	}
 
 

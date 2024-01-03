@@ -70,6 +70,8 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine;
 
+	class GuiManager; // Defined in `engine_gui_manager.hpp`
+
 
 	class EngineRuntimeError : public std::runtime_error {
 	public:
@@ -88,6 +90,7 @@ namespace SKENGINE_NAME_NS {
 		static const EnginePreferences default_prefs;
 		std::string phys_device_uuid;
 		std::string asset_filename_prefix;
+		std::string font_location;
 		VkExtent2D  init_present_extent;
 		VkExtent2D  max_render_extent;
 		VkPresentModeKHR   present_mode;
@@ -102,6 +105,7 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
+		uint32_t       font_height;
 		bool           fullscreen      : 1;
 		bool           composite_alpha : 1;
 	};
@@ -150,6 +154,13 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	struct GuiState {
+		std::unique_ptr<ui::Canvas> canvas;
+		geom::PipelineSet geomPipelines;
+		TextCache textCache;
+	};
+
+
 	class ConcurrentAccess {
 	public:
 		friend Engine;
@@ -162,6 +173,8 @@ namespace SKENGINE_NAME_NS {
 		void setPresentExtent(VkExtent2D);
 
 		uint_fast32_t currentFrameNumber() const noexcept;
+
+		GuiManager gui() const noexcept; // Defined in `engine_gui_manager.hpp`
 
 	private:
 		Engine* ca_engine;
@@ -192,6 +205,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		friend ConcurrentAccess;
 		friend gui::DrawContext;
+		friend GuiManager;
 
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
@@ -324,11 +338,9 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
-		ui::Canvas        mUiCanvas;
-		geom::PipelineSet mGeomPipelines;
 		FT_Library        mFreetype;
+		GuiState          mGuiState;
 		std::shared_ptr<geom::FontFace> mPlaceholderFont;
-		public: TextCache mPlaceholderTextCache; private:
 		public: std::shared_ptr<gui::PlaceholderChar> mPlaceholderChar; private:
 
 		std::shared_ptr<spdlog::logger> mLogger;
@@ -353,3 +365,7 @@ namespace SKENGINE_NAME_NS {
 	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber () const noexcept { return ca_engine->mGframeCounter; }
 
 }
+
+
+
+#include "engine_gui_manager.hpp"

@@ -20,10 +20,12 @@ namespace SKENGINE_NAME_NS {
 		void initVma();
 		void initTransferCmdPool();
 		void initDsetLayouts();
-		void initRenderer();
 		void initFreetype();
-		void destroyFreetype();
+		void initRenderer();
+		void initGui();
+		void destroyGui();
 		void destroyRenderer();
+		void destroyFreetype();
 		void destroyDsetLayouts();
 		void destroyTransferCmdPool();
 		void destroyVma();

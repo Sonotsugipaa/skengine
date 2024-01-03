@@ -11,6 +11,7 @@
 #include <memory>
 #include <map>
 #include <bit>
+#include <deque>
 #include <cstring>
 
 
@@ -66,7 +67,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		};
 
-		using DrawJobDsetSet = std::map<VkDescriptorSet, DrawJob>;
+		using DrawJobDsetSet = std::map<VkDescriptorSet, std::deque<DrawJob>>;
 		using DrawJobVsSet   = std::map<ViewportScissor, DrawJobDsetSet, ViewportScissor::HashCmp>;
 		using DrawJobSet     = std::map<VkPipeline,      DrawJobVsSet>;
 
@@ -103,10 +104,12 @@ namespace SKENGINE_NAME_NS {
 		};
 
 
-		class BasicElement : public DrawablePolygon {
+		class BasicPolygon : public DrawablePolygon {
 		public:
-			BasicElement(VmaAllocator, ShapeSet, bool doFill);
-			~BasicElement();
+			BasicPolygon(VmaAllocator, ShapeSet, bool doFill);
+			~BasicPolygon();
+
+			void setShapes(ShapeSet);
 
 		protected:
 			VmaAllocator vma() noexcept { return basic_elem_vma; }
@@ -116,7 +119,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 
-		class Cross : public BasicElement {
+		class Cross : public BasicPolygon {
 		public:
 			Cross(VmaAllocator, float strokeLength, float strokeWidth, const glm::vec4& color);
 
@@ -126,7 +129,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 
-		class Frame : public BasicElement {
+		class Frame : public BasicPolygon {
 		public:
 			Frame(VmaAllocator, float strokeWidth, const glm::vec4& color);
 

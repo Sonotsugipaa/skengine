@@ -22,14 +22,16 @@ namespace SKENGINE_NAME_NS {
 		initVma();
 		initTransferCmdPool();
 		initDsetLayouts();
-		initRenderer();
 		initFreetype();
+		initRenderer();
+		initGui();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
-		destroyFreetype();
+		destroyGui();
 		destroyRenderer();
+		destroyFreetype();
 		destroyDsetLayouts();
 		destroyTransferCmdPool();
 		destroyVma();
@@ -258,6 +260,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void Engine::DeviceInitializer::initFreetype() {
+		auto error = FT_Init_FreeType(&mFreetype);
+		if(error) throw FontError("failed to initialize FreeType", error);
+		mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, false, mPrefs.font_location.c_str()));
+		mGuiState.textCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, mPrefs.font_height);
+	}
+
+
 	void Engine::DeviceInitializer::initRenderer() {
 		mAssetSupplier = AssetSupplier(*this, mAssetSource, 0.125f);
 		mWorldRenderer = WorldRenderer::create(
@@ -268,24 +278,53 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initFreetype() {
-		auto error = FT_Init_FreeType(&mFreetype);
-		if(error) throw FontError("failed to initialize FreeType", error);
-		mPlaceholderFont = std::make_shared<FontFace>(FontFace::fromFile(mFreetype, false, "/usr/share/fonts/gsfonts/C059-Roman.otf"));
-		mPlaceholderTextCache = TextCache(mDevice, mVma, mGuiDsetLayout, mPlaceholderFont, 24);
+	void Engine::DeviceInitializer::initGui() {
+		// Hardcoded GUI canvas
+
+		constexpr float chSize = 50.0f;
+		float ratio = 1.0f;//float ratio = float(mPresentExtent.height) / float(mPresentExtent.width);
+		float hSize = 0.1f;//float hSize = chSize / float(mPresentExtent.height);
+		float wSize = hSize * ratio;
+		float wComp = 0.5f * (hSize - wSize);
+		float chBlank = (1.0 - hSize) / 2.0;
+		auto& canvas = mGuiState.canvas;
+		canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.025, 0.025, 0.95, 0.95 });
+		canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
+		canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
+		// // Uncomment the next two lines (and delete this one) when the placeholder character is removed
+		// auto ch = std::make_shared<gui::Cross>(mVma, 1.0f, 0.1f, glm::vec4 { 0.8f, 0.8f, 0.8f, 0.6f });
+		// canvas.createLot({ 1, 1 }, { 1, 1 }).second->createElement(ch);
+		{
+			auto subgridLot =
+				canvas->createLot({ 2, 0 }, { 1, 1 }).second
+				->setChildBasicGrid({ }, { 0.8f, 0.2f }, { 0.2f, 0.8f });
+			mPlaceholderChar = std::make_shared<gui::PlaceholderChar>(mVma, 'p');
+			auto gridCharLot = subgridLot->createLot({ 1, 0 }, { 1, 1 });
+			gridCharLot.second->createElement(mPlaceholderChar);
+			gridCharLot.second->createElement(std::make_shared<gui::Frame>(mVma, 0.05, glm::vec4 { 0.5f, 0.5f, 0.5f, 0.9f }));
+			auto tcView = std::make_shared<gui::PlaceholderTextCacheView>(mVma, mGuiState.textCache);
+			auto tcViewLot = subgridLot->createLot({ 0, 2 }, { 1, 1 });
+			tcViewLot.second->createElement(tcView);
+		}
 	}
 
 
-	void Engine::DeviceInitializer::destroyFreetype() {
-		mPlaceholderTextCache = nullptr;
-		mPlaceholderFont = nullptr;
-		FT_Done_FreeType(mFreetype);
+	void Engine::DeviceInitializer::destroyGui() {
+		mPlaceholderChar = nullptr;
+		mGuiState.canvas = { };
 	}
 
 
 	void Engine::DeviceInitializer::destroyRenderer() {
 		WorldRenderer::destroy(mWorldRenderer);
 		mAssetSupplier.destroy();
+	}
+
+
+	void Engine::DeviceInitializer::destroyFreetype() {
+		mGuiState.textCache = nullptr;
+		mPlaceholderFont = nullptr;
+		FT_Done_FreeType(mFreetype);
 	}
 
 

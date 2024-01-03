@@ -7,6 +7,7 @@
 		"SKENGINE_VERSION_MAJOR=1",
 		"SKENGINE_VERSION_MINOR=2",
 		"SKENGINE_VERSION_PATCH=3",
+		"VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND"
 	],
 	"C_Cpp.default.includePath": [
 		"/usr/include/freetype2/", // What is it with native libraries not using the "" include syntax when appropriate?!?

@@ -10,7 +10,7 @@
 
 
 
-namespace SKENGINE_NAME_NS::util {
+namespace SKENGINE_NAME_NS {
 
 	class AssetSourceError : public posixfio::FileError {
 	public:

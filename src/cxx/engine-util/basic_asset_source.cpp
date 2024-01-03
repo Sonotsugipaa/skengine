@@ -11,7 +11,7 @@
 
 
 
-namespace SKENGINE_NAME_NS::util {
+namespace SKENGINE_NAME_NS {
 
 	BasicAssetSource::BasicAssetSource(std::string_view filenamePrefix, std::shared_ptr<spdlog::logger> logger):
 			bas_filenamePrefix(filenamePrefix),

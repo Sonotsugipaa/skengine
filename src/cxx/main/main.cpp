@@ -1,7 +1,6 @@
 #include <numbers>
 #include <random>
 
-#include <engine/engine.hpp>
 #include <engine-util/basic_asset_source.hpp>
 
 #include <spdlog/spdlog.h>
@@ -10,9 +9,9 @@
 
 #include <vk-util/error.hpp>
 
-#include <glm/trigonometric.hpp>
-
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+#include "util.inl.hpp"
 
 
 
@@ -34,60 +33,31 @@ namespace {
 		prefs.shade_step_count      = 4;
 		prefs.shade_step_smoothness = 4.0f;
 		prefs.shade_step_exponent   = 4.0f;
+		prefs.font_location         = "assets/font.otf";
+		prefs.font_height           = 24;
 		return prefs;
 	} ();
 
 
-	std::vector<std::string> readObjectNameList(posixfio::FileView file) {
-		auto fileBuf = posixfio::ArrayInputBuffer<>(file);
-
-		std::string strBuf;
-		auto rdln = [&]() {
-			strBuf.clear();
-			strBuf.reserve(64);
-			char c;
-			bool eol = false;
-			ssize_t rd = fileBuf.read(&c, 1);
-			while(rd > 0) {
-				if(c == '\n') [[unlikely]] {
-					eol = true;
-					rd = 0;
-				} else {
-					strBuf.push_back(c);
-					rd = fileBuf.read(&c, 1);
-				}
-			}
-			return eol;
-		};
-
-		std::vector<std::string> r;
-		bool eof    = ! rdln();
-		bool nEmpty = ! strBuf.empty();
-		while((! eof) || nEmpty) {
-			if(nEmpty) {
-				r.push_back(std::move(strBuf));
-			}
-			eof    = ! rdln();
-			nEmpty = ! strBuf.empty();
-		}
-		return r;
-	}
-
-
 	class Loop : public LoopInterface {
 	public:
-		static constexpr ssize_t obj_count_sqrt    = 5 * 2;
-		static constexpr float   object_spacing    = 2.0f;
-		static constexpr float   mouse_sensitivity = 0.25f;
-		static constexpr float   movement_drag     = 8.0f;
-		static constexpr float   movement_drag_mod = 0.2f;
-		static constexpr float   movement_speed    = 1.1f * movement_drag;
-		static constexpr auto    cursor_offset     = glm::vec3 { 0.0f, 0.0f, -0.2f };
+		static constexpr ssize_t obj_count_sqrt     = 5 * 2;
+		static constexpr float   object_spacing     = 2.0f;
+		static constexpr float   mouse_sensitivity  = 0.25f;
+		static constexpr float   movement_drag      = 8.0f;
+		static constexpr float   movement_drag_mod  = 0.2f;
+		static constexpr float   movement_speed     = 1.1f * movement_drag;
+		static constexpr auto    cursor_offset      = glm::vec3 { 0.0f, 0.0f, -0.2f };
+		static constexpr float   crosshair_size_px  = 40.0f;
+		static constexpr float   crosshair_width_px = 3.0f;
 
 		Engine* engine;
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
 		std::vector<ObjectId> createdLights;
+		std::shared_ptr<ui::BasicGrid> crosshairGrid;
+		std::shared_ptr<ui::Lot> crosshairLot;
+		std::shared_ptr<gui::BasicPolygon> crosshair;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  spaceship;
 		ObjectId  world;
@@ -112,6 +82,22 @@ namespace {
 			auto dist = std::uniform_real_distribution(-0.9f, +0.9f * std::numbers::pi_v<float>);
 			auto obj = wr.modifyObject(id).value();
 			obj.direction_ypr.r += mul * dist(rng);
+		}
+
+
+		void setCrosshairGridSize() {
+			float ext[2]   = { engine->getPresentExtent().width, engine->getPresentExtent().height };
+			float size[2]  = { crosshair_size_px / ext[0], crosshair_size_px / ext[1] };
+			float space[2] = { (1.0f - size[0]) / 2.0f, (1.0f - size[1]) / 2.0f };
+			crosshairGrid->setColumnSizes({ space[0], size[0] });
+			crosshairGrid->setRowSizes({ space[1], size[1] });
+		}
+
+
+		ShapeSet makeCrosshairShapeSet(skengine::GuiManager& gui) {
+			auto& ext = engine->getPresentExtent();
+			constexpr float pixelWidth = crosshair_width_px / crosshair_size_px;
+			return makeCrossShapeSet(pixelWidth, pixelWidth, 0.1f, { 1.0f, 1.0f, 1.0f, 1.0f });
 		}
 
 
@@ -200,6 +186,18 @@ namespace {
 		}
 
 
+		void createGui(skengine::GuiManager& gui) {
+			auto& canvas = gui.canvas();
+			auto& ext    = engine->getPresentExtent();
+			crosshairGrid =
+				canvas.createLot({ 0, 0 }, { 3, 3 }).second
+				->setChildBasicGrid({ }, { }, { });
+			setCrosshairGridSize();
+			crosshairLot  = crosshairGrid->createLot({ 1, 1 }, { 1, 1 }).second;
+			crosshair     = gui.createBasicShape(*crosshairLot, makeCrosshairShapeSet(gui), true).second;
+		}
+
+
 		explicit Loop(Engine& e):
 			engine(&e),
 			cameraSpeed { },
@@ -209,12 +207,14 @@ namespace {
 		{
 			auto  ca = engine->getConcurrentAccess();
 			auto& wr = ca->getWorldRenderer();
+			auto  gui = ca->gui();
 
 			setView(wr);
 			createGround(wr);
 			createSpaceship(wr);
 			createTestObjects(wr);
 			createLights(wr);
+			createGui(gui);
 		}
 
 
@@ -306,7 +306,10 @@ namespace {
 				auto& wr = ca->getWorldRenderer();
 
 				if(resize_event.triggered) {
+					auto gui = ca->gui();
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
+					setCrosshairGridSize();
+					crosshair->setShapes(makeCrosshairShapeSet(gui));
 				}
 
 				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
@@ -472,7 +475,7 @@ int main() {
 
 	try {
 		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
-		auto* asset_source = new SKENGINE_NAME_NS_SHORT::util::BasicAssetSource("assets/", logger);
+		auto* asset_source = new SKENGINE_NAME_NS_SHORT::BasicAssetSource("assets/", logger);
 
 		auto engine = SKENGINE_NAME_NS_SHORT::Engine(
 			SKENGINE_NAME_NS_SHORT::DeviceInitInfo {
