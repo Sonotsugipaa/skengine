@@ -743,7 +743,7 @@ namespace SKENGINE_NAME_NS {
 				try {
 					{
 						auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
-						if(mGframePriorityOverride.exchange(false, std::memory_order_seq_cst)) [[unlikely]] {
+						if(mGframePriorityOverride.load(std::memory_order_consume)) [[unlikely]] {
 							lock.lock();
 							mGframeResumeCond.wait(lock);
 						} else {
@@ -789,9 +789,16 @@ namespace SKENGINE_NAME_NS {
 		auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
 
 		auto wait_for_fences = [&]() {
+			// Wait for all fences, in this order: selection -> prepare -> draw
+			std::vector<VkFence> fences;
 			for(auto& gff : mGframeSelectionFences) VK_CHECK(vkWaitForFences, mDevice, 1, &gff, true, UINT64_MAX);
-			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_prepare, true, UINT64_MAX);
-			for(auto& gframe : mGframes) VK_CHECK(vkWaitForFences, mDevice, 1, &gframe.fence_draw,    true, UINT64_MAX);
+			fences.reserve(mGframes.size());
+			for(auto& gframe : mGframes) fences.push_back(gframe.fence_prepare);
+			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
+			fences.clear();
+			fences.reserve(mGframes.size());
+			for(auto& gframe : mGframes) fences.push_back(gframe.fence_draw);
+			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 		};
 
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();
@@ -811,7 +818,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	MutexAccess<ConcurrentAccess> Engine::getConcurrentAccess() noexcept {
-		auto ca = ConcurrentAccess(this, mGraphicsThread.get_id() == std::this_thread::get_id());
+		assert(mGraphicsThread.get_id() != std::this_thread::get_id() && "This *will* cause a deadlock");
+		auto ca = ConcurrentAccess(this, false);
 		return MutexAccess(std::move(ca), mRendererMutex);
 	}
 

@@ -41,8 +41,8 @@ namespace {
 
 	class Loop : public LoopInterface {
 	public:
-		static constexpr ssize_t obj_count_sqrt     = 5 * 2;
-		static constexpr float   object_spacing     = 2.0f;
+		static constexpr ssize_t obj_count_sqrt     = 20;
+		static constexpr float   object_spacing     = 50.0f / float(obj_count_sqrt + 2);
 		static constexpr float   mouse_sensitivity  = 0.25f;
 		static constexpr float   movement_drag      = 8.0f;
 		static constexpr float   movement_drag_mod  = 0.2f;
@@ -50,6 +50,8 @@ namespace {
 		static constexpr auto    cursor_offset      = glm::vec3 { 0.0f, 0.0f, -0.2f };
 		static constexpr float   crosshair_size_px  = 40.0f;
 		static constexpr float   crosshair_width_px = 3.0f;
+		static_assert(obj_count_sqrt % 2 == 0);
+		static_assert(obj_count_sqrt > 0);
 
 		Engine* engine;
 		std::mutex inputMutex;

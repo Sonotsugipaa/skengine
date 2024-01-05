@@ -293,15 +293,12 @@ namespace SKENGINE_NAME_NS {
 			auto& textCache = mGuiState.getTextCache(*this, textSize);
 			auto subgridLot =
 				canvas->createLot({ 1, 0 }, { 2, 3 }).second
-				->setChildBasicGrid({ }, { 0.2f }, { 1.0f });
+				->setChildBasicGrid({ }, { 0.06f }, { 1.0f });
 			subgridLot->createLot({ 0, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, U"_\u2661", textSize));
 			subgridLot->createLot({ 1, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "abcd", textSize));
 			subgridLot->createLot({ 2, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "Hey, kiddo.", textSize));
 			subgridLot->createLot({ 3, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, ".._-!|{'}", textSize));
 			subgridLot->createLot({ 4, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "------------------", textSize));
-			auto tcView = std::make_shared<gui::PlaceholderTextCacheView>(mVma, textCache);
-			auto tcViewLot = canvas->createLot({ 0, 2 }, { 1, 1 });
-			tcViewLot.second->createElement(tcView);
 		}
 	}
 
