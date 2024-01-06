@@ -230,9 +230,12 @@ inline namespace geom {
 
 		{ // Pipeline layout
 			VkPipelineLayoutCreateInfo plcInfo = { };
+			VkPushConstantRange pcRanges[1] = { { VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant) } };
 			plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 			plcInfo.setLayoutCount = 1;
 			plcInfo.pSetLayouts    = &psci.textDsetLayout;
+			plcInfo.pushConstantRangeCount = std::size(pcRanges);
+			plcInfo.pPushConstantRanges = pcRanges;
 			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.layout);
 		}
 

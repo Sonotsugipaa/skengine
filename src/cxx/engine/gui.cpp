@@ -47,7 +47,13 @@ namespace SKENGINE_NAME_NS::gui {
 	using Ea = DrawContext::EngineAccess;
 
 
-	void DrawContext::insertDrawJob(VkPipeline pl, VkDescriptorSet imageDset, const ViewportScissor& vs, DrawableShapeSet* ds) {
+	void DrawContext::insertDrawJob(
+		VkPipeline pl,
+		VkDescriptorSet imageDset,
+		const ViewportScissor& vs,
+		DrawableShapeSet* ds,
+		glm::vec3 offset, glm::vec3 scale
+	) {
 		drawJobs
 		[pl]
 		[vs]
@@ -56,7 +62,26 @@ namespace SKENGINE_NAME_NS::gui {
 			.pipeline = pl,
 			.viewportScissor = vs,
 			.imageDset = imageDset,
-			.shapeSet = ds });
+			.shapeSet = ds,
+			.transform = { { offset.x, offset.y, offset.z }, { scale.x, scale.y, scale.z } } });
+	}
+
+	void DrawContext::insertDrawJob(
+		VkPipeline pl,
+		VkDescriptorSet imageDset,
+		const ViewportScissor& vs,
+		DrawableShapeSet* ds
+	) {
+		drawJobs
+		[pl]
+		[vs]
+		[imageDset]
+		.push_back(DrawJob {
+			.pipeline = pl,
+			.viewportScissor = vs,
+			.imageDset = imageDset,
+			.shapeSet = ds,
+			.transform = { { }, { 1.0f, 1.0f, 1.0f } } });
 	}
 
 
@@ -114,16 +139,18 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	TextLine::TextLine(VmaAllocator vma, std::u32string str, unsigned short size):
+	TextLine::TextLine(VmaAllocator vma, float depth, unsigned short fontSize, float textSize, std::u32string str):
 		txt_vma(vma),
 		txt_str(std::move(str)),
 		txt_lastCacheUpdate(0),
-		txt_fontSize(size),
+		txt_depth(depth),
+		txt_textSize(textSize),
+		txt_fontSize(fontSize),
 		txt_upToDate(false)
 	{ }
 
-	TextLine::TextLine(VmaAllocator vma, std::string_view str, unsigned short size):
-		TextLine(vma, std::u32string(str.begin(), str.end()), size)
+	TextLine::TextLine(VmaAllocator vma, float depth, unsigned short fontSize, float textSize, std::string_view str):
+		TextLine(vma, depth, fontSize, textSize, std::u32string(str.begin(), str.end()))
 	{ }
 
 
@@ -134,7 +161,7 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	Element::PrepareState TextLine::ui_elem_prepareForDraw(LotId, Lot& lot, unsigned repeat, ui::DrawContext& uiCtx) {
+	Element::PrepareState TextLine::ui_elem_prepareForDraw(LotId, Lot&, unsigned repeat, ui::DrawContext& uiCtx) {
 		auto& guiCtx   = getGuiDrawContext(uiCtx);
 		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_fontSize);
 
@@ -143,24 +170,21 @@ namespace SKENGINE_NAME_NS::gui {
 			float x;
 		};
 
-		auto pushCharVertices = [&](ShapeSet& dst, Pen& pen, const TextCache::CharMap& chars, float widthMul, codepoint_t c) {
+		auto pushCharVertices = [&](ShapeSet& dst, Pen& pen, const TextCache::CharMap& chars, codepoint_t c) {
 			static constexpr auto mat1 = glm::mat4(1.0f);
 			auto& charBounds = chars.find(c)->second;
 			float baselineToBottom = charBounds.size[1] - charBounds.baseline[1];
 			float off[2] = {
 				pen.x * 2.0f,
 				baselineToBottom };
-			float scale[2] = {
-				1.0f * widthMul,
-				1.0f };
 			float u[2] = { charBounds.topLeftUv[0], charBounds.bottomRightUv[0] };
 			float v[2] = { charBounds.topLeftUv[1], charBounds.bottomRightUv[1] };
 			float x[2] = {
-				-1.0f,
-				-1.0f + (charBounds.size[0] * 2.0f) };
+				0.0f,
+				0.0f + (charBounds.size[0] * 2.0f) };
 			float y[2] = {
-				off[1] +1.0f - (charBounds.size[1] * 2.0f),
-				off[1] +1.0f };
+				off[1] +2.0f - (charBounds.size[1] * 2.0f),
+				off[1] +2.0f };
 			auto shape = std::make_shared<Shape>(std::vector<TextVertex> {
 				{{ x[0], y[0], 0.0f }, { u[0], v[0] }},
 				{{ x[0], y[1], 0.0f }, { u[0], v[1] }},
@@ -168,8 +192,7 @@ namespace SKENGINE_NAME_NS::gui {
 				{{ x[1], y[0], 0.0f }, { u[1], v[0] }} });
 			constexpr auto color = glm::vec4 { 1.0f, 1.0f, 1.0f, 1.0f };
 			glm::mat4 mat = mat1;
-			mat = glm::scale    (mat, { scale[0],   scale[1], 0.0f });
-			mat = glm::translate(mat, { off[0],     off[1],   1.0f });
+			mat = glm::translate(mat, { off[0], off[1], 0.0f });
 			auto shapeRef = ShapeReference(std::move(shape), color, mat);
 			dst.push_back(std::move(shapeRef));
 			pen.x += charBounds.advance[0];
@@ -187,27 +210,14 @@ namespace SKENGINE_NAME_NS::gui {
 				auto& chars = txtCache.getChars();
 				ShapeSet refs; refs.reserve(txt_str.size());
 				Pen pen = { };
-				auto lBounds = lot.getBounds();
-				float charWidthMul = lBounds.viewportHeight / lBounds.viewportWidth;
 				if(txt_shapeSet) DrawableShapeSet::destroy(txt_vma, txt_shapeSet);
-				for(auto c : txt_str) {
-					pushCharVertices(refs, pen, chars, charWidthMul, c);
-				}
-				float scale[2] = {
-					1.0f,
-					1.0f / (1.0f + pen.maxBaselineToBottom) };
-				float off[2] = {
-					1.0f - (lBounds.viewportWidth / lBounds.viewportHeight),
-					-(scale[1] / 2.0f) };
-				for(auto& ref : refs) {
-					ref.transform = glm::scale(ref.transform, { scale[0], scale[1], 1.0f });
-					ref.transform = glm::translate(ref.transform, { off[0], off[1], 0.0f });
-				}
+				for(auto c : txt_str) pushCharVertices(refs, pen, chars, c);
 				txt_baselineBottom = pen.maxBaselineToBottom;
 				txt_shapeSet = DrawableShapeSet::create(txt_vma, std::move(refs));
 				txt_upToDate = true;
 				txt_lastCacheUpdate = txtCache.getUpdateCounter();
 			}
+
 			txt_shapeSet.commitVkBuffers(guiCtx.engine->getVmaAllocator());
 		};
 
@@ -221,7 +231,7 @@ namespace SKENGINE_NAME_NS::gui {
 
 	void TextLine::ui_elem_draw(LotId, Lot& lot, ui::DrawContext& uiCtx) {
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
-		auto  cbounds = ui_elem_getBounds(lot);
+		auto  cBounds = ui_elem_getBounds(lot);
 
 		auto& extent   = guiCtx.engine->getPresentExtent();
 		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_fontSize);
@@ -229,13 +239,19 @@ namespace SKENGINE_NAME_NS::gui {
 		float yfExtent = float(extent.height);
 
 		ViewportScissor vs;
-		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
+		setViewportScissor(vs, xfExtent, yfExtent, cBounds);
 
-		float shift = txt_baselineBottom * vs.viewport.height;
-		vs.scissor.offset.y += std::clamp<float>(shift, 0, yfExtent);
-		vs.viewport.y       += std::clamp<float>(shift, 0, yfExtent);
-
-		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, txtCache.dset(), vs, &txt_shapeSet);
+		float baselineMul = 1.0f / (1.0f + txt_baselineBottom);
+		float scaleFactor = txt_textSize * baselineMul;
+		glm::vec3 scale = {
+			scaleFactor * yfExtent / xfExtent,
+			scaleFactor * 1.0f,
+			1.0f };
+		glm::vec3 off = {
+			-1.0f,
+			-1.0f,
+			txt_depth };
+		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, txtCache.dset(), vs, &txt_shapeSet, off, scale);
 	}
 
 
@@ -254,8 +270,13 @@ namespace SKENGINE_NAME_NS::gui {
 		txt_fontSize = size;
 	}
 
+	void TextLine::textSize(float size) noexcept {
+		txt_upToDate = txt_upToDate && (txt_textSize == size);
+		txt_textSize = size;
+	}
 
-	void TextLine::set(std::string_view str) noexcept {
+
+	void TextLine::setText(std::string_view str) noexcept {
 		bool eq = true;
 		for(size_t i = 0; i < str.size(); ++i) {
 			if(char32_t(str[i]) != txt_str[i]) {
@@ -268,7 +289,7 @@ namespace SKENGINE_NAME_NS::gui {
 		txt_upToDate = false;
 	}
 
-	void TextLine::set(std::u32string str) noexcept {
+	void TextLine::setText(std::u32string str) noexcept {
 		if(str == txt_str) return;
 		txt_str = std::move(str);
 		txt_upToDate = false;

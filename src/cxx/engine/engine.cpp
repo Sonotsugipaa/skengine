@@ -187,34 +187,63 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VkPipeline             lastPl = nullptr;
 			const ViewportScissor* lastVs = nullptr;
 			VkDescriptorSet        lastImageDset = nullptr;
-			for(auto& jobPl : guiCtx.drawJobs) {
+
+			// This lambda ladder turns what follows into something readable:
+			//
+			//    for(auto& jobPl : guiCtx.drawJobs) {
+			//       // ...
+			//       for(auto& jobVs : jobPl.second) {
+			//          // ...
+			//          for(auto& jobDs : jobVs.second) {
+			//             // ...
+			//             for(auto& job : jobDs.second) {
+			//                // ...
+			//             }
+			//          }
+			//       }
+			//    }
+			//
+			// Note that the JobPl->JobVs->JobDs order appears to be reversed, but it isn't.
+			using JobPl = gui::DrawJobSet::value_type;
+			using JobVs = gui::DrawJobVsSet::value_type;
+			using JobDs = gui::DrawJobDsetSet::value_type;
+			auto forEachJob = [&](gui::DrawJob& job) {
+				auto& shapeSet = *job.shapeSet;
+				VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
+				VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
+				vkCmdPushConstants(cmd, e.mGuiState.geomPipelines.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant), &job.transform);
+				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+				vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
+			};
+
+			auto forEachDs = [&](JobDs& jobDs) {
+				if(lastImageDset != jobDs.first) {
+					lastImageDset = jobDs.first;
+					if(lastImageDset != nullptr) {
+						vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGuiState.geomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
+					}
+				}
+				for(auto& job : jobDs.second) forEachJob(job);
+			};
+
+			auto forEachVs = [&](JobVs& jobVs) {
+				if(lastVs != &jobVs.first) {
+					lastVs = &jobVs.first;
+					vkCmdSetViewport(cmd, 0, 1, &lastVs->viewport);
+					vkCmdSetScissor(cmd, 0, 1, &lastVs->scissor);
+				}
+				for(auto& jobDs : jobVs.second) forEachDs(jobDs);
+			};
+
+			auto forEachPl = [&](JobPl& jobPl) {
 				if(lastPl != jobPl.first) {
 					lastPl = jobPl.first;
 					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPl);
 				}
-				for(auto& jobVs : jobPl.second) {
-					if(lastVs != &jobVs.first) {
-						lastVs = &jobVs.first;
-						vkCmdSetViewport(cmd, 0, 1, &lastVs->viewport);
-						vkCmdSetScissor(cmd, 0, 1, &lastVs->scissor);
-					}
-					for(auto& jobDs : jobVs.second) {
-						if(lastImageDset != jobDs.first) {
-							lastImageDset = jobDs.first;
-							if(lastImageDset != nullptr) {
-								vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGuiState.geomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
-							}
-						}
-						for(auto& job : jobDs.second) {
-							auto& shapeSet = *job.shapeSet;
-							VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
-							VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-							vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-							vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
-						}
-					}
-				}
-			}
+				for(auto& jobVs : jobPl.second) forEachVs(jobVs);
+			};
+
+			for(auto& jobPl : guiCtx.drawJobs) forEachPl(jobPl);
 		}
 	}
 
@@ -545,7 +574,6 @@ namespace SKENGINE_NAME_NS {
 		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
-		.font_height           = 24,
 		.font_maxCacheSize     = 512,
 		.fullscreen            = false,
 		.composite_alpha       = false

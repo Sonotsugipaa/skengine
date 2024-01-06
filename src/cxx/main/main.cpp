@@ -34,7 +34,6 @@ namespace {
 		prefs.shade_step_smoothness = 4.0f;
 		prefs.shade_step_exponent   = 4.0f;
 		prefs.font_location         = "assets/font.otf";
-		prefs.font_height           = 24;
 		return prefs;
 	} ();
 
@@ -60,6 +59,7 @@ namespace {
 		std::weak_ptr<ui::BasicGrid> crosshairGrid;
 		std::weak_ptr<ui::Lot> crosshairLot;
 		std::weak_ptr<gui::BasicPolygon> crosshair;
+		std::weak_ptr<gui::TextLine> speedGauge;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  spaceship;
 		ObjectId  world;
@@ -189,6 +189,7 @@ namespace {
 
 
 		void createGui(skengine::GuiManager& gui) {
+			float textSize = 10.0f / float(engine->getPresentExtent().height);
 			auto& canvas = gui.canvas();
 			crosshairGrid =
 				canvas.createLot({ 0, 0 }, { 3, 3 }).second
@@ -198,6 +199,8 @@ namespace {
 			crosshairLot = chGrid->createLot({ 1, 1 }, { 1, 1 }).second;
 			auto chLot   = crosshairLot.lock();
 			crosshair    = gui.createBasicShape(*chLot, makeCrosshairShapeSet(), true).second;
+			auto sgLot   = canvas.createLot({ 0, 0 }, { 1, 3 });
+			speedGauge   = gui.createTextLine(*sgLot.second, { .fontSize = 30, .textSize = textSize, .depth = 0.0f }, std::u32string(U"Speed:    0.00")).second;
 		}
 
 
@@ -453,6 +456,10 @@ namespace {
 					auto* pl = &wr.modifyPointLight(camLight);
 					pl->position = pos + light_pos;
 				}
+			}
+
+			{ // Update the GUI
+				speedGauge.lock()->setText(fmt::format("Speed: {:8.2f}", glm::length(cameraSpeed)));
 			}
 
 			inputMutex.unlock();

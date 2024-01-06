@@ -105,7 +105,6 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
-		uint32_t       font_height;
 		uint32_t       font_maxCacheSize;
 		bool           fullscreen      : 1;
 		bool           composite_alpha : 1;

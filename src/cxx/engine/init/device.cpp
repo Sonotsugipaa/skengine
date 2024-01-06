@@ -288,18 +288,6 @@ namespace SKENGINE_NAME_NS {
 		canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.01, 0.01, 0.98, 0.98 });
 		canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
 		canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
-		{
-			constexpr unsigned short textSize = 16;
-			auto& textCache = mGuiState.getTextCache(*this, textSize);
-			auto subgridLot =
-				canvas->createLot({ 1, 0 }, { 2, 3 }).second
-				->setChildBasicGrid({ }, { 0.06f }, { 1.0f });
-			subgridLot->createLot({ 0, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, U"_\u2661", textSize));
-			subgridLot->createLot({ 1, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "abcd", textSize));
-			subgridLot->createLot({ 2, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "Hey, kiddo.", textSize));
-			subgridLot->createLot({ 3, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, ".._-!|{'}", textSize));
-			subgridLot->createLot({ 4, 0 }, { 1, 1 }).second->createElement(std::make_shared<gui::TextLine>(mVma, "------------------", textSize));
-		}
 	}
 
 

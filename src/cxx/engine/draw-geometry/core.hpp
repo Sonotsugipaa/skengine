@@ -60,6 +60,11 @@ inline namespace geom {
 		alignas(4 * sizeof(float)) glm::mat4 transform;
 	};
 
+	struct PushConstant {
+		alignas(sizeof(float)) float offset[3];
+		alignas(sizeof(float)) float scale[3];
+	};
+
 
 	struct PipelineSetCreateInfo {
 		VkRenderPass    renderPass;

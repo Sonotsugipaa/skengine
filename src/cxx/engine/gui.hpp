@@ -26,9 +26,6 @@ namespace SKENGINE_NAME_NS {
 
 	inline namespace gui {
 
-		constexpr unsigned short defaultFontSize = 24;
-
-
 		struct ViewportScissor {
 			struct HashCmp;
 			VkViewport viewport;
@@ -41,10 +38,11 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct DrawJob {
-			VkPipeline        pipeline;
-			ViewportScissor   viewportScissor;
-			VkDescriptorSet   imageDset;
-			DrawableShapeSet* shapeSet;
+			VkPipeline         pipeline;
+			ViewportScissor    viewportScissor;
+			VkDescriptorSet    imageDset;
+			DrawableShapeSet*  shapeSet;
+			geom::PushConstant transform;
 		};
 
 		struct ViewportScissor::HashCmp {
@@ -87,6 +85,7 @@ namespace SKENGINE_NAME_NS {
 			DrawJobSet drawJobs;
 
 			void insertDrawJob(VkPipeline, VkDescriptorSet imageDset, const ViewportScissor&, DrawableShapeSet*);
+			void insertDrawJob(VkPipeline, VkDescriptorSet imageDset, const ViewportScissor&, DrawableShapeSet*, glm::vec3 offset, glm::vec3 scale);
 		};
 
 
@@ -127,8 +126,9 @@ namespace SKENGINE_NAME_NS {
 
 		class TextLine : public ui::Element {
 		public:
-			TextLine(VmaAllocator, std::string_view = { }, unsigned short fontSize = defaultFontSize);
-			TextLine(VmaAllocator, std::u32string, unsigned short fontSize = defaultFontSize);
+			// DOCUMENTATION HINT: `textSize` is relative to the viewport, not the element's lot
+			TextLine(VmaAllocator, float depth, unsigned short fontSize, float textSize, std::string_view = { });
+			TextLine(VmaAllocator, float depth, unsigned short fontSize, float textSize, std::u32string);
 			~TextLine();
 
 			TextLine(TextLine&&) = delete;
@@ -140,17 +140,24 @@ namespace SKENGINE_NAME_NS {
 			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
 			unsigned short fontSize() const noexcept { return txt_fontSize; }
+			float          textSize() const noexcept { return txt_textSize; }
 			void fontSize(unsigned short) noexcept;
+			void textSize(float) noexcept;
 
-			void set(std::string_view) noexcept;
-			void set(std::u32string) noexcept;
+			float depth() const noexcept { return txt_depth; }
+			void depth(float newValue) noexcept { txt_upToDate = (newValue == txt_depth); txt_depth = newValue; }
+
+			void setText(std::string_view) noexcept;
+			void setText(std::u32string) noexcept;
 
 		private:
 			VmaAllocator txt_vma;
 			geom::DrawableShapeSet txt_shapeSet;
 			std::u32string txt_str;
 			TextCache::update_counter_t txt_lastCacheUpdate;
+			float txt_depth;
 			float txt_baselineBottom;
+			float txt_textSize;
 			unsigned short txt_fontSize;
 			bool txt_upToDate;
 		};
