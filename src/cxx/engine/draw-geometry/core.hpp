@@ -301,6 +301,7 @@ inline namespace geom {
 		const auto& dset()      noexcept { return txtcache_dset; }
 
 		const auto& imageExtent() const noexcept { return txtcache_imageExt; }
+		const auto& fontFace() const noexcept { return txtcache_font; }
 
 		void pixelHeight(unsigned short v) noexcept { txtcache_pixelHeight = v; txtcache_imageUpToDate = false; }
 		auto pixelHeight() const noexcept { return txtcache_pixelHeight; }

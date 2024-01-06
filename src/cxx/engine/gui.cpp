@@ -242,9 +242,9 @@ namespace SKENGINE_NAME_NS::gui {
 		setViewportScissor(vs, xfExtent, yfExtent, cBounds);
 
 		float baselineMul = 1.0f / (1.0f + txt_baselineBottom);
-		float scaleFactor = txt_textSize * baselineMul;
+		float scaleFactor = txt_textSize;
 		glm::vec3 scale = {
-			scaleFactor * yfExtent / xfExtent,
+			scaleFactor * baselineMul * yfExtent / xfExtent,
 			scaleFactor * 1.0f,
 			1.0f };
 		glm::vec3 off = {
