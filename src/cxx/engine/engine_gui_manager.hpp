@@ -37,7 +37,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	inline auto GuiManager::createTextLine(ui::Lot& lot, float depth, const TextInfo& textInfo, std::u32string text) {
+	inline auto GuiManager::createTextLine(ui::Lot& lot, float depth, const TextInfo& textInfo, std::u32string text = { }) {
 		auto elem = std::make_shared<gui::TextLine>(gm_engine->mVma, depth, textInfo, text);
 		auto r    = lot.createElement(elem);
 		return std::pair(r.first, std::move(elem));

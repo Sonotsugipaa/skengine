@@ -179,7 +179,7 @@ inline namespace geom {
 		coord_t maxWidth = 0;
 		coord_t maxHeight = 0;
 		coord_t maxRowWidth = 0;
-		codepoint_t charCountSqrt = std::sqrt(double(queue.size()));
+		codepoint_t charCountSqrt = std::max<codepoint_t>(1, std::sqrt(double(queue.size())));
 		ins.max_load_factor(1.0f);
 		ins.rehash(std::ceil(float(queue.size()) * 1.3f));
 

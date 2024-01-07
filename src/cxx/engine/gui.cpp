@@ -164,6 +164,11 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	Element::PrepareState TextLine::ui_elem_prepareForDraw(LotId, Lot&, unsigned repeat, ui::DrawContext& uiCtx) {
+		if(txt_str.empty()) {
+			txt_upToDate = true;
+			return PrepareState::eReady;
+		}
+
 		auto& guiCtx   = getGuiDrawContext(uiCtx);
 		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
 
@@ -235,6 +240,8 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	void TextLine::ui_elem_draw(LotId, Lot& lot, ui::DrawContext& uiCtx) {
+		if(txt_str.empty()) return;
+
 		auto& guiCtx  = getGuiDrawContext(uiCtx);
 		auto  cBounds = ui_elem_getBounds(lot);
 
@@ -249,7 +256,7 @@ namespace SKENGINE_NAME_NS::gui {
 		float baselineMul = 1.0f / (1.0f + txt_descender);
 		glm::vec3 scale = {
 			txt_info.textSize * baselineMul * yfExtent / xfExtent,
-			txt_info.textSize * txt_height,
+			txt_info.textSize * txt_height * 0.5f / cBounds.viewportHeight,
 			1.0f };
 		glm::vec3 off = { { }, { }, txt_depth };
 
@@ -309,10 +316,14 @@ namespace SKENGINE_NAME_NS::gui {
 
 	void TextLine::setText(std::string_view str) noexcept {
 		bool eq = true;
-		for(size_t i = 0; i < str.size(); ++i) {
-			if(char32_t(str[i]) != txt_str[i]) {
-				eq = false;
-				break;
+		if(str.size() != txt_str.size()) {
+			eq = false;
+		} else {
+			for(size_t i = 0; i < str.size(); ++i) {
+				if(char32_t(str[i]) != txt_str[i]) {
+					eq = false;
+					break;
+				}
 			}
 		}
 		if(eq) return;

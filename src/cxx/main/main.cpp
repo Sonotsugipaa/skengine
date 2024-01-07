@@ -43,9 +43,11 @@ namespace {
 		static constexpr ssize_t obj_count_sqrt     = 20;
 		static constexpr float   object_spacing     = 50.0f / float(obj_count_sqrt + 2);
 		static constexpr float   mouse_sensitivity  = 0.25f;
-		static constexpr float   movement_drag      = 8.0f;
-		static constexpr float   movement_drag_mod  = 0.2f;
-		static constexpr float   movement_speed     = 1.1f * movement_drag;
+		static constexpr float   movement_speed     = 1.1f;
+		static constexpr float   movement_accel     = 2.0f;
+		static constexpr float   movement_drag      = 8.0f * movement_accel;
+		static constexpr float   movement_drag_mod  = 0.2f * movement_accel;
+		static constexpr float   movement_pulse     = movement_speed * movement_drag;
 		static constexpr auto    cursor_offset      = glm::vec3 { 0.0f, 0.0f, -0.2f };
 		static constexpr float   crosshair_size_px  = 40.0f;
 		static constexpr float   crosshair_width_px = 3.0f;
@@ -60,6 +62,7 @@ namespace {
 		std::weak_ptr<ui::Lot> crosshairLot;
 		std::weak_ptr<gui::BasicPolygon> crosshair;
 		std::weak_ptr<gui::TextLine> speedGauge;
+		std::weak_ptr<gui::TextLine> lightCounter;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  spaceship;
 		ObjectId  world;
@@ -190,10 +193,11 @@ namespace {
 
 		void createGui(skengine::GuiManager& gui) {
 			static constexpr auto textInfo = TextInfo {
-				.alignment = TextAlignment::eLeftTop,
-				.fontSize = 30,
-				.textSize = 0.1f };
+				.alignment = TextAlignment::eLeftCenter,
+				.fontSize = 16,
+				.textSize = 0.05f };
 			auto& canvas = gui.canvas();
+
 			crosshairGrid =
 				canvas.createLot({ 0, 0 }, { 3, 3 }).second
 				->setChildBasicGrid({ }, { }, { });
@@ -202,8 +206,11 @@ namespace {
 			crosshairLot = chGrid->createLot({ 1, 1 }, { 1, 1 }).second;
 			auto chLot   = crosshairLot.lock();
 			crosshair    = gui.createBasicShape(*chLot, makeCrosshairShapeSet(), true).second;
-			auto sgLot   = canvas.createLot({ 0, 0 }, { 1, 3 });
-			speedGauge   = gui.createTextLine(*sgLot.second, 0.0f, textInfo, std::u32string(U"Speed:    0.00")).second;
+
+			auto textGridLot = canvas.createLot({ 0, 0 }, { 3, 3 }).second;
+			auto& textGrid = * textGridLot->setChildBasicGrid({ }, { textInfo.textSize }, { 1.0f });
+			lightCounter = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo, "Lights: 0").second;
+			speedGauge   = gui.createTextLine(*textGrid.createLot({ 1, 0 }, { 1, 1 }).second, 0.0f, textInfo, "Speed: 0.00").second;
 		}
 
 
@@ -324,7 +331,6 @@ namespace {
 				if(resize_event.triggered) {
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
 					setCrosshairGridSize();
-					speedGauge.lock()->setTextSize(100.0f / float(engine->getPresentExtent().height));
 				}
 
 				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
@@ -351,6 +357,7 @@ namespace {
 						pl.position = pos;
 						pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
 						createdLights.push_back(wr.createPointLight(pl));
+						lightCounter.lock()->setText(fmt::format("Lights: {}", createdLights.size()));
 						engine->logger().info("Creating light {}", object_id_e(createdLights.back()));
 						lightCreated = true;
 					}
@@ -361,6 +368,7 @@ namespace {
 						for(auto& light : createdLights) wr.removeLight(light);
 						engine->logger().info("Destroyed lights");
 						createdLights.clear();
+						lightCounter.lock()->setText(fmt::format("Lights: {}", createdLights.size()));
 					}
 				}
 			}
@@ -415,7 +423,7 @@ namespace {
 						glm::mat3 view_transf     = view_transf4;
 						glm::mat3 view_transf_inv = glm::transpose(view_transf);
 
-						r = view_transf_inv * r * movement_speed;
+						r = view_transf_inv * r * movement_pulse;
 					}
 
 					float drag = pressedKeys.contains(SDLK_LSHIFT)? movement_drag_mod : movement_drag;
@@ -463,7 +471,7 @@ namespace {
 			}
 
 			{ // Update the GUI
-				speedGauge.lock()->setText(fmt::format("Speed: {:8.2f}", glm::length(cameraSpeed)));
+				speedGauge.lock()->setText(fmt::format("Speed: {:.2f}", glm::length(cameraSpeed)));
 			}
 
 			inputMutex.unlock();
