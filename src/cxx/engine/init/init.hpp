@@ -50,6 +50,8 @@ namespace SKENGINE_NAME_NS {
 		void initGframes(State&);
 		void initRpasses(State&);
 		void initFramebuffers(State&);
+		void initTop(State&);
+		void destroyTop(State&);
 		void destroyFramebuffers(State&);
 		void destroyRpasses(State&);
 		void destroyGframes(State&);

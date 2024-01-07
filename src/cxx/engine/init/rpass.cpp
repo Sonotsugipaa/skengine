@@ -171,6 +171,7 @@ namespace SKENGINE_NAME_NS {
 		initGframes(state);
 		initRpasses(state);
 		initFramebuffers(state);
+		initTop(state);
 	}
 
 
@@ -185,6 +186,7 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_render_xt  = mRenderExtent;
 		VkExtent2D old_present_xt = mPresentExtent;
 
+		destroyTop(state);
 		destroyFramebuffers(state);
 		destroySwapchain(state);
 		destroyGframes(state);
@@ -205,11 +207,14 @@ namespace SKENGINE_NAME_NS {
 			destroyRpasses(state);
 			initRpasses(state);
 		}
+
+		initTop(state);
 	}
 
 
 	void Engine::RpassInitializer::destroy() {
 		State state = { };
+		destroyTop(state);
 		destroyFramebuffers(state);
 		destroyRpasses(state);
 		destroySwapchain(state);
@@ -294,10 +299,6 @@ namespace SKENGINE_NAME_NS {
 			std::clamp(mPrefs.init_present_extent.width,  mSurfaceCapabs.minImageExtent.width,  mSurfaceCapabs.maxImageExtent.width),
 			std::clamp(mPrefs.init_present_extent.height, mSurfaceCapabs.minImageExtent.height, mSurfaceCapabs.maxImageExtent.height) };
 
-		if(mSwapchainOld != nullptr) {
-			vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
-		}
-
 		VkSwapchainCreateInfoKHR s_info = { }; {
 			s_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 			s_info.surface          = mSurface;
@@ -331,8 +332,10 @@ namespace SKENGINE_NAME_NS {
 		mSwapchainOld = mSwapchain;
 
 		if(mSwapchainOld == nullptr) [[unlikely]] {
+			assert(! state.reinit);
 			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &mSwapchain);
 		} else {
+			assert(state.reinit);
 			// The old swapchain is retired, but still exists:
 			// not destroying it when an exception is thrown may
 			// cause a memory leak.
@@ -344,6 +347,7 @@ namespace SKENGINE_NAME_NS {
 				}
 				throw e;
 			}
+			vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
 		}
 
 		{ // Acquire swapchain images
@@ -375,6 +379,8 @@ namespace SKENGINE_NAME_NS {
 				VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &img_data.swapchain_image_view);
 			}
 		}
+
+		mSwapchainOod = false;
 	}
 
 
@@ -657,6 +663,24 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void Engine::RpassInitializer::initTop(State&) { }
+
+
+	void Engine::RpassInitializer::destroyTop(State&) {
+		{ // Wait for fences
+			std::vector<VkFence> fences;
+			fences.reserve(3 * mGframes.size());
+			for(size_t i = 0; i < mGframes.size(); ++i) {
+				auto& gf = mGframes[i];
+				fences.push_back(gf.fence_draw);
+				fences.push_back(gf.fence_prepare);
+				fences.push_back(mGframeSelectionFences[i]);
+			}
+			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
+		}
+	}
+
+
 	void Engine::RpassInitializer::destroyFramebuffers(State&) {
 		for(size_t i = 0; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
@@ -693,12 +717,11 @@ namespace SKENGINE_NAME_NS {
 		if(mSwapchain == nullptr) return;
 
 		for(auto& gf : mGframes) vkDestroyImageView(mDevice, gf.swapchain_image_view, nullptr);
-		if(! state.reinit) [[unlikely]] {
-			if(mSwapchainOld != nullptr) vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
-		}
-		vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 
-		mSwapchain = nullptr;
+		if(! state.reinit) {
+			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+			mSwapchain = nullptr;
+		}
 	}
 
 

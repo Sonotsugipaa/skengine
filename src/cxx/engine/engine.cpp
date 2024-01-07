@@ -761,29 +761,27 @@ namespace SKENGINE_NAME_NS {
 		auto exception  = std::exception_ptr(nullptr);
 
 		auto handle_exception = [&]() {
-			auto lock = std::unique_lock(mGframeMutex);
-			loop_state = LoopInterface::LoopState::eShouldStop;
+			auto lock = std::unique_lock(mGframeMutex, std::try_to_lock);
 			exception = std::current_exception();
 		};
 
 		mGraphicsThread = std::thread([&]() {
 			while(loop_state != LoopInterface::LoopState::eShouldStop) {
 				try {
-					{
-						auto lock = std::unique_lock(mGframeMutex, std::defer_lock_t());
-						if(mGframePriorityOverride.load(std::memory_order_consume)) [[unlikely]] {
-							lock.lock();
-							mGframeResumeCond.wait(lock);
-						} else {
-							lock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
-						}
-						bool swapchain_ood = ! Implementation::draw(*this, loop);
-						if(swapchain_ood) {
-							// Some compositors resize the window as soon as it appears, and this seems to cause problems
-							auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-							init->reinit();
-						}
+					auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock);
+					if(mGframePriorityOverride.load(std::memory_order_consume)) [[unlikely]] {
+						gframeLock.lock();
+						mGframeResumeCond.wait(gframeLock);
+					} else {
+						gframeLock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
 					}
+					bool swapchain_ood = ! Implementation::draw(*this, loop);
+					if(swapchain_ood) {
+						// Some compositors resize the window as soon as it appears, and this seems to cause problems
+						auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
+						init->reinit();
+					}
+					gframeLock.unlock();
 					mGraphicsReg.awaitNextTick();
 				} catch(...) {
 					handle_exception();
@@ -791,7 +789,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		});
 
-		while(loop_state != LoopInterface::LoopState::eShouldStop) {
+		while((exception == nullptr) && (loop_state != LoopInterface::LoopState::eShouldStop)) {
 			try {
 				loop_state = Implementation::runLogicIteration(*this, loop);
 			} catch(...) {

@@ -280,6 +280,7 @@ namespace SKENGINE_NAME_NS {
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
 
 		auto& logger() const { return *mLogger; }
+		auto  frameCount() const { return mGframeCounter.load(std::memory_order_relaxed); }
 
 		MutexAccess<ConcurrentAccess> getConcurrentAccess() noexcept;
 
