@@ -74,6 +74,20 @@ namespace SKENGINE_NAME_NS {
 		using DrawJobSet     = std::map<VkPipeline,      DrawJobVsSet>;
 
 
+		enum class TextAlignment : unsigned short {
+			eLeftTop,    eCenterTop,    eRightTop,
+			eLeftCenter, eCenter,       eRightCenter,
+			eLeftBottom, eCenterBottom, eRightBottom
+		};
+
+
+		struct TextInfo {
+			TextAlignment  alignment;
+			unsigned short fontSize;
+			float          textSize;
+		};
+
+
 		struct DrawContext {
 			static constexpr uint64_t magicNumberValue = 0xff004cff01020304;
 
@@ -127,8 +141,8 @@ namespace SKENGINE_NAME_NS {
 		class TextLine : public ui::Element {
 		public:
 			// DOCUMENTATION HINT: `textSize` is relative to the viewport, not the element's lot
-			TextLine(VmaAllocator, float depth, unsigned short fontSize, float textSize, std::string_view = { });
-			TextLine(VmaAllocator, float depth, unsigned short fontSize, float textSize, std::u32string);
+			TextLine(VmaAllocator, float depth, const TextInfo&, std::string_view = { });
+			TextLine(VmaAllocator, float depth, const TextInfo&, std::u32string);
 			~TextLine();
 
 			TextLine(TextLine&&) = delete;
@@ -139,10 +153,12 @@ namespace SKENGINE_NAME_NS {
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
 			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
-			unsigned short fontSize() const noexcept { return txt_fontSize; }
-			float          textSize() const noexcept { return txt_textSize; }
-			void fontSize(unsigned short) noexcept;
-			void textSize(float) noexcept;
+			auto& textInfo() const noexcept { return txt_info; }
+			void  textInfo(const TextInfo&) noexcept;
+
+			void setAlignment(TextAlignment a) noexcept { TextInfo ti = txt_info; ti.alignment = a; textInfo(ti); }
+			void setFontSize(unsigned short s) noexcept { TextInfo ti = txt_info; ti.fontSize = s;  textInfo(ti); }
+			void setTextSize(float s) noexcept          { TextInfo ti = txt_info; ti.textSize = s;  textInfo(ti); }
 
 			float depth() const noexcept { return txt_depth; }
 			void depth(float newValue) noexcept { txt_upToDate = (newValue == txt_depth); txt_depth = newValue; }
@@ -156,9 +172,9 @@ namespace SKENGINE_NAME_NS {
 			std::u32string txt_str;
 			TextCache::update_counter_t txt_lastCacheUpdate;
 			float txt_depth;
+			float txt_width;
 			float txt_baselineBottom;
-			float txt_textSize;
-			unsigned short txt_fontSize;
+			TextInfo txt_info;
 			bool txt_upToDate;
 		};
 

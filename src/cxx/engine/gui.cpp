@@ -103,7 +103,10 @@ namespace SKENGINE_NAME_NS::gui {
 		ViewportScissor vs;
 		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
-		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).polyFill, nullptr, vs, &dpoly_shapeSet);
+		auto& pipelines = Ea::pipelineSet(guiCtx);
+		auto  pipeline  = dpoly_doFill? pipelines.polyFill : pipelines.polyLine;
+
+		guiCtx.insertDrawJob(pipeline, nullptr, vs, &dpoly_shapeSet);
 	}
 
 
@@ -139,18 +142,17 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	TextLine::TextLine(VmaAllocator vma, float depth, unsigned short fontSize, float textSize, std::u32string str):
+	TextLine::TextLine(VmaAllocator vma, float depth, const TextInfo& ti, std::u32string str):
 		txt_vma(vma),
 		txt_str(std::move(str)),
 		txt_lastCacheUpdate(0),
 		txt_depth(depth),
-		txt_textSize(textSize),
-		txt_fontSize(fontSize),
+		txt_info(ti),
 		txt_upToDate(false)
 	{ }
 
-	TextLine::TextLine(VmaAllocator vma, float depth, unsigned short fontSize, float textSize, std::string_view str):
-		TextLine(vma, depth, fontSize, textSize, std::u32string(str.begin(), str.end()))
+	TextLine::TextLine(VmaAllocator vma, float depth, const TextInfo& ti, std::string_view str):
+		TextLine(vma, depth, ti, std::u32string(str.begin(), str.end()))
 	{ }
 
 
@@ -163,7 +165,7 @@ namespace SKENGINE_NAME_NS::gui {
 
 	Element::PrepareState TextLine::ui_elem_prepareForDraw(LotId, Lot&, unsigned repeat, ui::DrawContext& uiCtx) {
 		auto& guiCtx   = getGuiDrawContext(uiCtx);
-		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_fontSize);
+		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
 
 		struct Pen {
 			float maxBaselineToBottom;
@@ -212,6 +214,7 @@ namespace SKENGINE_NAME_NS::gui {
 				Pen pen = { };
 				if(txt_shapeSet) DrawableShapeSet::destroy(txt_vma, txt_shapeSet);
 				for(auto c : txt_str) pushCharVertices(refs, pen, chars, c);
+				txt_width = pen.x;
 				txt_baselineBottom = pen.maxBaselineToBottom;
 				txt_shapeSet = DrawableShapeSet::create(txt_vma, std::move(refs));
 				txt_upToDate = true;
@@ -234,7 +237,7 @@ namespace SKENGINE_NAME_NS::gui {
 		auto  cBounds = ui_elem_getBounds(lot);
 
 		auto& extent   = guiCtx.engine->getPresentExtent();
-		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_fontSize);
+		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
@@ -242,15 +245,42 @@ namespace SKENGINE_NAME_NS::gui {
 		setViewportScissor(vs, xfExtent, yfExtent, cBounds);
 
 		float baselineMul = 1.0f / (1.0f + txt_baselineBottom);
-		float scaleFactor = txt_textSize;
 		glm::vec3 scale = {
-			scaleFactor * baselineMul * yfExtent / xfExtent,
-			scaleFactor * 1.0f,
+			txt_info.textSize * baselineMul * yfExtent / xfExtent,
+			txt_info.textSize * 1.0f,
 			1.0f };
-		glm::vec3 off = {
-			-1.0f,
-			-1.0f,
-			txt_depth };
+		glm::vec3 off = { { }, { }, txt_depth };
+
+		switch(txt_info.alignment) { // Horizontal alignment
+			case TextAlignment::eLeftTop: [[fallthrough]];
+			case TextAlignment::eLeftCenter: [[fallthrough]];
+			case TextAlignment::eLeftBottom:
+				off.x = -1.0f; break;
+			case TextAlignment::eCenterTop: [[fallthrough]];
+			case TextAlignment::eCenter: [[fallthrough]];
+			case TextAlignment::eCenterBottom:
+				off.x = 0.0f - (txt_width * scale.x); break;
+			case TextAlignment::eRightTop: [[fallthrough]];
+			case TextAlignment::eRightCenter: [[fallthrough]];
+			case TextAlignment::eRightBottom:
+				off.x = +1.0f - (txt_width * scale.x * 2.0f); break;
+		}
+
+		switch(txt_info.alignment) { // Vertical alignment
+			case TextAlignment::eLeftTop: [[fallthrough]];
+			case TextAlignment::eCenterTop: [[fallthrough]];
+			case TextAlignment::eRightTop:
+				off.y = -1.0f; break;
+			case TextAlignment::eLeftCenter: [[fallthrough]];
+			case TextAlignment::eCenter: [[fallthrough]];
+			case TextAlignment::eRightCenter:
+				off.y = 0.0f - ((1.0f / baselineMul) * scale.y); break;
+			case TextAlignment::eLeftBottom: [[fallthrough]];
+			case TextAlignment::eCenterBottom: [[fallthrough]];
+			case TextAlignment::eRightBottom:
+				off.y = +1.0f - ((1.0f / baselineMul) * scale.y * 2.0f); break;
+		}
+
 		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, txtCache.dset(), vs, &txt_shapeSet, off, scale);
 	}
 
@@ -265,14 +295,13 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	void TextLine::fontSize(unsigned short size) noexcept {
-		txt_upToDate = txt_upToDate && (txt_fontSize == size);
-		txt_fontSize = size;
-	}
-
-	void TextLine::textSize(float size) noexcept {
-		txt_upToDate = txt_upToDate && (txt_textSize == size);
-		txt_textSize = size;
+	void TextLine::textInfo(const TextInfo& ti) noexcept {
+		bool eq = true;
+		eq = (txt_info.alignment == ti.alignment)? eq : false;
+		eq = (txt_info.fontSize  == ti.fontSize )? eq : false;
+		eq = (txt_info.textSize  == ti.textSize )? eq : false;
+		txt_upToDate = txt_upToDate && eq;
+		txt_info = ti;
 	}
 
 

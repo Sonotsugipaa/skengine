@@ -189,7 +189,10 @@ namespace {
 
 
 		void createGui(skengine::GuiManager& gui) {
-			float textSize = 10.0f / float(engine->getPresentExtent().height);
+			static constexpr auto textInfo = TextInfo {
+				.alignment = TextAlignment::eLeftTop,
+				.fontSize = 30,
+				.textSize = 0.1f };
 			auto& canvas = gui.canvas();
 			crosshairGrid =
 				canvas.createLot({ 0, 0 }, { 3, 3 }).second
@@ -200,7 +203,7 @@ namespace {
 			auto chLot   = crosshairLot.lock();
 			crosshair    = gui.createBasicShape(*chLot, makeCrosshairShapeSet(), true).second;
 			auto sgLot   = canvas.createLot({ 0, 0 }, { 1, 3 });
-			speedGauge   = gui.createTextLine(*sgLot.second, { .fontSize = 30, .textSize = textSize, .depth = 0.0f }, std::u32string(U"Speed:    0.00")).second;
+			speedGauge   = gui.createTextLine(*sgLot.second, 0.0f, textInfo, std::u32string(U"Speed:    0.00")).second;
 		}
 
 
@@ -321,6 +324,7 @@ namespace {
 				if(resize_event.triggered) {
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
 					setCrosshairGridSize();
+					speedGauge.lock()->setTextSize(100.0f / float(engine->getPresentExtent().height));
 				}
 
 				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
