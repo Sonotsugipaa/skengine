@@ -63,6 +63,7 @@ namespace {
 		std::weak_ptr<gui::BasicPolygon> crosshair;
 		std::weak_ptr<gui::TextLine> speedGauge;
 		std::weak_ptr<gui::TextLine> lightCounter;
+		std::weak_ptr<gui::TextLine> fpsGauge;
 		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
 		ObjectId  spaceship;
 		ObjectId  world;
@@ -192,10 +193,14 @@ namespace {
 
 
 		void createGui(skengine::GuiManager& gui) {
-			static constexpr auto textInfo = TextInfo {
+			static constexpr auto textInfo0 = TextInfo {
 				.alignment = TextAlignment::eLeftCenter,
 				.fontSize = 16,
 				.textSize = 0.05f };
+			static constexpr auto textInfo1 = TextInfo {
+				.alignment = TextAlignment::eRightCenter,
+				.fontSize = textInfo0.fontSize,
+				.textSize = textInfo0.textSize };
 			auto& canvas = gui.canvas();
 
 			crosshairGrid =
@@ -208,9 +213,10 @@ namespace {
 			crosshair    = gui.createBasicShape(*chLot, makeCrosshairShapeSet(), true).second;
 
 			auto textGridLot = canvas.createLot({ 0, 0 }, { 3, 3 }).second;
-			auto& textGrid = * textGridLot->setChildBasicGrid({ }, { textInfo.textSize }, { 1.0f });
-			lightCounter = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo, "Lights: 0").second;
-			speedGauge   = gui.createTextLine(*textGrid.createLot({ 1, 0 }, { 1, 1 }).second, 0.0f, textInfo, "Speed: 0.00").second;
+			auto& textGrid = * textGridLot->setChildBasicGrid({ }, { textInfo0.textSize }, { 1.0f });
+			lightCounter = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo0, "Lights: 0").second;
+			speedGauge   = gui.createTextLine(*textGrid.createLot({ 1, 0 }, { 1, 1 }).second, 0.0f, textInfo0, "Speed: 0.00").second;
+			fpsGauge     = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo1, "Framerate: 0.00").second;
 		}
 
 
@@ -380,7 +386,11 @@ namespace {
 		}
 
 
-		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override { }
+		void loop_async_preRender(ConcurrentAccess, tickreg::delta_t, tickreg::delta_t) override {
+			{ // Update the GUI
+				speedGauge.lock()->setText(fmt::format("Speed: {:.2f}", glm::length(cameraSpeed)));
+			}
+		}
 
 
 		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
@@ -388,6 +398,16 @@ namespace {
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
 			auto rng = std::ranlux48(size_t(this));
+
+			bool move_light_key_pressed, move_fwd, move_bkw, move_lft, move_rgt, move_drag_mod; {
+				auto inputLock = std::unique_lock(inputMutex);
+				move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
+				move_fwd = pressedKeys.contains(SDLK_w);
+				move_bkw = pressedKeys.contains(SDLK_s);
+				move_lft = pressedKeys.contains(SDLK_a);
+				move_rgt = pressedKeys.contains(SDLK_d);
+				move_drag_mod = pressedKeys.contains(SDLK_LSHIFT);
+			}
 
 			{ // Randomly rotate all the objects
 				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
@@ -397,8 +417,6 @@ namespace {
 				}
 			}
 
-			inputMutex.lock();
-
 			glm::vec3 pos;
 			{ // Move the camera
 				bool mouse_rel_mode = SDL_GetRelativeMouseMode();
@@ -407,10 +425,10 @@ namespace {
 					glm::vec3 r = { 0.0f, 0.0f, 0.0f };
 					bool zero_mov = true;
 
-					if(pressedKeys.contains(SDLK_w)) [[unlikely]] { zero_mov = false; r.z += -1.0f; }
-					if(pressedKeys.contains(SDLK_s)) [[unlikely]] { zero_mov = false; r.z += +1.0f; }
-					if(pressedKeys.contains(SDLK_a)) [[unlikely]] { zero_mov = false; r.x += -1.0f; }
-					if(pressedKeys.contains(SDLK_d)) [[unlikely]] { zero_mov = false; r.x += +1.0f; }
+					if(move_fwd) [[unlikely]] { zero_mov = false; r.z += -1.0f; }
+					if(move_bkw) [[unlikely]] { zero_mov = false; r.z += +1.0f; }
+					if(move_lft) [[unlikely]] { zero_mov = false; r.x += -1.0f; }
+					if(move_rgt) [[unlikely]] { zero_mov = false; r.x += +1.0f; }
 
 					if(! zero_mov) {
 						// Vertical movement only in relative mouse mode
@@ -426,7 +444,7 @@ namespace {
 						r = view_transf_inv * r * movement_pulse;
 					}
 
-					float drag = pressedKeys.contains(SDLK_LSHIFT)? movement_drag_mod : movement_drag;
+					float drag = move_drag_mod? movement_drag_mod : movement_drag;
 					r -= cameraSpeed * drag;
 
 					return r;
@@ -441,7 +459,6 @@ namespace {
 				cameraSpeed += camera_pulse * float(delta);
 			}
 
-			bool move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
 			if(! move_light_key_pressed) {
 				if(lightGuideVisible) {
 					wr.modifyObject(lightGuide)->hidden = true;
@@ -470,11 +487,7 @@ namespace {
 				}
 			}
 
-			{ // Update the GUI
-				speedGauge.lock()->setText(fmt::format("Speed: {:.2f}", glm::length(cameraSpeed)));
-			}
-
-			inputMutex.unlock();
+			fpsGauge.lock()->setText(fmt::format("Framerate: 1/{:.2f}", tickreg::delta_t(1) / (engine->frameRate())));
 		}
 	};
 

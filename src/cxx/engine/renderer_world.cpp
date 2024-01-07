@@ -84,6 +84,15 @@ namespace SKENGINE_NAME_NS {
 			r.mLightStorage.buffer.unmap(r.mVma);
 			vkutil::ManagedBuffer::destroy(r.mVma, r.mLightStorage.buffer);
 		}
+
+		{
+			std::vector<ObjectId> removeList;
+			removeList.reserve(r.mPointLights.size() + r.mRayLights.size());
+			for(auto& l : r.mPointLights) removeList.push_back(l.first);
+			for(auto& l : r.mRayLights  ) removeList.push_back(l.first);
+			for(auto  l : removeList    ) r.removeLight(l);
+		}
+
 		Renderer::destroy(r);
 	}
 

@@ -179,10 +179,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				for(auto& elem : lot.second->elements()) elem.second->ui_elem_draw(lot.first, *lot.second, uiCtx);
 			}
 
-			// The caches will need for this draw op to finish before preparing for the next one
-			// (unless they're up to date, in which case they won't do anything)
-			for(auto& ln : e.mGuiState.textCaches) ln.second.syncWithFence(gframe.fence_draw);
-
 			auto& cmd = gframe.cmd_draw[1];
 			VkPipeline             lastPl = nullptr;
 			const ViewportScissor* lastVs = nullptr;

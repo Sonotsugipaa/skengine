@@ -452,6 +452,15 @@ namespace SKENGINE_NAME_NS {
 		std::vector<ObjectId> ids;
 		ids.reserve(mObjects.size());
 
+		assert([&]() { /* Check object ID uniqueness */
+			auto uniqueSet = std::unordered_set<ObjectId>(mObjects.size());
+			for(auto& obj : mObjects) {
+				auto ins = uniqueSet.insert(obj.first);
+				if(! ins.second) return false;
+			}
+			return true;
+		} ());
+
 		for(auto&    obj : mObjects) ids.push_back(obj.first);
 		for(ObjectId id  : ids)      removeObject(id);
 	}

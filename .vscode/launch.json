@@ -5,7 +5,7 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "(gdb) Launch (Wayland)",
+			"name": "(gdb) Launch (Wayland Debug)",
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "/tmp/game-engine-sketch/Debug-pack/sketch-sim",
@@ -31,13 +31,65 @@
 			]
 		},
 		{
-			"name": "(gdb) Launch (X11)",
+			"name": "(gdb) Launch (Wayland Release)",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "/tmp/game-engine-sketch/Release-pack/sketch-sim",
+			"args": [ ],
+			"stopAtEntry": false,
+			"cwd": "/tmp/game-engine-sketch/Release-pack/",
+			"environment": [
+				{ "name": "SDL_VIDEODRIVER", "value": "wayland" }
+			],
+			"externalConsole": false,
+			"MIMode": "gdb",
+			"setupCommands": [
+				 {
+					  "description": "Enable pretty-printing for gdb",
+					  "text": "-enable-pretty-printing",
+					  "ignoreFailures": true
+				 },
+				 {
+					  "description": "Set Disassembly Flavor to Intel",
+					  "text": "-gdb-set disassembly-flavor intel",
+					  "ignoreFailures": true
+				 }
+			]
+		},
+		{
+			"name": "(gdb) Launch (X11 Debug)",
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "/tmp/game-engine-sketch/Debug-pack/sketch-sim",
 			"args": [ ],
 			"stopAtEntry": false,
 			"cwd": "/tmp/game-engine-sketch/Debug-pack/",
+			"environment": [
+				{ "name": "SDL_VIDEODRIVER", "value": "x11" }
+			],
+			"externalConsole": false,
+			"MIMode": "gdb",
+			"setupCommands": [
+				 {
+					  "description": "Enable pretty-printing for gdb",
+					  "text": "-enable-pretty-printing",
+					  "ignoreFailures": true
+				 },
+				 {
+					  "description": "Set Disassembly Flavor to Intel",
+					  "text": "-gdb-set disassembly-flavor intel",
+					  "ignoreFailures": true
+				 }
+			]
+		},
+		{
+			"name": "(gdb) Launch (X11 Release)",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "/tmp/game-engine-sketch/Release-pack/sketch-sim",
+			"args": [ ],
+			"stopAtEntry": false,
+			"cwd": "/tmp/game-engine-sketch/Release-pack/",
 			"environment": [
 				{ "name": "SDL_VIDEODRIVER", "value": "x11" }
 			],

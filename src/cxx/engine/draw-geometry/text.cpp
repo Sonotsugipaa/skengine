@@ -221,6 +221,11 @@ inline namespace geom {
 			}
 		}
 
+		if(txtcache_lock != nullptr) {
+			VK_CHECK(vkWaitForFences, txtcache_dev.value, 1, &txtcache_lock, VK_TRUE, UINT64_MAX);
+			txtcache_lock = nullptr;
+		}
+
 		{ // If the image already exists, destroy everything
 			if(txtcache_image.value.value != nullptr) {
 				vkDestroySampler(txtcache_dev.value, txtcache_sampler, nullptr);
@@ -241,11 +246,6 @@ inline namespace geom {
 			icInfo.extent = { charWidth * rowWidth, charHeight * unsigned(layout.size()), 1 };
 			txtcache_imageExt = { icInfo.extent.width, icInfo.extent.height };
 			VkDeviceSize imageByteSize = icInfo.extent.width * icInfo.extent.height * 4; // The glyph has a 1-byte grayscale texel, the image wants a 4-byte RGBA texel because GLSL said so
-
-			if(txtcache_lock != nullptr) {
-				VK_CHECK(vkWaitForFences, txtcache_dev.value, 1, &txtcache_lock, VK_TRUE, UINT64_MAX);
-				txtcache_lock = nullptr;
-			}
 
 			{ // Enlarge the staging buffer, if necessary
 				vkutil::BufferCreateInfo bcInfo = { };
