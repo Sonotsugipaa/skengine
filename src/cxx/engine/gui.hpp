@@ -141,8 +141,8 @@ namespace SKENGINE_NAME_NS {
 		class TextLine : public ui::Element {
 		public:
 			// DOCUMENTATION HINT: `textSize` is relative to the viewport, not the element's lot
-			TextLine(VmaAllocator, float depth, const TextInfo&, std::string_view = { });
-			TextLine(VmaAllocator, float depth, const TextInfo&, std::u32string);
+			TextLine(VmaAllocator, float depth, const TextInfo&, std::string_view);
+			TextLine(VmaAllocator, float depth, const TextInfo&, std::u32string = { });
 			~TextLine();
 
 			TextLine(TextLine&&) = delete;
@@ -173,7 +173,8 @@ namespace SKENGINE_NAME_NS {
 			TextCache::update_counter_t txt_lastCacheUpdate;
 			float txt_depth;
 			float txt_width;
-			float txt_baselineBottom;
+			float txt_height;
+			float txt_descender;
 			TextInfo txt_info;
 			bool txt_upToDate;
 		};

@@ -168,7 +168,6 @@ namespace SKENGINE_NAME_NS::gui {
 		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
 
 		struct Pen {
-			float maxBaselineToBottom;
 			float x;
 		};
 
@@ -184,8 +183,9 @@ namespace SKENGINE_NAME_NS::gui {
 			float x[2] = {
 				0.0f,
 				0.0f + (charBounds.size[0] * 2.0f) };
+			float height = charBounds.size[1] * 2.0f;
 			float y[2] = {
-				off[1] +2.0f - (charBounds.size[1] * 2.0f),
+				off[1] +2.0f - height,
 				off[1] +2.0f };
 			auto shape = std::make_shared<Shape>(std::vector<TextVertex> {
 				{{ x[0], y[0], 0.0f }, { u[0], v[0] }},
@@ -198,7 +198,6 @@ namespace SKENGINE_NAME_NS::gui {
 			auto shapeRef = ShapeReference(std::move(shape), color, mat);
 			dst.push_back(std::move(shapeRef));
 			pen.x += charBounds.advance[0];
-			pen.maxBaselineToBottom = std::max(baselineToBottom, pen.maxBaselineToBottom);
 		};
 
 		auto fetch = [&]() {
@@ -210,12 +209,15 @@ namespace SKENGINE_NAME_NS::gui {
 			if(txt_lastCacheUpdate != txtCache.getUpdateCounter()) txt_upToDate = false;
 			if(! txt_upToDate) { // Update the shape set
 				auto& chars = txtCache.getChars();
+				auto face = txtCache.fontFace()->operator FT_Face();
+				float faceUnits = face->units_per_EM;
 				ShapeSet refs; refs.reserve(txt_str.size());
 				Pen pen = { };
 				if(txt_shapeSet) DrawableShapeSet::destroy(txt_vma, txt_shapeSet);
 				for(auto c : txt_str) pushCharVertices(refs, pen, chars, c);
-				txt_width = pen.x;
-				txt_baselineBottom = pen.maxBaselineToBottom;
+				txt_width  = pen.x;
+				txt_height = (face->bbox.yMax - face->bbox.yMin) / faceUnits;
+				txt_descender = float(-face->descender) / faceUnits;
 				txt_shapeSet = DrawableShapeSet::create(txt_vma, std::move(refs));
 				txt_upToDate = true;
 				txt_lastCacheUpdate = txtCache.getUpdateCounter();
@@ -244,10 +246,10 @@ namespace SKENGINE_NAME_NS::gui {
 		ViewportScissor vs;
 		setViewportScissor(vs, xfExtent, yfExtent, cBounds);
 
-		float baselineMul = 1.0f / (1.0f + txt_baselineBottom);
+		float baselineMul = 1.0f / (1.0f + txt_descender);
 		glm::vec3 scale = {
 			txt_info.textSize * baselineMul * yfExtent / xfExtent,
-			txt_info.textSize * 1.0f,
+			txt_info.textSize * txt_height,
 			1.0f };
 		glm::vec3 off = { { }, { }, txt_depth };
 
