@@ -179,6 +179,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				for(auto& elem : lot.second->elements()) elem.second->ui_elem_draw(lot.first, *lot.second, uiCtx);
 			}
 
+			// The caches will need for this draw op to finish before preparing for the next one
+			// (unless they're up to date, in which case they won't do anything)
+			for(auto& ln : e.mGuiState.textCaches) ln.second.syncWithFence(gframe.fence_draw);
+
 			auto& cmd = gframe.cmd_draw[1];
 			VkPipeline             lastPl = nullptr;
 			const ViewportScissor* lastVs = nullptr;
@@ -515,14 +519,20 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 
-		VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+		e.mGframeLast = int_fast32_t(sc_img_idx);
+		if(e.mPrefs.wait_for_gframe && (e.mGframeLast >= 0)) {
+			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[e.mGframeLast].fence_draw };
+			VK_CHECK(vkWaitForFences, e.mDevice, std::size(fences), fences, true, UINT64_MAX);
+		} else {
+			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+		}
 		e.mRendererMutex.unlock();
 
 		loop.loop_async_postRender(concurrent_access, delta, e.mGraphicsReg.lastDelta());
 
 		e.mGraphicsReg.endCycle();
 
-		for(auto& ln : e.mGuiState.textCaches) ln.second.trimChars(e.mPrefs.font_maxCacheSize);
+		for(auto& ln : e.mGuiState.textCaches) ln.second.trimChars(e.mPrefs.font_max_cache_size);
 
 		return true;
 	}
@@ -561,6 +571,7 @@ namespace SKENGINE_NAME_NS {
 		.present_mode          = VK_PRESENT_MODE_FIFO_KHR,
 		.sample_count          = VK_SAMPLE_COUNT_1_BIT,
 		.max_concurrent_frames = 2,
+		.framerate_samples     = 16,
 		.fov_y                 = glm::radians(110.0f),
 		.z_near                = 1.0f / float(1 << 6),
 		.z_far                 = float(1 << 10),
@@ -570,9 +581,10 @@ namespace SKENGINE_NAME_NS {
 		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,
-		.font_maxCacheSize     = 512,
+		.font_max_cache_size   = 512,
 		.fullscreen            = false,
-		.composite_alpha       = false
+		.composite_alpha       = false,
+		.wait_for_gframe       = true
 	};
 
 
@@ -634,12 +646,12 @@ namespace SKENGINE_NAME_NS {
 	):
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
-			8,
+			ep.framerate_samples,
 			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
 			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
 		mLogicReg(
-			8,
+			ep.framerate_samples,
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
@@ -821,6 +833,9 @@ namespace SKENGINE_NAME_NS {
 			fences.reserve(mGframes.size());
 			for(auto& gframe : mGframes) fences.push_back(gframe.fence_draw);
 			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
+
+			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
+			for(auto& ln : mGuiState.textCaches) ln.second.forgetFence();
 		};
 
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();

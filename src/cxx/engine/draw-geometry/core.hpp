@@ -270,7 +270,8 @@ inline namespace geom {
 		std::pair<GlyphBitmap, codepoint_t> getGlyphBitmap(codepoint_t);
 		GlyphBitmap getGlyphBitmapByIndex(codepoint_t index);
 
-		operator FT_Face() const noexcept { return font_face.value; }
+		FT_Face ftFace() const noexcept { return font_face.value; }
+		operator FT_Face() const noexcept { return ftFace(); }
 
 	private:
 		util::Moveable<FT_Face> font_face;
@@ -309,8 +310,9 @@ inline namespace geom {
 		void fetchChar(codepoint_t c) { if(! txtcache_charMap.contains(c)) txtcache_charQueue.insert(c); }
 		template <typename CharSeq> void fetchChars(const CharSeq& s) { using C = CharSeq::value_type; for(const C& c : s) fetchChar(codepoint_t(c)); }
 
-		void syncWithFence(VkFence fence) noexcept { txtcache_lock = fence; } // DOCUMENTATION HINT: a non-null fence may be waited upon on the next call to `updateImage`.
+		void syncWithFence(VkFence fence) noexcept; // DOCUMENTATION HINT: a non-null fence may be waited upon on the next call to `updateImage`.
 		void forgetFence(VkFence fence) noexcept { if(txtcache_lock == fence) txtcache_lock = nullptr; }
+		void forgetFence() noexcept { forgetFence(txtcache_lock); }
 
 		bool updateImage(VkCommandBuffer) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
 		const CharMap& getChars() const noexcept { return txtcache_charMap; }

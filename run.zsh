@@ -13,8 +13,10 @@ elif [[ "$1" = '-L' || "$1" = '--leak-kinds' ]]; then cmd+='valgrind'; cmd+='--l
 fi
 
 cd "$(dirname "$0")"
-config="$config" dstpath="$dstpath" ./build.sh
-config="$config" dstpath="$dstpath" ./pack.sh
+if [[ ! -v skip_build ]]; then
+	config="$config" dstpath="$dstpath" ./build.zsh
+	config="$config" dstpath="$dstpath" ./pack.zsh
+fi
 
 
 binpath="$dstpath/${config}-pack"

@@ -424,6 +424,8 @@ namespace SKENGINE_NAME_NS {
 			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			.qfamSharing = { } };
 
+		mGframeLast = -1;
+
 		VkCommandPoolCreateInfo cpc_info = { };
 		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		cpc_info.queueFamilyIndex = mQueues.families.graphicsIndex;

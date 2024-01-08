@@ -144,6 +144,13 @@ inline namespace geom {
 	}
 
 
+	void TextCache::syncWithFence(VkFence fence) noexcept {
+		assert(fence != nullptr);
+		if(txtcache_lock != nullptr) vkWaitForFences(txtcache_dev.value, 1, &txtcache_lock, VK_TRUE, UINT64_MAX);
+		txtcache_lock = fence;
+	}
+
+
 	bool TextCache::updateImage(VkCommandBuffer cmd) noexcept {
 		using InsMap = std::unordered_map<codepoint_t, GlyphBitmap>;
 		using InsPair = InsMap::value_type;

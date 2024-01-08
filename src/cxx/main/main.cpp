@@ -34,6 +34,8 @@ namespace {
 		prefs.shade_step_smoothness = 4.0f;
 		prefs.shade_step_exponent   = 4.0f;
 		prefs.font_location         = "assets/font.otf";
+		prefs.wait_for_gframe       = true;
+		prefs.framerate_samples     = 4;
 		return prefs;
 	} ();
 
@@ -68,7 +70,6 @@ namespace {
 		ObjectId  spaceship;
 		ObjectId  world;
 		ObjectId  camLight;
-		ObjectId  movingRayLight;
 		ObjectId  lightGuide;
 		glm::vec3 cameraSpeed;
 		bool lightGuideVisible : 1;
@@ -171,12 +172,6 @@ namespace {
 
 
 		void createLights(skengine::WorldRenderer& wr) {
-			WorldRenderer::NewRayLight rl = { };
-			rl.intensity = 0.8f;
-			rl.direction = { 1.8f, -0.2f, 0.0f };
-			rl.color     = { 0.7f, 0.91f, 1.0f };
-			movingRayLight = wr.createRayLight(rl);
-
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 2.0f;
 			pl.falloffExponent = 1.0f;
@@ -195,7 +190,7 @@ namespace {
 		void createGui(skengine::GuiManager& gui) {
 			static constexpr auto textInfo0 = TextInfo {
 				.alignment = TextAlignment::eLeftCenter,
-				.fontSize = 16,
+				.fontSize = 20,
 				.textSize = 0.05f };
 			static constexpr auto textInfo1 = TextInfo {
 				.alignment = TextAlignment::eRightCenter,
@@ -254,6 +249,7 @@ namespace {
 			bool request_ca      = false;
 			bool do_create_light = false;
 			bool destroy_light   = false;
+			bool light_is_ray    = false;
 
 			struct ResizeEvent {
 				uint32_t width;
@@ -318,6 +314,11 @@ namespace {
 				if(found != pressedKeys.end()) [[unlikely]] {
 					do_create_light = true;
 					request_ca      = true;
+				} else
+				if((found = pressedKeys.find(SDLK_l)) != pressedKeys.end()) [[unlikely]] {
+					do_create_light = true;
+					light_is_ray    = true;
+					request_ca      = true;
 				} else {
 					lightCreated = false;
 					found = pressedKeys.find(SDLK_c);
@@ -350,19 +351,33 @@ namespace {
 
 				if(do_create_light) [[unlikely]] {
 					glm::mat3 iview = glm::inverse(wr.getViewTransf());
-					auto      pos   = wr.getViewPosition() + (iview * cursor_offset);
+					auto      dir   = iview * cursor_offset;
+					auto      pos   = wr.getViewPosition() + dir;
 					if(lightCreated) [[likely]] {
 						assert(! createdLights.empty());
 						auto& lightId = createdLights.back();
-						auto& light   = wr.modifyPointLight(lightId);
-						light.position = pos;
+						if(light_is_ray) {
+							auto& light = wr.modifyRayLight(lightId);
+							light.direction = dir;
+						} else {
+							auto& light = wr.modifyPointLight(lightId);
+							light.position = pos;
+						}
 					} else {
-						WorldRenderer::NewPointLight pl = { };
-						pl.intensity = 0.5f;
-						pl.falloffExponent = 1.0f;
-						pl.position = pos;
-						pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
-						createdLights.push_back(wr.createPointLight(pl));
+						if(light_is_ray) {
+							WorldRenderer::NewRayLight rl = { };
+							rl.intensity = 0.1f;
+							rl.direction = dir;
+							rl.color     = { 0.7f, 0.91f, 1.0f };
+							createdLights.push_back(wr.createRayLight(rl));
+						} else {
+							WorldRenderer::NewPointLight pl = { };
+							pl.intensity = 0.5f;
+							pl.falloffExponent = 1.0f;
+							pl.position = pos;
+							pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
+							createdLights.push_back(wr.createPointLight(pl));
+						}
 						lightCounter.lock()->setText(fmt::format("Lights: {}", createdLights.size()));
 						engine->logger().info("Creating light {}", object_id_e(createdLights.back()));
 						lightCreated = true;
@@ -399,8 +414,8 @@ namespace {
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
 			auto rng = std::ranlux48(size_t(this));
 
+			auto inputLock = std::unique_lock(inputMutex);
 			bool move_light_key_pressed, move_fwd, move_bkw, move_lft, move_rgt, move_drag_mod; {
-				auto inputLock = std::unique_lock(inputMutex);
 				move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
 				move_fwd = pressedKeys.contains(SDLK_w);
 				move_bkw = pressedKeys.contains(SDLK_s);
@@ -466,12 +481,10 @@ namespace {
 				}
 			} else {
 				// Rotate the moving light
-				auto* rl = &wr.modifyRayLight(movingRayLight);
 				glm::vec3 light_pos = [&]() {
 					glm::mat3 view = wr.getViewTransf();
 					return glm::transpose(view) * cursor_offset;
 				} ();
-				rl->direction = light_pos;
 
 				{ // Handle the light guide
 					auto o = wr.modifyObject(lightGuide).value();
@@ -487,7 +500,7 @@ namespace {
 				}
 			}
 
-			fpsGauge.lock()->setText(fmt::format("Framerate: 1/{:.2f}", tickreg::delta_t(1) / (engine->frameRate())));
+			fpsGauge.lock()->setText(fmt::format("Frame rate: {:.2f}", tickreg::delta_t(1) / (engine->frameDelta())));
 		}
 	};
 

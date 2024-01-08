@@ -96,6 +96,7 @@ namespace SKENGINE_NAME_NS {
 		VkPresentModeKHR   present_mode;
 		VkSampleCountFlags sample_count;
 		uint32_t       max_concurrent_frames;
+		uint32_t       framerate_samples;
 		std::float32_t fov_y;
 		std::float32_t z_near;
 		std::float32_t z_far;
@@ -105,9 +106,10 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
-		uint32_t       font_maxCacheSize;
+		uint32_t       font_max_cache_size;
 		bool           fullscreen      : 1;
 		bool           composite_alpha : 1;
+		bool           wait_for_gframe : 1;
 	};
 
 
@@ -281,8 +283,8 @@ namespace SKENGINE_NAME_NS {
 
 		auto& logger() const noexcept { return *mLogger; }
 		auto  frameCount() const noexcept { return mGframeCounter.load(std::memory_order_relaxed); }
-		auto  frameRate() const noexcept { return mGraphicsReg.estDelta(); }
-		auto  tickRate() const noexcept { return mLogicReg.estDelta(); }
+		auto  frameDelta() const noexcept { return mGraphicsReg.estDelta(); }
+		auto  tickDelta() const noexcept { return mLogicReg.estDelta(); }
 
 		MutexAccess<ConcurrentAccess> getConcurrentAccess() noexcept;
 
@@ -323,6 +325,7 @@ namespace SKENGINE_NAME_NS {
 		std::atomic_bool          mGframePriorityOverride = false;
 		std::atomic_uint_fast32_t mGframeCounter;
 		uint_fast32_t             mGframeSelector;
+		int_fast32_t              mGframeLast;
 		std::vector<GframeData>   mGframes;
 		std::vector<VkFence>      mGframeSelectionFences;
 		std::thread               mGraphicsThread;

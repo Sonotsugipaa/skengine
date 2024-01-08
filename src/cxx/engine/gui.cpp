@@ -198,8 +198,7 @@ namespace SKENGINE_NAME_NS::gui {
 				{{ x[1], y[1], 0.0f }, { u[1], v[1] }},
 				{{ x[1], y[0], 0.0f }, { u[1], v[0] }} });
 			constexpr auto color = glm::vec4 { 1.0f, 1.0f, 1.0f, 1.0f };
-			glm::mat4 mat = mat1;
-			mat = glm::translate(mat, { off[0], off[1], 0.0f });
+			glm::mat4 mat = glm::translate(mat1, { off[0], off[1], 0.0f });
 			auto shapeRef = ShapeReference(std::move(shape), color, mat);
 			dst.push_back(std::move(shapeRef));
 			pen.x += charBounds.advance[0];
@@ -214,7 +213,7 @@ namespace SKENGINE_NAME_NS::gui {
 			if(txt_lastCacheUpdate != txtCache.getUpdateCounter()) txt_upToDate = false;
 			if(! txt_upToDate) { // Update the shape set
 				auto& chars = txtCache.getChars();
-				auto face = txtCache.fontFace()->operator FT_Face();
+				auto face = txtCache.fontFace()->ftFace();
 				float faceUnits = face->units_per_EM;
 				ShapeSet refs; refs.reserve(txt_str.size());
 				Pen pen = { };
