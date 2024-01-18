@@ -7,6 +7,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	mat4 proj_transf4;
 	mat4 view_transf4;
 	vec4 view_pos;
+	vec4 ambient_lighting;
 	uint ray_light_count;
 	uint point_light_count;
 	uint shade_step_count;
@@ -21,7 +22,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 struct RayLight {
 	vec4  direction;
 	vec4  color;
-	float unused0;
+	float aoa_threshold;
 	float unused1;
 	float unused2;
 	float unused3;
@@ -74,6 +75,7 @@ const uint  flag_hdr_enabled     = 1;
 
 
 struct LuminanceInfo {
+	// the alpha channel is the luminance
 	vec4 dfs;
 	vec4 spc;
 };
@@ -91,17 +93,30 @@ vec3 unorm_correct(vec3 v) {
 }
 
 float shinify(float x) {
+	//   1 |             .  .
+	//     |           .
+	//     |         .
+	// 0.5 |        .
+	//     |       .
+	//     |     .
+	//   0 | . .
+	//     O------------------
+	//       0              1
 	return (sin((x - 0.5) * pi) + 1.0) / 2.0;
 }
 
 float shinify_exp(float x, float exp) {
 	x = clamp(x, 0.0, 1.0);
-	return pow(shinify(pow(x, exp)), exp);
+	return pow(shinify(x), exp);
 }
 
 float aoa_fade(float value, float angle_of_attack) {
 	float fade = angle_of_attack / normal_backface_bias;
 	return value * clamp(fade, 0, 1);
+}
+
+float aoa_with_threshold(float value, float threshold) {
+	return min(value * (threshold + 1.0), 1.0);
 }
 
 vec3 color_rgb_non_zero(vec4 v) {
@@ -115,19 +130,23 @@ vec3 color_rgb_non_zero(vec4 v) {
 }
 
 
-float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack) {
+float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, vec3 view_dir, float angle_of_attack, float aoa_threshold) {
 	float lighting = dot(
 		view_dir,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
 	float light_exp = material_ubo.shininess;
-	lighting = aoa_fade(lighting, angle_of_attack);
 	lighting = shinify_exp(lighting, light_exp);
+	angle_of_attack = aoa_with_threshold(angle_of_attack, aoa_threshold);
+	lighting        = aoa_with_threshold(lighting,        aoa_threshold);
+	lighting = aoa_fade(lighting, angle_of_attack);
 	lighting = max(lighting, 0);
 	return lighting;
 }
 
-float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack) {
+float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack, float aoa_threshold) {
 	float lighting = dot(tex_nrm_viewspace, light_dir_viewspace);
+	lighting        = aoa_with_threshold(lighting,        aoa_threshold);
+	angle_of_attack = aoa_with_threshold(angle_of_attack, aoa_threshold);
 	lighting = aoa_fade(lighting, angle_of_attack);
 	lighting = max(lighting, 0);
 	return lighting;
@@ -159,14 +178,15 @@ LuminanceInfo sum_ray_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 			frg_view3
 			* ray_light_buffer.lights[i].direction.xyz;
 
-		float aot = dot(frg_nrm, light_dir);
+		float aoa = dot(frg_nrm, light_dir);
+		float aoa_threshold = ray_light_buffer.lights[i].aoa_threshold;
 
 		float luminance_dfs = (
 			ray_light_buffer.lights[i].color.a
-			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
+			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aoa, aoa_threshold) );
 		float luminance_spc = (
 			ray_light_buffer.lights[i].color.a
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aoa, aoa_threshold) );
 
 		luminance.dfs.a += luminance_dfs;
 		luminance.spc.a += luminance_spc;
@@ -195,7 +215,8 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 
 		light_dir = normalize(frg_view3 * light_dir);
 
-		float aot = dot(frg_nrm, light_dir);
+		float aoa = dot(frg_nrm, light_dir);
+		float aoa_threshold = 0.0;
 
 		float intensity         = point_light_buffer.lights[i].color.a;
 		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
@@ -203,10 +224,10 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 
 		float luminance_dfs = (
 			intensity_falloff
-			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aot) );
+			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aoa, aoa_threshold) );
 		float luminance_spc = (
 			intensity_falloff
-			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aot) );
+			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aoa, aoa_threshold) );
 
 		luminance.dfs.a += luminance_dfs;
 		luminance.spc.a += luminance_spc;
@@ -271,7 +292,8 @@ void main() {
 	out_col.rgb =
 		max(vec3(0,0,0), frg_col.rgb * (
 			(tex_dfs.rgb * luminance.dfs.rgb * luminance.dfs.a) +
-			(tex_spc.rgb * luminance.spc.rgb * luminance.spc.a)
+			(tex_spc.rgb * luminance.spc.rgb * luminance.spc.a) +
+			(tex_dfs.rgb * frame_ubo.ambient_lighting.rgb * frame_ubo.ambient_lighting.a)
 		))
 		+ tex_emi.rgb;
 	out_col.a = frg_col.a;

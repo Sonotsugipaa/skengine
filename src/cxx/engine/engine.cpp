@@ -317,12 +317,15 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			e.mRendererMutex.lock();
 			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
 			auto& ls   = e.mWorldRenderer.lightStorage();
+			auto& al   = e.mWorldRenderer.getAmbientLight();
 			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
 			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
+			auto  all  = glm::length(al);
 			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
 			ubo.proj_transf       = e.mProjTransf;
 			ubo.view_transf       = e.mWorldRenderer.getViewTransf();
 			ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			ubo.ambient_lighting  = glm::vec4((all > 0)? glm::normalize(al) : al, all);
 			ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
 			ubo.shade_step_count  = e.mPrefs.shade_step_count;
 			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;

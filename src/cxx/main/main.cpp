@@ -82,6 +82,7 @@ namespace {
 			float     dist = object_spacing / 2.0f;
 			wr.setViewRotation(dir);
 			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
+			wr.setAmbientLight({ 0.06f, 0.06f, 0.06f });
 		}
 
 
@@ -366,9 +367,10 @@ namespace {
 					} else {
 						if(light_is_ray) {
 							WorldRenderer::NewRayLight rl = { };
-							rl.intensity = 0.1f;
-							rl.direction = dir;
-							rl.color     = { 0.7f, 0.91f, 1.0f };
+							rl.intensity    = 0.1f;
+							rl.aoaThreshold = 2.0f;
+							rl.direction    = dir;
+							rl.color        = { 0.52f, 0.80f, 0.92f };
 							createdLights.push_back(wr.createRayLight(rl));
 						} else {
 							WorldRenderer::NewPointLight pl = { };

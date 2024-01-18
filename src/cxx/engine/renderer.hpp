@@ -286,6 +286,7 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 direction;
 			glm::vec3 color;
 			float     intensity;
+			float     aoaThreshold;
 		};
 
 		struct NewPointLight {
@@ -313,6 +314,7 @@ namespace SKENGINE_NAME_NS {
 
 		const glm::vec3& getViewPosition () const noexcept { return mViewPosXyz; }
 		const glm::vec3& getViewRotation () const noexcept { return mViewDirYpr; }
+		const glm::vec3& getAmbientLight () const noexcept { return mAmbientLight; }
 
 		/// \brief Sets the view position of the camera.
 		/// \param lazy Whether the view is to be considered out of date afterwards.
@@ -323,6 +325,12 @@ namespace SKENGINE_NAME_NS {
 		/// \param lazy Whether the view is to be considered out of date afterwards.
 		///
 		void setViewRotation(const glm::vec3& ypr, bool lazy = false) noexcept;
+
+		/// \brief Sets the ambient lighting color, which acts as a light source that
+		///        acts on every surface from every direction.
+		/// \param lazy Whether the view is to be considered out of date afterwards.
+		///
+		void setAmbientLight(const glm::vec3& rgb, bool lazy = false) noexcept;
 
 		/// \brief Rotates the view so that `xyz - pos` in world space equals (0, 0, -1) in view space.
 		/// \param lazy Whether the view is to be considered out of date afterwards.
@@ -350,6 +358,7 @@ namespace SKENGINE_NAME_NS {
 		glm::mat4 mViewTransfCache;
 		glm::vec3 mViewPosXyz;
 		glm::vec3 mViewDirYpr;
+		glm::vec3 mAmbientLight;
 		bool      mViewTransfCacheOod : 1;
 		bool      mLightStorageOod    : 1;
 

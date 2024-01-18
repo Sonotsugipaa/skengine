@@ -7,6 +7,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	mat4 proj_transf4;
 	mat4 view_transf4;
 	vec4 view_pos;
+	vec4 ambient_lighting;
 	uint ray_light_count;
 	uint point_light_count;
 	uint shade_step_count;

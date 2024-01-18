@@ -84,6 +84,7 @@ namespace SKENGINE_NAME_NS {
 		glm::vec3 direction;
 		glm::vec3 color;
 		float     intensity;
+		float     aoa_threshold;
 	};
 
 	struct PointLight {
@@ -129,7 +130,7 @@ namespace SKENGINE_NAME_NS {
 		struct RayLight {
 			ALIGNF32(4) glm::vec4 direction;
 			ALIGNF32(4) glm::vec4 color;
-			ALIGNF32(1) std::float32_t m3_unused;
+			ALIGNF32(1) std::float32_t aoa_threshold;
 			ALIGNF32(1) std::float32_t m4_unused;
 			ALIGNF32(1) std::float32_t m5_unused;
 			ALIGNF32(1) std::float32_t m6_unused;
@@ -152,6 +153,7 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) glm::mat4 proj_transf;
 			ALIGNF32(1) glm::mat4 view_transf;
 			ALIGNF32(1) glm::vec4 view_pos;
+			ALIGNF32(1) glm::vec4 ambient_lighting;
 			ALIGNI32(1) uint32_t  ray_light_count;
 			ALIGNI32(1) uint32_t  point_light_count;
 			ALIGNF32(1) uint32_t  shade_step_count;

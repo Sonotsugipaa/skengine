@@ -71,6 +71,7 @@ namespace SKENGINE_NAME_NS {
 		WorldRenderer r = Renderer::create(std::move(logger), vma, dset_layout, asset_supplier);
 		r.mViewPosXyz = { };
 		r.mViewDirYpr = { };
+		r.mAmbientLight = { };
 		r.mLightStorage = { };
 		r.mViewTransfCacheOod = true;
 		set_light_buffer_capacity(r.mVma, &r.mLightStorage, 0);
@@ -138,6 +139,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void WorldRenderer::setAmbientLight(const glm::vec3& rgb, bool lazy) noexcept {
+		mAmbientLight = rgb;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+	}
+
+
 	void WorldRenderer::setViewDirection(const glm::vec3& xyz, bool lazy) noexcept {
 		/*       -x         '  '        +y         '
 		'         |         '  '         |         '
@@ -159,9 +166,10 @@ namespace SKENGINE_NAME_NS {
 	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
 		auto r = id_generator<ObjectId>.generate();
 		RayLight rl = { };
-		rl.direction = glm::normalize(nrl.direction);
-		rl.color     = nrl.color;
-		rl.intensity = std::max(nrl.intensity, 0.0f);
+		rl.direction     = glm::normalize(nrl.direction);
+		rl.color         = nrl.color;
+		rl.intensity     = std::max(nrl.intensity, 0.0f);
+		rl.aoa_threshold = nrl.aoaThreshold;
 		mRayLights.insert(RayLights::value_type { r, std::move(rl) });
 		mLightStorageOod = true;
 		return r;
@@ -222,8 +230,9 @@ namespace SKENGINE_NAME_NS {
 			auto& ray_count = mLightStorage.rayCount;
 			for(uint32_t i = 0; auto& rl : mRayLights) {
 				auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
-				dst.direction = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
-				dst.color     = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
+				dst.direction     = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
+				dst.color         = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
+				dst.aoa_threshold = rl.second.aoa_threshold;
 				++ i;
 			}
 			for(uint32_t i = ray_count; auto& pl : mPointLights) {

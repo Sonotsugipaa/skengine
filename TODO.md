@@ -6,8 +6,9 @@
   - Remove `Container`, an apparently useless middleman in the `Lot`-`Grid` codependency
 
 - **cxx/engine/**
+  - Document how `RayLight::aoa_threshold` works
   - Either recycle `gui::PlaceholderTextCacheView` into a generic VkImage viewer,
-    or remove it entirely.
+    or remove it entirely
   - Figure out stencil buffer usage, which will probably help with consistent
     UI element transparency
   - Engine initialization utilities are UB, find a way to un-UBify them
