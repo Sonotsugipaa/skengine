@@ -4,14 +4,14 @@
 #include <engine-util/basic_asset_source.hpp>
 
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <posixfio_tl.hpp>
 
 #include <vk-util/error.hpp>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 #include "util.inl.hpp"
+#include "config/config.hpp"
 
 
 
@@ -30,14 +30,53 @@ namespace {
 		prefs.target_framerate      = 60.0f;
 		prefs.target_tickrate       = 60.0f;
 		prefs.fov_y                 = glm::radians(80.0f);
-		prefs.shade_step_count      = 4;
-		prefs.shade_step_smoothness = 4.0f;
+		prefs.shade_step_count      = 12;
+		prefs.shade_step_smoothness = 0.3f;
 		prefs.shade_step_exponent   = 4.0f;
 		prefs.font_location         = "assets/font.otf";
 		prefs.wait_for_gframe       = true;
 		prefs.framerate_samples     = 4;
 		return prefs;
 	} ();
+
+
+	void readConfigFile(EnginePreferences* dst, const char* filename, spdlog::logger* logger) {
+		Settings settings;
+		settings.initialPresentExtent = { dst->init_present_extent.width, dst->init_present_extent.height };
+		settings.maxRenderExtent      = { dst->max_render_extent.width, dst->max_render_extent.height };
+		settings.presentMode          = [&]() { switch(dst->present_mode) {
+			default: [[fallback]];
+			case VK_PRESENT_MODE_FIFO_KHR:      return PresentMode::eFifo;
+			case VK_PRESENT_MODE_IMMEDIATE_KHR: return PresentMode::eImmediate;
+			case VK_PRESENT_MODE_MAILBOX_KHR:   return PresentMode::eMailbox;
+		}} ();
+		settings.shadeStepCount   = dst->shade_step_count;
+		settings.shadeStepSmooth  = dst->shade_step_smoothness;
+		settings.shadeStepGamma   = dst->shade_step_exponent;
+		settings.framerateSamples = dst->framerate_samples;
+		settings.targetFramerate  = dst->target_framerate;
+		settings.targetTickrate   = dst->target_tickrate;
+		settings.fieldOfView          = glm::degrees(dst->fov_y);
+
+		auto file = posixfio::File::open(filename, O_RDONLY | O_CREAT);
+		parseSettings(&settings, file.mmap(file.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0), *logger);
+
+		dst->init_present_extent = { settings.initialPresentExtent.width, settings.initialPresentExtent.height };
+		dst->max_render_extent   = { settings.maxRenderExtent.width, settings.maxRenderExtent.height };
+		dst->present_mode        = [&]() { switch(settings.presentMode) {
+			default: std::unreachable(); [[fallthrough]];
+			case PresentMode::eImmediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+			case PresentMode::eFifo:      return VK_PRESENT_MODE_FIFO_KHR;
+			case PresentMode::eMailbox:   return VK_PRESENT_MODE_MAILBOX_KHR;
+		}} ();
+		dst->shade_step_count      = settings.shadeStepCount;
+		dst->shade_step_smoothness = settings.shadeStepSmooth;
+		dst->shade_step_exponent   = settings.shadeStepGamma;
+		dst->framerate_samples     = settings.framerateSamples;
+		dst->target_framerate      = settings.targetFramerate;
+		dst->target_tickrate       = settings.targetTickrate;
+		dst->fov_y                 = glm::radians(settings.fieldOfView);
+	}
 
 
 	class Loop : public LoopInterface {
@@ -510,13 +549,14 @@ namespace {
 
 
 
-int main() {
+int main(int argn, char** argv) {
 	auto logger = std::make_shared<spdlog::logger>(
 		SKENGINE_NAME_CSTR,
 		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
 	logger->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
 
 	auto prefs = engine_preferences;
+	readConfigFile(&prefs, "assets/engine-settings.cfg", logger.get());
 
 	#ifdef NDEBUG
 		spdlog::set_level(spdlog::level::info);

@@ -1,6 +1,9 @@
 find_package(spdlog)
 find_package(glm)
 
+add_library(config-parser config/config.cpp)
+target_link_libraries(config-parser ctpg)
+
 add_executable(sketch-sim
 	main.cpp )
 
@@ -9,6 +12,7 @@ target_link_libraries(sketch-sim
 	engine
 	engine-util
 	nlohmann_json::nlohmann_json
+	config-parser
 	spdlog::spdlog )
 
 # Enable unity builds

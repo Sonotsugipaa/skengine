@@ -18,6 +18,9 @@ add_subdirectory(fmamdl)
 
 add_subdirectory(id-generator/src)
 
+add_library(ctpg INTERFACE)
+target_include_directories(ctpg INTERFACE .)
+
 #set(POSIXFIO_LOCAL true)
 #add_subdirectory(posixfio)
 #target_include_directories(posixfio INTERFACE posixfio/include/unix)

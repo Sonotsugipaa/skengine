@@ -3,7 +3,7 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 	add_compile_options(-Wall -Wextra -Wpedantic -Wno-comment -fconcepts-diagnostics-depth=2)
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-	# add_compile_options(\\Wall) # How...?
+	add_compile_options(/Wall)
 else()
 	message(WARNING "Toolchain \"${CMAKE_CXX_COMPILER_ID}\" not recognized by the project")
 endif()
