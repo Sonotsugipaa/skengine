@@ -193,7 +193,7 @@ namespace number_parser {
 	std::pair<Number, ParseResult> parseNumber(std::string_view rep) {
 		using R = std::pair<Number, ParseResult>;
 		static constexpr auto opt = ctpg::parse_options { .verbose = NDEBUGV, .skip_whitespace = false, .skip_newline = false };
-		auto buf = ctpg::buffers::string_buffer(std::string(rep));
+		auto buf = ctpg::buffers::string_view_buffer(rep);
 		auto err = std::stringstream();
 		auto r   = numberParser.parse(opt, buf, err);
 		if(r) {

@@ -85,7 +85,7 @@ namespace extent_parser {
 	std::pair<Extent, ParseResult> parseExtent(std::string_view rep) {
 		using R = std::pair<Extent, ParseResult>;
 		static constexpr auto opt = ctpg::parse_options { .verbose = NDEBUGV, .skip_whitespace = true, .skip_newline = false };
-		auto buf = ctpg::buffers::string_buffer(std::string(rep));
+		auto buf = ctpg::buffers::string_view_buffer(rep);
 		auto err = std::stringstream();
 		auto r   = extentParser.parse(opt, buf, err);
 		if(r) {

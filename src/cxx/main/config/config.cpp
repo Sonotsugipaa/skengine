@@ -205,7 +205,7 @@ inline namespace main_ns {
 				c = *end;
 				return true;
 			};
-			while((charAvailable = shiftBack()), charMatches<char8_t, whitespaceChars.size(), whitespaceChars>(c)) { /* NOP */ }
+			while((charAvailable = shiftBack()) && charMatches<char8_t, whitespaceChars.size(), whitespaceChars>(c)) { /* NOP */ }
 			if(charAvailable) [[likely]] ++ end;
 			ln.end = end;
 		};
