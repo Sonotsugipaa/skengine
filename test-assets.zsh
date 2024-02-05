@@ -13,23 +13,11 @@ function fmamdl_export {
 	done || exit 1
 }
 
-function convert_image {
-	local target="$(sed -e 's/\.fmat\.png$//' <<< "$1")"
-	echo "Converting image \"${target}\" to \"${target}.fmat.rgba8u\""
-	convert $1 -depth 8 ${target}.fmat.rgba
-	cat ${target}.size ${target}.fmat.rgba >${target}.fmat.rgba8u
-	rm ${target}.fmat.rgba
-}
-
 function convert_images {
 	local targets=(/tmp/fmamdl-targets/*.fmat.png)
 	if [[ ${#targets} == 0 ]]; then return 0; fi
-	local target
-	for target ($targets); do
-		target="$(sed -e 's/\.png$//' <<< "${target}")"
-		convert_image $target.png
-		mv -t /tmp/game-engine-sketch/${cfg}-pack/assets/ $target.rgba8u
-	done
+	/tmp/game-engine-sketch/${cfg}/cxx/png-to-fmat/fmat $targets
+	mv -t /tmp/game-engine-sketch/${cfg}-pack/assets/ /tmp/fmamdl-targets/*.fmat.rgba8u
 }
 
 function test_assets {
@@ -37,7 +25,7 @@ function test_assets {
 	echo -ne "\e[H\e[2J\e[3J";
 	config=$cfg ./build.zsh
 	config=$cfg ./pack.zsh
-	pushd src/cxx/third-party/fmamdl/
+	pushd src/cxx/vendored-libraries/fmamdl/
 		./build-converter.zsh Release
 		cfg=$cfg fmamdl_export
 	popd

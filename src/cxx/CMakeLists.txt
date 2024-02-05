@@ -27,3 +27,4 @@ add_subdirectory(gridlogic)
 add_subdirectory(input)
 
 add_subdirectory(main)
+add_subdirectory(png-to-fmat)
