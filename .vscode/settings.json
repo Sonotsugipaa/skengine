@@ -11,12 +11,12 @@
 	],
 	"C_Cpp.default.includePath": [
 		"/usr/include/freetype2/", // What is it with native libraries not using the "" include syntax when appropriate?!?
-		"src/cxx/third-party/id-generator/src/cxx/include",
-		"src/cxx/third-party/fmamdl/include",
-		"src/cxx/third-party/rll-allocator/",
-		"src/cxx/third-party/tick-regulator/",
-		"src/cxx/third-party/nlohmann_json/include/",
-		"src/cxx/third-party/vk-util/",
+		"src/cxx/vendored-libraries/id-generator/src/cxx/include",
+		"src/cxx/vendored-libraries/fmamdl/submodules/rapidobj/include/",
+		"src/cxx/vendored-libraries/fmamdl/include",
+		"src/cxx/vendored-libraries/rll-allocator/",
+		"src/cxx/vendored-libraries/tick-regulator/",
+		"src/cxx/vendored-libraries/",
 		"src/cxx/third-party/vma/",
 		"src/cxx/third-party/",
 		"src/cxx/engine/",

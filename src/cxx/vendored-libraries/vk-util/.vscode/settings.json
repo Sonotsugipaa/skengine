@@ -1,0 +1,10 @@
+{
+	"// do not include this file in the VCS due to a local workspace path in the include path": true,
+	"C_Cpp.intelliSenseEngineFallback": "disabled",
+	"editor.hover.delay": 1000,
+	"C_Cpp.default.cppStandard": "c++20",
+	"C_Cpp.default.cStandard": "c17",
+	"C_Cpp.default.includePath": [
+		"../../third-party-repos"
+	]
+}

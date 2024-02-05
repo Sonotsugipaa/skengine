@@ -19,6 +19,7 @@ add_compile_definitions("SKENGINE_VERSION_MINOR=${PROJECT_VERSION_MINOR}")
 add_compile_definitions("SKENGINE_VERSION_PATCH=${PROJECT_VERSION_PATCH}")
 
 add_subdirectory(third-party)
+add_subdirectory(vendored-libraries)
 
 add_subdirectory(engine)
 add_subdirectory(engine-util)

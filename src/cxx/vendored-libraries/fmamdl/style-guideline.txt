@@ -1,0 +1,75 @@
+// Style guideline: revision 1
+
+#include <preprocessor-include>
+#include "preprocessor-include"
+
+
+namespace snake_case_namespace { }
+
+
+class CamelCaseClassName {
+public:
+	static constexpr MEMBER_CONSTANT;
+	int              staticMemberVariable;
+
+	int  pascalCasePublicMemberVariable;
+	void pascalCasePublicMemberFunction();
+
+private:
+	int  snake_pascalCasePrivateMemberVariable;
+	void snake_pascalCasePrivateMemberFunction();
+};
+
+
+constexpr int GLOBAL_CONSTANT = 2;
+int           globalVariable  = 2;
+
+
+#define PRECOMPILER_MACRO(MACRO_PARAM_) { (void) MACRO_PARAM_; }
+
+
+#define TEMPORARY_MACRO_(MACRO_PARAM_)
+#undef TEMPORARY_MACRO_
+
+
+template <typename TemplateParameterType, bool templateParameterValue>
+int templateFn() {
+	label_yes_these_still_exist: goto label_2;
+	label_2:
+
+	return ( // Complex / nested expression
+		2 * (
+			1
+			+ 3
+		)
+		* 5 )
+}
+
+
+const char* globalVariable[] = {
+	"long",
+	"brace",
+	"initializer",
+	"list" };
+
+
+int bigFunctionSignature(
+	int withParametersThatDoNotFit,
+	int intoASingleLineWithAReasonableWidth );
+
+
+using AliasToComplexTypeCamelCase      = CamelCaseClassName;
+using alias_to_fundamental_c_typedef_t = unsigned char;
+using alias_to_func_signature_t        = int (*)(int*, const int*, int);
+using AliasToStlFunc                   = std::function<alias_to_func_signature_t>;
+
+
+int a; // Single-line comment with upper case initial and no end-of-sentence period
+
+/* multi-line comments should have a leading slash
+/* instead of a leading whitespace, since auto-formatting
+/* tools and editors may mess them up. */
+
+/// For a similar reason,
+/// Doxygen blocks should follow this style.
+///

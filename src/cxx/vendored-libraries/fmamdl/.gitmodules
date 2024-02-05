@@ -1,0 +1,3 @@
+[submodule "submodules/rapidobj"]
+	path = submodules/rapidobj
+	url = https://github.com/guybrush77/rapidobj.git

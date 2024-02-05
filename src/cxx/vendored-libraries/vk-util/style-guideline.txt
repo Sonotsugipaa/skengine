@@ -1,0 +1,69 @@
+#include <preprocessor-include>
+#include "preprocessor-include"
+
+
+namespace snake_case_namespace { }
+
+
+class CamelCaseClassName {
+public:
+	static constexpr MEMBER_CONSTANT;
+	int              staticMemberVariable;
+
+	int  pascalCasePublicMemberVariable;
+	void pascalCasePublicMemberFunction();
+
+private:
+	int  snake_pascalCasePrivateMemberVariable;
+	void snake_pascalCasePrivateMemberFunction();
+};
+
+
+constexpr int GLOBAL_CONSTANT = 2;
+int           globalVariable  = 2;
+
+
+#define PRECOMPILER_MACRO(MACRO_PARAM_) { (void) MACRO_PARAM_; }
+
+
+#define TEMPORARY_MACRO_(MACRO_PARAM_)
+#undef TEMPORARY_MACRO_
+
+
+int camelCaseFnDefinition(int parameter_name) {
+	CamelCaseClassName snake_case_local_var = { };
+	return snake_case_local_var.pascalCasePublicMemberVariable;
+}
+
+
+template <typename TemplateParameterType, bool templateParameterValue>
+int templateFn() {
+	// Complex / nested expression
+	return (
+		2 * (
+			1
+			+ 3
+		)
+		* 5 )
+}
+
+
+const char* globalVariable[] = {
+	"long",
+	"brace",
+	"initializer",
+	"list" };
+
+
+int bigFunctionSignature(
+	int withParametersThatDoNotFit,
+	int intoASingleLineWithAReasonableWidth );
+
+
+/* multi-line comments should have a leading slash
+/* instead of a leading whitespace, since auto-formatting
+/* tools and editors may mess them up. */
+
+/// For a similar reason,
+/// Doxygen blocks should follow this style.
+///

@@ -11,7 +11,6 @@ target_link_libraries(sketch-sim
 	posixfio
 	engine
 	engine-util
-	nlohmann_json::nlohmann_json
 	config-parser
 	spdlog::spdlog )
 

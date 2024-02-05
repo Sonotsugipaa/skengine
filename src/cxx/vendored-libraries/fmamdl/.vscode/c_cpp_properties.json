@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "cStandard": "c23",
+            "cppStandard": "c++23",
+            "includePath": [
+                "${workspaceFolder}/include/",
+                "${workspaceFolder}/submodules/rapidobj/include/"
+            ],
+            "defines": [ ]
+        }
+    ],
+    "version": 4
+}

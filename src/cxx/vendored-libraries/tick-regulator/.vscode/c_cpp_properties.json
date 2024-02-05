@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "SPDLOG_FMT_EXTERNAL"
+            ]
+        }
+    ],
+    "version": 4
+}

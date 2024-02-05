@@ -45,7 +45,7 @@ namespace {
 		settings.initialPresentExtent = { dst->init_present_extent.width, dst->init_present_extent.height };
 		settings.maxRenderExtent      = { dst->max_render_extent.width, dst->max_render_extent.height };
 		settings.presentMode          = [&]() { switch(dst->present_mode) {
-			default: [[fallback]];
+			default: [[fallthrough]];
 			case VK_PRESENT_MODE_FIFO_KHR:      return PresentMode::eFifo;
 			case VK_PRESENT_MODE_IMMEDIATE_KHR: return PresentMode::eImmediate;
 			case VK_PRESENT_MODE_MAILBOX_KHR:   return PresentMode::eMailbox;
@@ -56,7 +56,7 @@ namespace {
 		settings.framerateSamples = dst->framerate_samples;
 		settings.targetFramerate  = dst->target_framerate;
 		settings.targetTickrate   = dst->target_tickrate;
-		settings.fieldOfView          = glm::degrees(dst->fov_y);
+		settings.fieldOfView      = glm::degrees(dst->fov_y);
 
 		auto file = posixfio::File::open(filename, O_RDONLY | O_CREAT);
 		parseSettings(&settings, file.mmap(file.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0), *logger);

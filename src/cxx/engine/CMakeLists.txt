@@ -33,7 +33,6 @@ target_link_libraries(engine
 	vk-util
 	SDL2::SDL2
 	vulkan vma
-	nlohmann_json::nlohmann_json
 	draw-geometry
 	spdlog::spdlog )
 

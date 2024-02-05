@@ -2,7 +2,7 @@
 
 #include "types.hpp"
 
-#include "vk-util/memory.hpp"
+#include <vk-util/memory.hpp>
 
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
