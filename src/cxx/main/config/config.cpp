@@ -127,15 +127,17 @@ inline namespace main_ns {
 		Span dataSpan = { data.get<void>(), data.get<std::byte>() + data.size() };
 
 		#pragma region // lambdas for parsing values
-		auto parseExtent = [&](Extent* dst, const std::string_view& ln) {
-			if(ln == "auto") return extent_parser::Extent { 0, 0 };
-			auto ext = extent_parser::parseExtent(ln);
-			if(ext.second) {
-				*dst = { ext.first.width, ext.first.height };
+		auto parseExtent = [&](Extent* dst, const std::string_view& ln, bool autoIsZero) {
+			if(ln == "auto") {
+				if(autoIsZero) *dst = { 0, 0 };
 			} else {
-				logger.error("Invalid extent: {}", ext.second.errorDescription);
+				auto ext = extent_parser::parseExtent(ln);
+				if(ext.second) {
+					*dst = { ext.first.width, ext.first.height };
+				} else {
+					logger.error("Invalid extent: {}", ext.second.errorDescription);
+				}
 			}
-			return ext.first;
 		};
 		auto parsePresentMode = [&](PresentMode* dst, const std::string_view& ln) {
 			if     (ln == "immediate") *dst = PresentMode::eImmediate;
@@ -146,12 +148,9 @@ inline namespace main_ns {
 		};
 		auto parseCelCount = [&](uint32_t* dst, const std::string_view& ln) {
 			auto n = number_parser::parseNumber(ln);
-			if(ln == "none") return;
-			if(n.second) {
-				*dst = n.first.get<uint32_t>();
-			} else {
-				logger.error("Invalid cel-shading value: \"{}\"", ln);
-			}
+			if(ln == "none")  *dst = 0;
+			else if(n.second) *dst = n.first.get<uint32_t>();
+			else              logger.error("Invalid cel-shading value: \"{}\"", ln);
 		};
 		auto parseRealNumber = [&](float* dst, const std::string_view& ln) {
 			auto n = number_parser::parseNumber(ln);
@@ -220,8 +219,8 @@ inline namespace main_ns {
 				trimTrailingWspaces(ln);
 				std::string_view lnv = std::string_view(reinterpret_cast<const char*>(ln.begin), reinterpret_cast<const char*>(ln.end));
 				if(key.empty() || (key.front() == '#')) { /* NOP */ }
-				else if(key == u8"initial-present-resolution") parseExtent(&dst->initialPresentExtent, lnv);
-				else if(key == u8"max-render-resolution")      parseExtent(&dst->maxRenderExtent, lnv);
+				else if(key == u8"initial-present-resolution") parseExtent(&dst->initialPresentExtent, lnv, false);
+				else if(key == u8"max-render-resolution")      parseExtent(&dst->maxRenderExtent, lnv, true);
 				else if(key == u8"present-mode")               parsePresentMode(&dst->presentMode, lnv);
 				else if(key == u8"cel-shading")                parseCelCount(&dst->shadeStepCount, lnv);
 				else if(key == u8"cel-smoothness")             parseRealNumber(&dst->shadeStepSmooth, lnv);
