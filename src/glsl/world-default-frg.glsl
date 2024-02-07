@@ -71,7 +71,53 @@ layout(location = 0) out vec4 out_col;
 const float normal_backface_bias = 0.1;
 const float pi                   = 3.14159265358;
 const uint  flag_hdr_enabled     = 1;
+const float dither_step          = 256.0;
 
+
+
+// -----   Credit for the next functions down to `rndf(...)`:   -----
+// -----   https://stackoverflow.com/a/17479300                 -----
+
+// A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
+uint hash(uint x) {
+    x += (x << 10u);
+    x ^= (x >>  6u);
+    x += (x <<  3u);
+    x ^= (x >> 11u);
+    x += (x << 15u);
+    return x;
+}
+
+uint hash(uvec2 v) { return hash(v.x ^ hash(v.y)); }
+
+// Construct a float with half-open range [0:1] using low 23 bits.
+// All zeroes yields 0.0, all ones yields the next smallest representable value below 1.0.
+float randomFloatFromUint(uint m) {
+	const uint ieeeMantissa = 0x007FFFFFu; // binary32 mantissa bitmask
+	const uint ieeeOne      = 0x3F800000u; // 1.0 in IEEE binary32
+
+	m &= ieeeMantissa; // Keep only mantissa bits (fractional part)
+	m |= ieeeOne;      // Add fractional part to 1.0
+
+	float  f = uintBitsToFloat(m); // Range [1:2]
+	return f - 1.0;                // Range [0:1]
+}
+
+float random1from2(vec2 v) {
+	uint h = hash(uvec2(floatBitsToUint(v.x), floatBitsToUint(v.y)));
+	return randomFloatFromUint(h);
+}
+
+
+float unorm_dither(float v) {
+	float v_step = v * dither_step;
+	float up = ceil(v_step);
+	float dn = floor(v_step);
+	float chance = v_step - dn;
+	float rnd = random1from2(frg_viewport_pos / frame_ubo.rnd);
+	if(rnd < chance) return up / dither_step;
+	return dn / dither_step;
+}
 
 
 struct LuminanceInfo {
@@ -287,6 +333,8 @@ void main() {
 	if(frame_ubo.shade_step_count > 0) {
 		luminance.dfs.a = multistep(luminance.dfs.a);
 		luminance.spc.a = multistep(luminance.spc.a);
+		luminance.dfs.a = unorm_dither(luminance.dfs.a);
+		luminance.spc.a = unorm_dither(luminance.spc.a);
 	}
 
 	out_col.rgb =
