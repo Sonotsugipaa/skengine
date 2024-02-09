@@ -157,16 +157,21 @@ namespace SKENGINE_NAME_NS {
 			} (* r.mat_uniform.mappedPtr<dev::MaterialUniform>());
 
 			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
-			double size_kib[4] = {
-				double(texture_size_bytes(r.texture_diffuse))  / 1000.0,
-				double(texture_size_bytes(r.texture_normal))   / 1000.0,
-				double(texture_size_bytes(r.texture_specular)) / 1000.0,
-				double(texture_size_bytes(r.texture_emissive)) / 1000.0 };
+			double sizes_b[4] = {
+				double(texture_size_bytes(r.texture_diffuse)),
+				double(texture_size_bytes(r.texture_normal)),
+				double(texture_size_bytes(r.texture_specular)),
+				double(texture_size_bytes(r.texture_emissive)) };
+			double size = (sizes_b[0] + sizes_b[1] + sizes_b[2] + sizes_b[3]) / 1024.0;
+			std::string_view unit = "KiB";
+			if(size > 5'000'000.0) [[likely]] {
+				size /= 1024.0*1024.0; unit = "GiB";
+				if(size > 5'000.0) [[unlikely]] { size /= 1024.0; unit = "TiB"; }
+			}
 			log.info(
-				"Loaded material \"{}\" ({:.3f} + {:.3f} + {:.3f} + {:.3f} = {:.3f} KiB)",
+				"Loaded material \"{}\" ({:.3f} {})",
 				locator,
-				size_kib[0],  size_kib[1],  size_kib[2],  size_kib[3],
-				size_kib[0] + size_kib[1] + size_kib[2] + size_kib[3] );
+				size, unit );
 			return r;
 		}
 	}
