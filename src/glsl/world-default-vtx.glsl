@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	uint shade_step_count;
 	float shade_step_smooth;
 	float shade_step_exp;
+	float dithering_steps;
 	float rnd;
 	float time_delta;
 	uint flags;

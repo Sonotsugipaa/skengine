@@ -103,6 +103,7 @@ namespace SKENGINE_NAME_NS {
 		uint32_t       shade_step_count;
 		std::float32_t shade_step_smoothness;
 		std::float32_t shade_step_exponent;
+		std::float32_t dithering_steps;
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;

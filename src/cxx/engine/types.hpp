@@ -159,6 +159,7 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) uint32_t  shade_step_count;
 			ALIGNF32(1) std::float32_t shade_step_smooth;
 			ALIGNF32(1) std::float32_t shade_step_exp;
+			ALIGNF32(1) std::float32_t dithering_steps;
 			ALIGNF32(1) std::float32_t rnd;
 			ALIGNF32(1) std::float32_t time_delta;
 			ALIGNFLAGS(1) FrameUniformFlags flags;

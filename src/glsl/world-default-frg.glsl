@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	uint shade_step_count;
 	float shade_step_smooth;
 	float shade_step_exp;
+	float dithering_steps;
 	float rnd;
 	float time_delta;
 	uint flags;
@@ -71,7 +72,6 @@ layout(location = 0) out vec4 out_col;
 const float normal_backface_bias = 0.1;
 const float pi                   = 3.14159265358;
 const uint  flag_hdr_enabled     = 1;
-const float dither_step          = 256.0;
 
 
 
@@ -110,13 +110,13 @@ float random1from2(vec2 v) {
 
 
 float unorm_dither(float v) {
-	float v_step = v * dither_step;
+	float v_step = v * frame_ubo.dithering_steps;
 	float up = ceil(v_step);
 	float dn = floor(v_step);
 	float chance = v_step - dn;
-	float rnd = random1from2(frg_viewport_pos / frame_ubo.rnd);
-	if(rnd < chance) return up / dither_step;
-	return dn / dither_step;
+	float rnd = random1from2(gl_FragCoord.xy / dn);
+	if(rnd < chance) return up / frame_ubo.dithering_steps;
+	return dn / frame_ubo.dithering_steps;
 }
 
 
@@ -333,9 +333,9 @@ void main() {
 	if(frame_ubo.shade_step_count > 0) {
 		luminance.dfs.a = multistep(luminance.dfs.a);
 		luminance.spc.a = multistep(luminance.spc.a);
-		luminance.dfs.a = unorm_dither(luminance.dfs.a);
-		luminance.spc.a = unorm_dither(luminance.spc.a);
 	}
+	luminance.dfs.a = unorm_dither(luminance.dfs.a);
+	luminance.spc.a = unorm_dither(luminance.spc.a);
 
 	out_col.rgb =
 		max(vec3(0,0,0), frg_col.rgb * (

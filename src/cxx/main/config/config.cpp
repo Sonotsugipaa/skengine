@@ -218,18 +218,21 @@ inline namespace main_ns {
 				skipWhitespaces(ln);
 				trimTrailingWspaces(ln);
 				std::string_view lnv = std::string_view(reinterpret_cast<const char*>(ln.begin), reinterpret_cast<const char*>(ln.end));
+				#define UL_ [[unlikely]]
 				if(key.empty() || (key.front() == '#')) { /* NOP */ }
-				else if(key == u8"initial-present-resolution") parseExtent(&dst->initialPresentExtent, lnv, false);
-				else if(key == u8"max-render-resolution")      parseExtent(&dst->maxRenderExtent, lnv, true);
-				else if(key == u8"present-mode")               parsePresentMode(&dst->presentMode, lnv);
-				else if(key == u8"cel-shading")                parseCelCount(&dst->shadeStepCount, lnv);
-				else if(key == u8"cel-smoothness")             parseRealNumber(&dst->shadeStepSmooth, lnv);
-				else if(key == u8"cel-gamma")                  parseRealNumber(&dst->shadeStepGamma, lnv);
-				else if(key == u8"framerate-samples")          parseIntFramerate(&dst->framerateSamples, lnv);
-				else if(key == u8"target-framerate")           parseRealFramerate(&dst->targetFramerate, lnv);
-				else if(key == u8"target-tickrate")            parseRealFramerate(&dst->targetTickrate, lnv);
-				else if(key == u8"field-of-view")              parseFov(&dst->fieldOfView, lnv);
+				else if(key == u8"initial-present-resolution") UL_ parseExtent(&dst->initialPresentExtent, lnv, false);
+				else if(key == u8"max-render-resolution")      UL_ parseExtent(&dst->maxRenderExtent, lnv, true);
+				else if(key == u8"present-mode")               UL_ parsePresentMode(&dst->presentMode, lnv);
+				else if(key == u8"cel-shading")                UL_ parseCelCount(&dst->shadeStepCount, lnv);
+				else if(key == u8"cel-smoothness")             UL_ parseRealNumber(&dst->shadeStepSmooth, lnv);
+				else if(key == u8"cel-gamma")                  UL_ parseRealNumber(&dst->shadeStepGamma, lnv);
+				else if(key == u8"dithering-steps")            UL_ parseRealNumber(&dst->ditheringSteps, lnv);
+				else if(key == u8"framerate-samples")          UL_ parseIntFramerate(&dst->framerateSamples, lnv);
+				else if(key == u8"target-framerate")           UL_ parseRealFramerate(&dst->targetFramerate, lnv);
+				else if(key == u8"target-tickrate")            UL_ parseRealFramerate(&dst->targetTickrate, lnv);
+				else if(key == u8"field-of-view")              UL_ parseFov(&dst->fieldOfView, lnv);
 				else logger.error("Unrecognized settings key: \"{}\"", std::string_view(reinterpret_cast<const char*>(key.begin()), reinterpret_cast<const char*>(key.end())));
+				#undef UL_
 			} else {
 				// just skipped optional spaces on the last empty line
 			}

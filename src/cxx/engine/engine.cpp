@@ -330,6 +330,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.shade_step_count  = e.mPrefs.shade_step_count;
 			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
 			ubo.shade_step_exp    = e.mPrefs.shade_step_exponent;
+			ubo.dithering_steps   = e.mPrefs.dithering_steps;
 			ubo.rnd               = dist(rng);
 			ubo.time_delta        = std::float32_t(delta);
 			ubo.ray_light_count   = ls.rayCount;
@@ -581,6 +582,7 @@ namespace SKENGINE_NAME_NS {
 		.shade_step_count      = 0,
 		.shade_step_smoothness = 0.0f,
 		.shade_step_exponent   = 1.0f,
+		.dithering_steps       = 256.0f,
 		.upscale_factor        = 1.0f,
 		.target_framerate      = 60.0f,
 		.target_tickrate       = 60.0f,

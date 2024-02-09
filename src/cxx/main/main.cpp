@@ -33,6 +33,7 @@ namespace {
 		prefs.shade_step_count      = 12;
 		prefs.shade_step_smoothness = 0.3f;
 		prefs.shade_step_exponent   = 4.0f;
+		prefs.dithering_steps       = 256.0f;
 		prefs.font_location         = "assets/font.otf";
 		prefs.wait_for_gframe       = true;
 		prefs.framerate_samples     = 4;
@@ -53,6 +54,7 @@ namespace {
 		settings.shadeStepCount   = dst->shade_step_count;
 		settings.shadeStepSmooth  = dst->shade_step_smoothness;
 		settings.shadeStepGamma   = dst->shade_step_exponent;
+		settings.ditheringSteps   = dst->dithering_steps;
 		settings.framerateSamples = dst->framerate_samples;
 		settings.targetFramerate  = dst->target_framerate;
 		settings.targetTickrate   = dst->target_tickrate;
@@ -72,6 +74,7 @@ namespace {
 		dst->shade_step_count      = settings.shadeStepCount;
 		dst->shade_step_smoothness = settings.shadeStepSmooth;
 		dst->shade_step_exponent   = settings.shadeStepGamma;
+		dst->dithering_steps       = settings.ditheringSteps;
 		dst->framerate_samples     = settings.framerateSamples;
 		dst->target_framerate      = settings.targetFramerate;
 		dst->target_tickrate       = settings.targetTickrate;

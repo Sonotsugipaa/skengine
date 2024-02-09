@@ -31,6 +31,7 @@ inline namespace main_ns {
 		uint32_t    shadeStepCount;
 		float       shadeStepSmooth;
 		float       shadeStepGamma;
+		float       ditheringSteps;
 		uint32_t    framerateSamples;
 		float       targetFramerate;
 		float       targetTickrate;
