@@ -208,7 +208,7 @@ float multistep(float v) {
 	r = r / fcount;
 	r = pow(r, frame_ubo.shade_step_exp);
 	r += (v * frame_ubo.shade_step_smooth);
-	r /= (1.0 + frame_ubo.shade_step_smooth);
+	r /= (1.0 + abs(frame_ubo.shade_step_smooth));
 	return r;
 }
 

@@ -152,8 +152,7 @@ namespace SKENGINE_NAME_NS {
 
 	void validate_prefs(EnginePreferences& prefs) {
 		#define MAX_(M_, MAX_) { prefs.M_ = std::max<decltype(EnginePreferences::M_)>(MAX_, prefs.M_); }
-		MAX_(shade_step_count,      0)
-		MAX_(shade_step_smoothness, 0)
+		MAX_(shade_step_count, 0)
 		#undef MAX_
 	}
 
