@@ -110,13 +110,14 @@ float random1from2(vec2 v) {
 
 
 float unorm_dither(float v) {
-	float v_step = v * frame_ubo.dithering_steps;
+	const float steps = frame_ubo.dithering_steps;
+	float v_step = v * steps;
 	float up = ceil(v_step);
 	float dn = floor(v_step);
 	float chance = v_step - dn;
-	float rnd = random1from2(gl_FragCoord.xy / dn);
-	if(rnd < chance) return up / frame_ubo.dithering_steps;
-	return dn / frame_ubo.dithering_steps;
+	float rnd = random1from2(gl_FragCoord.xy + frame_ubo.rnd);
+	if(rnd < chance) return up / steps;
+	else             return dn / steps;
 }
 
 
@@ -138,22 +139,9 @@ vec3 unorm_correct(vec3 v) {
 	return v / 255.0;
 }
 
-float shinify(float x) {
-	//   1 |             .  .
-	//     |           .
-	//     |         .
-	// 0.5 |        .
-	//     |       .
-	//     |     .
-	//   0 | . .
-	//     O------------------
-	//       0              1
-	return (sin((x - 0.5) * pi) + 1.0) / 2.0;
-}
-
 float shinify_exp(float x, float exp) {
 	x = clamp(x, 0.0, 1.0);
-	return pow(shinify(x), exp);
+	return pow(x, exp);
 }
 
 float aoa_fade(float value, float angle_of_attack) {
@@ -334,8 +322,10 @@ void main() {
 		luminance.dfs.a = multistep(luminance.dfs.a);
 		luminance.spc.a = multistep(luminance.spc.a);
 	}
-	luminance.dfs.a = unorm_dither(luminance.dfs.a);
-	luminance.spc.a = unorm_dither(luminance.spc.a);
+	if(frame_ubo.dithering_steps >= 1.0) {
+		luminance.dfs.a = unorm_dither(luminance.dfs.a);
+		luminance.spc.a = unorm_dither(luminance.spc.a);
+	}
 
 	out_col.rgb =
 		max(vec3(0,0,0), frg_col.rgb * (

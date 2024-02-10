@@ -153,7 +153,12 @@ namespace SKENGINE_NAME_NS {
 	void validate_prefs(EnginePreferences& prefs) {
 		#define MAX_(M_, MAX_) { prefs.M_ = std::max<decltype(EnginePreferences::M_)>(MAX_, prefs.M_); }
 		MAX_(shade_step_count, 0)
+		MAX_(dithering_steps,  0)
 		#undef MAX_
+
+		#define UL_ [[unlikely]]
+		if(prefs.shade_step_smoothness < 0.0f) UL_ prefs.shade_step_smoothness = -1.0f - (-1.0f / -(-1.0f + prefs.shade_step_smoothness)); // Negative values (interval (-1, 0)) behave strangely
+		#undef UL_
 	}
 
 

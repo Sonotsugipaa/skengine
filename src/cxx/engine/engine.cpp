@@ -336,7 +336,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.ray_light_count   = ls.rayCount;
 			ubo.point_light_count = ls.pointCount;
 			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
-			if(ubo.shade_step_smooth < 0.0f) ubo.shade_step_smooth = -0.5f - (-0.5f / -(-1.0f + ubo.shade_step_smooth)); // Negative values (interval (-1, 0)) behave strangely
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
 			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 			recordUiCommands<true, false>(e, *gframe);
