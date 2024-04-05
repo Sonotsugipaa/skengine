@@ -8,6 +8,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(shader-compiler)
 add_subdirectory(draw-geometry)
 add_subdirectory(ui-structure)
+add_subdirectory(sys-resources)
 
 add_library(engine
 	init/device_sdl.cpp
@@ -33,6 +34,7 @@ target_link_libraries(engine
 	SDL2::SDL2
 	vulkan vma
 	draw-geometry
+	sys-resources
 	spdlog::spdlog )
 
 set_property(TARGET engine PROPERTY UNITY_BUILD true)

@@ -9,6 +9,8 @@
 #include <type_traits>
 #include <random>
 
+#include <sys-resources.hpp>
+
 #include "atomic_id_gen.inl.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
@@ -35,7 +37,6 @@ namespace SKENGINE_NAME_NS {
 		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR  = OBJECT_MAP_INITIAL_CAPACITY;
 		constexpr size_t BATCH_MAP_INITIAL_CAPACITY  = 16;
 		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 1.0;
-		constexpr size_t MATRIX_WORKER_COUNT         = 4 /* This value seems to outperform other Renderer::modifyObject bottlenecks */;
 
 
 		constexpr auto light_storage_create_info(size_t light_count) {
@@ -273,6 +274,52 @@ namespace SKENGINE_NAME_NS {
 			return desired;
 		}
 
+
+		void matrixWorkerFn(WorldRendererBase::MatrixAssembler* ma, size_t thread_index) {
+			auto& worker = ma->workers[thread_index];
+			auto  lock   = std::unique_lock(worker.cond->mutex);
+
+			begin:
+			if(worker.queue.empty()) [[unlikely]] {
+				lock.unlock();
+				return;
+			}
+
+			for(auto& job : worker.queue) {
+				static constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+				static constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+				static constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+				constexpr glm::mat4 identity = glm::mat4(1.0f);
+				constexpr auto rotate = [](glm::mat4* dst, const glm::vec3& dir) {
+					*dst = glm::rotate(*dst, dir.y, x);
+					*dst = glm::rotate(*dst, dir.x, y);
+					*dst = glm::rotate(*dst, dir.z, z);
+				};
+				constexpr auto translate = [](glm::mat4* dst, const glm::vec3& pos) {
+					*dst = glm::translate(*dst, pos);
+				};
+				constexpr auto scale = [](glm::mat4* dst, const glm::vec3& scl) {
+					*dst = glm::scale(*dst, scl);
+				};
+				*job.dst = identity;
+				translate (job.dst, job.position.object);
+				translate (job.dst, job.position.bone);
+				translate (job.dst, job.position.bone_instance);
+				rotate    (job.dst, job.direction.object);
+				rotate    (job.dst, job.direction.bone);
+				rotate    (job.dst, job.direction.bone_instance);
+				scale     (job.dst, job.scale.object);
+				scale     (job.dst, job.scale.bone);
+				scale     (job.dst, job.scale.bone_instance);
+			}
+			worker.queue.clear();
+
+			worker.cond->consume_cond.notify_one();
+			worker.cond->produce_cond.wait(lock);
+
+			goto begin;
+		}
+
 	}
 
 
@@ -305,57 +352,15 @@ namespace SKENGINE_NAME_NS {
 		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
 
 		{ // Initialize the matrix assembler
-			auto thread_fn = [](decltype(r.mMatrixAssembler) ma, size_t thread_index) {
-				auto& worker = ma->workers[thread_index];
-				auto  lock   = std::unique_lock(worker.cond->mutex);
-
-				begin:
-				if(worker.queue.empty()) [[unlikely]] {
-					lock.unlock();
-					return;
-				}
-
-				for(auto& job : worker.queue) {
-					static constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
-					static constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
-					static constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
-					constexpr glm::mat4 identity = glm::mat4(1.0f);
-					constexpr auto rotate = [](glm::mat4* dst, const glm::vec3& dir) {
-						*dst = glm::rotate(*dst, dir.y, x);
-						*dst = glm::rotate(*dst, dir.x, y);
-						*dst = glm::rotate(*dst, dir.z, z);
-					};
-					constexpr auto translate = [](glm::mat4* dst, const glm::vec3& pos) {
-						*dst = glm::translate(*dst, pos);
-					};
-					constexpr auto scale = [](glm::mat4* dst, const glm::vec3& scl) {
-						*dst = glm::scale(*dst, scl);
-					};
-					*job.dst = identity;
-					translate (job.dst, job.position.object);
-					translate (job.dst, job.position.bone);
-					translate (job.dst, job.position.bone_instance);
-					rotate    (job.dst, job.direction.object);
-					rotate    (job.dst, job.direction.bone);
-					rotate    (job.dst, job.direction.bone_instance);
-					scale     (job.dst, job.scale.object);
-					scale     (job.dst, job.scale.bone);
-					scale     (job.dst, job.scale.bone_instance);
-				}
-				worker.queue.clear();
-
-				worker.cond->consume_cond.notify_one();
-				worker.cond->produce_cond.wait(lock);
-
-				goto begin;
-			};
-
+			constexpr auto maxWorkerCount = 4; // This heuristic value seems to outperform other bottlenecks
+			auto workerCount = std::min<size_t>(maxWorkerCount, sysres::optimalWorkerCount());
+			r.mLogger->info("WorldRendererBase: using {} workers", workerCount);
 			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
-			r.mMatrixAssembler->workers.reserve(MATRIX_WORKER_COUNT);
-			for(size_t i = 0; i < MATRIX_WORKER_COUNT; ++i) {
+			r.mMatrixAssembler->workers.reserve(workerCount);
+			for(size_t i = 0; i < workerCount; ++i) {
 				r.mMatrixAssembler->workers.emplace_back();
 				r.mMatrixAssembler->workers.back().cond->mutex.lock();
-				r.mMatrixAssembler->workers.back().thread = std::thread(thread_fn, r.mMatrixAssembler, i);
+				r.mMatrixAssembler->workers.back().thread = std::thread(matrixWorkerFn, r.mMatrixAssembler.get(), i);
 			}
 		}
 
@@ -833,23 +838,16 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // Wait for the matrix assembler
-				std::vector<size_t> worker_indices;
-				worker_indices.reserve(mMatrixAssembler->workers.size());
+				auto& runningWorkers = mMatrixAssemblerRunningWorkers;
+				assert(runningWorkers.empty());
+				runningWorkers.reserve(mMatrixAssembler->workers.size());
 				for(size_t i = 0; i < mMatrixAssembler->workers.size(); ++i) {
 					auto& worker = mMatrixAssembler->workers[i];
 					if(! worker.queue.empty()) {
-						worker_indices.push_back(i);
+						runningWorkers.push_back(i);
 						worker.cond->produce_cond.notify_one();
 						worker.cond->mutex.unlock();
 					}
-				}
-				for(size_t i = 0; i < worker_indices.size(); ++i) {
-					auto& worker = mMatrixAssembler->workers[worker_indices[i]];
-					auto lock = std::unique_lock(worker.cond->mutex);
-					if(! worker.queue.empty() /* `consume_cond` may have already been notified */) {
-						worker.cond->consume_cond.wait(lock);
-					}
-					lock.release(); // The consumer thread always holds the mutex, unless waiting
 				}
 			}
 
@@ -865,6 +863,21 @@ namespace SKENGINE_NAME_NS {
 		mObjectsNeedFlush = false;
 
 		return true;
+	}
+
+
+	void WorldRendererBase::waitUntilReady() {
+		auto& runningWorkers = mMatrixAssemblerRunningWorkers;
+		if(runningWorkers.empty()) [[unlikely]] return;
+		for(size_t i = 0; i < runningWorkers.size(); ++i) {
+			auto& worker = mMatrixAssembler->workers[runningWorkers[i]];
+			auto lock = std::unique_lock(worker.cond->mutex);
+			if(! worker.queue.empty() /* `consume_cond` may have already been notified */) {
+				worker.cond->consume_cond.wait(lock);
+			}
+			lock.release(); // The consumer thread always holds the mutex, unless waiting
+		}
+		runningWorkers.clear();
 	}
 
 }

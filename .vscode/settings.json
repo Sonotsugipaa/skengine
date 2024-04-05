@@ -3,6 +3,7 @@
 	"C_Cpp.default.cppStandard": "c++23",
 	"C_Cpp.default.cStandard": "c23",
 	"C_Cpp.default.defines": [
+		"OS_LINUX", "OS=LINUX",
 		"SKENGINE_VERSION=1.2.3",
 		"SKENGINE_VERSION_MAJOR=1",
 		"SKENGINE_VERSION_MINOR=2",
@@ -19,6 +20,7 @@
 		"src/cxx/vendored-libraries/",
 		"src/cxx/third-party/vma/",
 		"src/cxx/third-party/",
+		"src/cxx/engine/sys-resources",
 		"src/cxx/engine/",
 		"src/cxx/"
 	]

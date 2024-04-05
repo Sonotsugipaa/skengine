@@ -341,6 +341,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			recordUiCommands<true, false>(e, *gframe);
 		}
 
+		e.mWorldRenderer.waitUntilReady();
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
 
 		VkImageMemoryBarrier2 imb[2] = { }; {

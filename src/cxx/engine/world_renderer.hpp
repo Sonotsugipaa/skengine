@@ -220,9 +220,14 @@ namespace SKENGINE_NAME_NS {
 		VkBuffer getInstanceBuffer    () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
 		VkBuffer getDrawCommandBuffer () const noexcept { return const_cast<VkBuffer>(mBatchBuffer.value); }
 
+		/// \brief Starts committing the objects to central memory, then to Vulkan buffers.
 		/// \returns `true` only if any command was recorded into the command buffer parameter.
 		///
 		virtual bool commitObjects(VkCommandBuffer);
+
+		/// \brief Wait until all worker threads are idle.
+		///
+		virtual void waitUntilReady();
 
 		void reserve(size_t capacity);
 		void shrinkToFit();
@@ -250,6 +255,7 @@ namespace SKENGINE_NAME_NS {
 		vkutil::BufferDuplex mBatchBuffer;
 
 		std::shared_ptr<MatrixAssembler> mMatrixAssembler;
+		std::vector<size_t> mMatrixAssemblerRunningWorkers;
 
 		bool   mBatchesNeedUpdate  : 1; // `true` when objects have been added or removed
 		bool   mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
