@@ -114,6 +114,10 @@ namespace {
 		ObjectId  camLight;
 		ObjectId  lightGuide;
 		glm::vec3 cameraSpeed;
+		glm::vec3 camLightCenter;
+		float     camLightAngle;
+		float     camLightRadius;
+		bool doRotateObjects   : 1;
 		bool lightGuideVisible : 1;
 		bool active            : 1;
 		bool lightCreated      : 1;
@@ -220,6 +224,9 @@ namespace {
 			pl.falloffExponent = 1.0f;
 			pl.position = { 0.4f, 1.0f, 0.6f };
 			pl.color    = { 1.0f, 0.0f, 0.34f };
+			camLightCenter = pl.position;
+			camLightAngle = 0.0f;
+			camLightRadius = 0.05f;
 			camLight = wr.createPointLight(pl);
 
 			Renderer::NewObject o = { };
@@ -254,13 +261,14 @@ namespace {
 			auto& textGrid = * textGridLot->setChildBasicGrid({ }, { textInfo0.textSize }, { 1.0f });
 			lightCounter = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo0, "Lights: 0").second;
 			speedGauge   = gui.createTextLine(*textGrid.createLot({ 1, 0 }, { 1, 1 }).second, 0.0f, textInfo0, "Speed: 0.00").second;
-			fpsGauge     = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo1, "Framerate: 0.00").second;
+			fpsGauge     = gui.createTextLine(*textGrid.createLot({ 0, 0 }, { 1, 1 }).second, 0.0f, textInfo1, "Framerate: 0.00 | 0.00").second;
 		}
 
 
 		explicit Loop(Engine& e):
 			engine(&e),
 			cameraSpeed { },
+			doRotateObjects(true),
 			lightGuideVisible(false),
 			active(true),
 			lightCreated(false)
@@ -325,6 +333,9 @@ namespace {
 						case SDLK_LCTRL:
 							SDL_SetRelativeMouseMode(mouse_rel_mode? SDL_FALSE : SDL_TRUE);
 							mouse_rel_mode = ! mouse_rel_mode;
+							break;
+						case SDLK_g:
+							doRotateObjects = ! doRotateObjects;
 							break;
 						default:
 							pressedKeys.insert(SDL_KeyCode(ev.key.keysym.sym));
@@ -459,6 +470,7 @@ namespace {
 			auto rng = std::ranlux48(size_t(this));
 
 			auto inputLock = std::unique_lock(inputMutex);
+			float change_radius = 0.0f;
 			bool move_light_key_pressed, move_fwd, move_bkw, move_lft, move_rgt, move_drag_mod; {
 				move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
 				move_fwd = pressedKeys.contains(SDLK_w);
@@ -466,9 +478,12 @@ namespace {
 				move_lft = pressedKeys.contains(SDLK_a);
 				move_rgt = pressedKeys.contains(SDLK_d);
 				move_drag_mod = pressedKeys.contains(SDLK_LSHIFT);
+				if     (pressedKeys.contains(SDLK_1)) change_radius = 0.5f * -delta;
+				else if(pressedKeys.contains(SDLK_2)) change_radius = 0.5f * +delta;
 			}
 
-			{ // Randomly rotate all the objects
+			// Randomly rotate all the objects
+			if(doRotateObjects) {
 				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
 				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
 				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
@@ -518,6 +533,8 @@ namespace {
 				cameraSpeed += camera_pulse * float(delta);
 			}
 
+			auto* setPointLight = &wr.modifyPointLight(camLight);
+
 			if(! move_light_key_pressed) {
 				if(lightGuideVisible) {
 					wr.modifyObject(lightGuide)->hidden = true;
@@ -539,12 +556,29 @@ namespace {
 
 				// Make the camera light follow the camera
 				{
-					auto* pl = &wr.modifyPointLight(camLight);
-					pl->position = pos + light_pos;
+					camLightCenter = pos + light_pos;
 				}
 			}
 
-			fpsGauge.lock()->setText(fmt::format("Frame rate: {:.2f}", tickreg::delta_t(1) / (engine->frameDelta())));
+			{ // Move and wiggle the camera light
+				glm::vec3 rotation_offset = { };
+				constexpr auto pi2 = std::numbers::pi_v<float> * 2.0f;
+				auto angle = delta * pi2;
+				camLightRadius += change_radius;
+				camLightRadius = std::max(0.0f, camLightRadius);
+				if(camLightRadius != 0.0f) {
+					camLightAngle += 7.0f * angle;
+					if(camLightAngle > pi2) camLightAngle = pi2 - (std::floor(camLightAngle / pi2) * pi2);
+				}
+				rotation_offset.x = std::cos(camLightAngle) * camLightRadius;
+				rotation_offset.z = std::sin(camLightAngle) * camLightRadius;
+				setPointLight->position = camLightCenter + rotation_offset;
+			}
+
+			fpsGauge.lock()->setText(fmt::format(
+				"Framerate: {:.2f} | {:.2f}",
+				tickreg::delta_t(1) / (engine->frameDelta()),
+				tickreg::delta_t(1) / (engine->tickDelta()) ));
 		}
 	};
 
