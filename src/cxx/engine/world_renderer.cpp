@@ -1,4 +1,4 @@
-#include "renderer.hpp"
+#include "world_renderer.hpp"
 
 #include "engine.hpp"
 
@@ -36,6 +36,22 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t BATCH_MAP_INITIAL_CAPACITY  = 16;
 		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 1.0;
 		constexpr size_t MATRIX_WORKER_COUNT         = 4 /* This value seems to outperform other Renderer::modifyObject bottlenecks */;
+
+
+		constexpr auto light_storage_create_info(size_t light_count) {
+			vkutil::BufferCreateInfo r = { };
+			r.size  = light_count * sizeof(dev::Light);
+			r.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+			return r;
+		};
+
+		constexpr auto light_storage_allocate_info = []() {
+			vkutil::AllocationCreateInfo r = { };
+			r.requiredMemFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+			r.vmaFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+			r.vmaUsage = vkutil::VmaAutoMemoryUsage::eAutoPreferHost;
+			return r;
+		} ();
 
 
 		[[nodiscard]]
@@ -78,7 +94,7 @@ namespace SKENGINE_NAME_NS {
 		void update_mat_dset(
 				VkDevice dev, VkDescriptorPool dpool, VkDescriptorSetLayout layout,
 				bool do_allocate,
-				Renderer::MaterialData* mat
+				WorldRenderer::MaterialData* mat
 		) {
 			if(do_allocate) { // Create the dset
 				VkDescriptorSetAllocateInfo dsa_info = { };
@@ -142,10 +158,10 @@ namespace SKENGINE_NAME_NS {
 				VkDevice dev,
 				VkDescriptorPool*      dpool,
 				VkDescriptorSetLayout  layout,
-				Renderer::MaterialMap& materials,
+				WorldRenderer::MaterialMap& materials,
 				size_t* size,
 				size_t* capacity,
-				Renderer::MaterialData* dst
+				WorldRenderer::MaterialData* dst
 		) {
 			++ *size;
 			size_t new_cap  = reserve_mat_dpool(dev, dpool, *size, *capacity);
@@ -185,7 +201,7 @@ namespace SKENGINE_NAME_NS {
 		void commit_draw_batches(
 				VmaAllocator vma,
 				VkCommandBuffer cmd,
-				const Renderer::BatchList& batches,
+				const WorldRenderer::BatchList& batches,
 				vkutil::BufferDuplex& buffer
 		) {
 			using namespace vkutil;
@@ -213,8 +229,8 @@ namespace SKENGINE_NAME_NS {
 
 
 		bool erase_objects_with_model(
-				Renderer::Objects& objects,
-				Renderer::ObjectUpdates& object_updates,
+				WorldRenderer::Objects& objects,
+				WorldRenderer::ObjectUpdates& object_updates,
 				spdlog::logger& log,
 				ModelId id,
 				std::string_view locator
@@ -236,11 +252,32 @@ namespace SKENGINE_NAME_NS {
 			return ! rm_objects.empty();
 		}
 
+
+		uint32_t set_light_buffer_capacity(VmaAllocator vma, WorldRenderer::LightStorage* dst, uint32_t desired) {
+			static_assert(std::bit_ceil(0u) == 1u);
+			desired = std::bit_ceil(desired);
+			if(desired != dst->bufferCapacity) {
+				if(dst->bufferCapacity > 0) {
+					dst->buffer.unmap(vma);
+					vkutil::ManagedBuffer::destroy(vma, dst->buffer);
+					dst->bufferCapacity = 0;
+				}
+
+				auto  bc_info = light_storage_create_info(desired);
+				auto& ac_info = light_storage_allocate_info;
+				dst->buffer    = vkutil::ManagedBuffer::create(vma, bc_info, ac_info);
+				dst->mappedPtr = dst->buffer.map<dev::Light>(vma);
+
+				dst->bufferCapacity = desired;
+			}
+			return desired;
+		}
+
 	}
 
 
 
-	Renderer Renderer::create(
+	WorldRendererBase WorldRendererBase::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
 			DsetLayout dset_layout,
@@ -248,7 +285,7 @@ namespace SKENGINE_NAME_NS {
 	) {
 		VmaAllocatorInfo vma_info;
 		vmaGetAllocatorInfo(vma, &vma_info);
-		Renderer r;
+		WorldRendererBase r;
 		r.mDevice = vma_info.device;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
@@ -317,7 +354,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::destroy(Renderer& r) {
+	void WorldRendererBase::destroy(WorldRendererBase& r) {
 		assert(r.mDevice != nullptr);
 
 		r.clearObjects();
@@ -340,7 +377,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ObjectId Renderer::createObject(const NewObject& ins) {
+	ObjectId WorldRendererBase::createObject(const NewObject& ins) {
 		assert(mDevice != nullptr);
 
 		auto new_obj_id = id_generator<ObjectId>.generate();
@@ -401,7 +438,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::removeObject(ObjectId id) noexcept {
+	void WorldRendererBase::removeObject(ObjectId id) noexcept {
 		assert(mDevice != nullptr);
 
 		auto  obj_iter = assert_not_end_(mObjects, id);
@@ -448,7 +485,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::clearObjects() noexcept {
+	void WorldRendererBase::clearObjects() noexcept {
 		std::vector<ObjectId> ids;
 		ids.reserve(mObjects.size());
 
@@ -466,14 +503,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	std::optional<const Object*> Renderer::getObject(ObjectId id) const noexcept {
+	std::optional<const Object*> WorldRendererBase::getObject(ObjectId id) const noexcept {
 		auto found = mObjects.find(id);
 		if(found != mObjects.end()) return &found->second.first;
 		return { };
 	}
 
 
-	std::optional<Renderer::ModifiableObject> Renderer::modifyObject(ObjectId id) noexcept {
+	std::optional<WorldRendererBase::ModifiableObject> WorldRendererBase::modifyObject(ObjectId id) noexcept {
 		auto found = mObjects.find(id);
 		if(found != mObjects.end()) {
 			mObjectUpdates.insert(id);
@@ -490,7 +527,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ModelId Renderer::getModelId(std::string_view locator) {
+	ModelId WorldRendererBase::getModelId(std::string_view locator) {
 		auto found_locator = mModelLocators.find(locator);
 
 		if(found_locator != mModelLocators.end()) {
@@ -502,21 +539,21 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	const Renderer::ModelData* Renderer::getModel(ModelId id) const noexcept {
+	const WorldRendererBase::ModelData* WorldRendererBase::getModel(ModelId id) const noexcept {
 		auto found = mModels.find(id);
 		if(found == mModels.end()) return nullptr;
 		return &found->second;
 	}
 
 
-	ModelId Renderer::setModel(std::string_view locator, DevModel model) {
+	ModelId WorldRendererBase::setModel(std::string_view locator, DevModel model) {
 		auto    found_locator = mModelLocators.find(locator);
 		ModelId id;
 
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mModelLocators.end()) { // Remove the existing ID and reassign it
 			id = found_locator->second;
-			mLogger->debug("Renderer: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
+			mLogger->debug("WorldRendererBase: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseModel(found_locator->second);
@@ -524,7 +561,7 @@ namespace SKENGINE_NAME_NS {
 			locator = ins.first->second.locator; // Again, `locator` was dangling
 		} else {
 			id = id_generator<ModelId>.generate();
-			mLogger->trace("Renderer: associating model \"{}\" with ID {}", locator, model_id_e(id));
+			mLogger->trace("WorldRendererBase: associating model \"{}\" with ID {}", locator, model_id_e(id));
 		}
 
 		// Insert the model data (with the backing string) first
@@ -543,7 +580,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::eraseModel(ModelId id) noexcept {
+	void WorldRendererBase::eraseModel(ModelId id) noexcept {
 		auto& model_data = assert_not_end_(mModels, id)->second;
 		if(erase_objects_with_model(mObjects, mObjectUpdates, *mLogger, id, model_data.locator)) {
 			mBatchesNeedUpdate = true;
@@ -552,7 +589,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::eraseModelNoObjectCheck(ModelId id, ModelData& model_data) noexcept {
+	void WorldRendererBase::eraseModelNoObjectCheck(ModelId id, ModelData& model_data) noexcept {
 		// Move the string out of the models storage, we'll need it later
 		auto model_locator = std::move(model_data.locator);
 
@@ -579,7 +616,7 @@ namespace SKENGINE_NAME_NS {
 			candidates = { };
 
 			for(auto& material : erase_queue) {
-				mLogger->trace("Renderer: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
+				mLogger->trace("WorldRendererBase: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
 				eraseMaterial(material.first);
 			}
 		}
@@ -588,13 +625,13 @@ namespace SKENGINE_NAME_NS {
 
 		mUnboundDrawBatches.erase(id);
 		mAssetSupplier->releaseModel(model_locator);
-		mLogger->trace("Renderer: removed model \"{}\"", model_locator);
+		mLogger->trace("WorldRendererBase: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 		id_generator<ModelId>.recycle(id);
 	}
 
 
-	MaterialId Renderer::getMaterialId(std::string_view locator) {
+	MaterialId WorldRendererBase::getMaterialId(std::string_view locator) {
 		auto found_locator = mMaterialLocators.find(locator);
 
 		if(found_locator != mMaterialLocators.end()) {
@@ -605,14 +642,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	const Renderer::MaterialData* Renderer::getMaterial(MaterialId id) const noexcept {
+	const WorldRendererBase::MaterialData* WorldRendererBase::getMaterial(MaterialId id) const noexcept {
 		auto found = mMaterials.find(id);
 		if(found == mMaterials.end()) return nullptr;
 		return &found->second;
 	}
 
 
-	MaterialId Renderer::setMaterial(std::string_view locator, Material material) {
+	MaterialId WorldRendererBase::setMaterial(std::string_view locator, Material material) {
 		auto found_locator = mMaterialLocators.find(locator);
 		MaterialId id;
 
@@ -621,7 +658,7 @@ namespace SKENGINE_NAME_NS {
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mMaterialLocators.end()) {
 			id = found_locator->second;
-			mLogger->debug("Renderer: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
+			mLogger->debug("WorldRendererBase: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseMaterial(found_locator->second);
@@ -629,7 +666,7 @@ namespace SKENGINE_NAME_NS {
 			locator = material_ins->second.locator; // Again, `locator` was dangling
 		} else {
 			id = id_generator<MaterialId>.generate();
-			mLogger->trace("Renderer: associating material \"{}\" with ID {}", locator, material_id_e(id));
+			mLogger->trace("WorldRendererBase: associating material \"{}\" with ID {}", locator, material_id_e(id));
 			material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, { }, std::string(locator) })).first;
 		}
 
@@ -643,7 +680,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Renderer::eraseMaterial(MaterialId id) noexcept {
+	void WorldRendererBase::eraseMaterial(MaterialId id) noexcept {
 		auto& mat_data = assert_not_end_(mMaterials, id)->second;
 
 		#ifndef NDEBUG
@@ -664,7 +701,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	bool Renderer::commitObjects(VkCommandBuffer cmd) {
+	bool WorldRendererBase::commitObjects(VkCommandBuffer cmd) {
 		if(! (mBatchesNeedUpdate || mObjectsNeedRebuild || mObjectsNeedFlush )) {
 			return false; }
 
@@ -822,6 +859,205 @@ namespace SKENGINE_NAME_NS {
 
 		return true;
 	}
+
+}
+
+
+
+namespace SKENGINE_NAME_NS {
+
+	WorldRenderer WorldRenderer::create(
+			std::shared_ptr<spdlog::logger> logger,
+			VmaAllocator vma,
+			DsetLayout dset_layout,
+			AssetSupplier& asset_supplier
+	) {
+		WorldRenderer r = WorldRendererBase::create(std::move(logger), vma, dset_layout, asset_supplier);
+		r.mViewPosXyz = { };
+		r.mViewDirYpr = { };
+		r.mAmbientLight = { };
+		r.mLightStorage = { };
+		r.mViewTransfCacheOod = true;
+		set_light_buffer_capacity(r.mVma, &r.mLightStorage, 0);
+		return r;
+	}
+
+
+	void WorldRenderer::destroy(WorldRenderer& r) {
+		if(r.mLightStorage.bufferCapacity > 0) {
+			r.mLightStorage.bufferCapacity = 0;
+			r.mLightStorage.buffer.unmap(r.mVma);
+			vkutil::ManagedBuffer::destroy(r.mVma, r.mLightStorage.buffer);
+		}
+
+		{
+			std::vector<ObjectId> removeList;
+			removeList.reserve(r.mPointLights.size() + r.mRayLights.size());
+			for(auto& l : r.mPointLights) removeList.push_back(l.first);
+			for(auto& l : r.mRayLights  ) removeList.push_back(l.first);
+			for(auto  l : removeList    ) r.removeLight(l);
+		}
+
+		WorldRendererBase::destroy(r);
+	}
+
+
+	const glm::mat4& WorldRenderer::getViewTransf() noexcept {
+		if(mViewTransfCacheOod) {
+			constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+			constexpr glm::mat4 identity = glm::mat4(1.0f);
+
+			glm::mat4 translate = glm::translate(identity, -mViewPosXyz);
+			glm::mat4 rot0      = glm::rotate(identity, +mViewDirYpr.z, z);
+			glm::mat4 rot1      = glm::rotate(identity, -mViewDirYpr.x, y); // I have no idea why this has to be negated for the right-hand rule to apply
+			glm::mat4 rot2      = glm::rotate(identity, +mViewDirYpr.y, x);
+			mViewTransfCache = rot2 * rot1 * rot0 * translate;
+			mViewTransfCacheOod = false;
+		}
+
+		return mViewTransfCache;
+	}
+
+
+	void WorldRenderer::setViewPosition(const glm::vec3& xyz, bool lazy) noexcept {
+		mViewPosXyz = xyz;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+	}
+
+
+	void WorldRenderer::setViewRotation(const glm::vec3& ypr, bool lazy) noexcept {
+		{ // Normalize the direction values
+			constexpr auto pi2 = 2.0f * std::numbers::pi_v<float>;
+			#define NORMALIZE_(I_) { if(mViewDirYpr[I_] >= pi2) [[unlikely]] { \
+				mViewDirYpr[I_] = std::floor(mViewDirYpr[I_] / pi2) * pi2; }}
+			NORMALIZE_(0)
+			NORMALIZE_(1)
+			NORMALIZE_(2)
+			#undef NORMALIZE_
+		}
+
+		mViewDirYpr = ypr;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+	}
+
+
+	void WorldRenderer::setAmbientLight(const glm::vec3& rgb, bool lazy) noexcept {
+		mAmbientLight = rgb;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+	}
+
+
+	void WorldRenderer::setViewDirection(const glm::vec3& xyz, bool lazy) noexcept {
+		/*       -x         '  '        +y         '
+		'         |         '  '         |         '
+		'         |         '  '         |         '
+		'  +z ----O---- -z  '  '  +z ----O---- -z  '
+		'         |         '  '         |         '
+		'         |         '  '         |         '
+		'        +x         '  '        -y        */
+		glm::vec3 ypr;
+		ypr[0] = std::atan2(-xyz.x, -xyz.z);
+		ypr[1] = std::atan2(+xyz.y, -xyz.z);
+		ypr[2] = 0;
+		mViewDirYpr = ypr;
+		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+	}
+
+
+	[[nodiscard]]
+	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
+		auto r = id_generator<ObjectId>.generate();
+		RayLight rl = { };
+		rl.direction     = glm::normalize(nrl.direction);
+		rl.color         = nrl.color;
+		rl.intensity     = std::max(nrl.intensity, 0.0f);
+		rl.aoa_threshold = nrl.aoaThreshold;
+		mRayLights.insert(RayLights::value_type { r, std::move(rl) });
+		mLightStorageOod = true;
+		return r;
+	}
+
+
+	[[nodiscard]]
+	ObjectId WorldRenderer::createPointLight(const NewPointLight& npl) {
+		auto r = id_generator<ObjectId>.generate();
+		PointLight pl = { };
+		pl.position    = npl.position;
+		pl.color       = npl.color;
+		pl.intensity   = std::max(npl.intensity, 0.0f);
+		pl.falloff_exp = std::max(npl.falloffExponent, 0.0f);
+		mPointLights.insert(PointLights::value_type { r, std::move(pl) });
+		mLightStorageOod = true;
+		return r;
+	}
+
+
+	void WorldRenderer::removeLight(ObjectId id) {
+		assert(mPointLights.contains(id) || mRayLights.contains(id));
+		mLightStorageOod = true;
+		if(0 == mRayLights.erase(id)) mPointLights.erase(id);
+		id_generator<ObjectId>.recycle(id);
+	}
+
+
+	const RayLight& WorldRenderer::getRayLight(ObjectId id) const {
+		return assert_not_end_(mRayLights, id)->second;
+	}
+
+
+	const PointLight& WorldRenderer::getPointLight(ObjectId id) const {
+		return assert_not_end_(mPointLights, id)->second;
+	}
+
+
+	RayLight& WorldRenderer::modifyRayLight(ObjectId id) {
+		mLightStorageOod = true;
+		return assert_not_end_(mRayLights, id)->second;
+	}
+
+
+	PointLight& WorldRenderer::modifyPointLight(ObjectId id) {
+		mLightStorageOod = true;
+		return assert_not_end_(mPointLights, id)->second;
+	}
+
+
+	bool WorldRenderer::commitObjects(VkCommandBuffer cmd) {
+		if(mLightStorageOod) {
+			uint32_t new_ls_size = mRayLights.size() + mPointLights.size();
+			set_light_buffer_capacity(mVma, &mLightStorage, new_ls_size);
+
+			mLightStorage.rayCount   = mRayLights.size();
+			mLightStorage.pointCount = mPointLights.size();
+			auto& ray_count = mLightStorage.rayCount;
+			for(uint32_t i = 0; auto& rl : mRayLights) {
+				auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
+				dst.direction     = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
+				dst.color         = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
+				dst.aoa_threshold = rl.second.aoa_threshold;
+				++ i;
+			}
+			for(uint32_t i = ray_count; auto& pl : mPointLights) {
+				auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
+				dst.position    = glm::vec4(pl.second.position, 1.0f);
+				dst.color       = glm::vec4(glm::normalize(pl.second.color), pl.second.intensity);
+				dst.falloff_exp = pl.second.falloff_exp;
+				++ i;
+			}
+
+			mLightStorage.buffer.flush(mVma);
+			mLightStorageOod = false;
+		}
+
+		return WorldRendererBase::commitObjects(cmd);
+	}
+
+
+	WorldRenderer::WorldRenderer(WorldRendererBase&& mv):
+		WorldRendererBase::WorldRendererBase(std::move(mv))
+	{ }
 
 }
 

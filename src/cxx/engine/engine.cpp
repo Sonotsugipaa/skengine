@@ -85,7 +85,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			Engine& e,
 			VkCommandBuffer cmd,
 			size_t          gf_index,
-			Renderer&       renderer
+			WorldRenderer&  renderer
 	) {
 		GframeData& gf = e.mGframes[gf_index];
 		auto batches         = renderer.getDrawBatches();

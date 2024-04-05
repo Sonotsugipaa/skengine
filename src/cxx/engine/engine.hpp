@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer.hpp"
+#include "world_renderer.hpp"
 #include "shader_cache.hpp"
 #include "draw-geometry/core.hpp"
 #include "gui.hpp"

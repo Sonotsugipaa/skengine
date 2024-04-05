@@ -1,6 +1,6 @@
 #pragma once
 
-#include <engine/renderer.hpp>
+#include <engine/world_renderer.hpp>
 
 #include <unordered_map>
 

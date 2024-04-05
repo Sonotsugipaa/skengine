@@ -13,8 +13,7 @@ add_library(engine
 	init/device_sdl.cpp
 	init/device.cpp
 	init/rpass.cpp
-	renderer.cpp
-	renderer_world.cpp
+	world_renderer.cpp
 	gui.cpp
 	engine.cpp
 	engine_buffer.cpp

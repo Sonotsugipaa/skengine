@@ -156,7 +156,7 @@ namespace {
 
 
 		void createGround(skengine::WorldRenderer& wr) {
-			Renderer::NewObject o = { };
+			WorldRenderer::NewObject o = { };
 			o.model_locator = "world.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
@@ -165,7 +165,7 @@ namespace {
 
 
 		void createSpaceship(skengine::WorldRenderer& wr) {
-			Renderer::NewObject o = { };
+			WorldRenderer::NewObject o = { };
 			o.model_locator = "spaceship.fma";
 			o.position_xyz  = { 0.0f, 10.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
@@ -182,7 +182,7 @@ namespace {
 				auto rng = std::minstd_rand(size_t(this));
 				auto disti = std::uniform_int_distribution<uint8_t>(0, nameList.size() - 1);
 				auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
-				Renderer::NewObject o = { };
+				WorldRenderer::NewObject o = { };
 				o.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				o.position_xyz.y = 0.0f;
 				for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
@@ -229,7 +229,7 @@ namespace {
 			camLightRadius = 0.05f;
 			camLight = wr.createPointLight(pl);
 
-			Renderer::NewObject o = { };
+			WorldRenderer::NewObject o = { };
 			o.scale_xyz     = { 0.05f, 0.05f, 0.05f };
 			o.model_locator = "gold-bars.fma";
 			o.hidden        = true;
