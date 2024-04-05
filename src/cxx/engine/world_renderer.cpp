@@ -316,22 +316,31 @@ namespace SKENGINE_NAME_NS {
 				}
 
 				for(auto& job : worker.queue) {
-					constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
-					constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
-					constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
+					static constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
+					static constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
+					static constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
 					constexpr glm::mat4 identity = glm::mat4(1.0f);
-					auto mk_transf = [&](const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& scl) {
-						glm::mat4 translate = glm::translate (identity, pos);
-						glm::mat4 rot0      = glm::rotate    (identity, dir.y, x);
-						glm::mat4 rot1      = glm::rotate    (identity, dir.x, y);
-						glm::mat4 rot2      = glm::rotate    (identity, dir.z, z);
-						glm::mat4 scale     = glm::scale     (identity, scl);
-						return translate * rot0 * rot1 * rot2 * scale;
+					constexpr auto rotate = [](glm::mat4* dst, const glm::vec3& dir) {
+						*dst = glm::rotate(*dst, dir.y, x);
+						*dst = glm::rotate(*dst, dir.x, y);
+						*dst = glm::rotate(*dst, dir.z, z);
 					};
-					auto mat0 = mk_transf(job.positions[0], job.directions[0], job.scales[0]);
-					auto mat1 = mk_transf(job.positions[1], job.directions[1], job.scales[1]);
-					auto mat2 = mk_transf(job.positions[2], job.directions[2], job.scales[2]);
-					*job.dst = mat2 * mat1 * mat0;
+					constexpr auto translate = [](glm::mat4* dst, const glm::vec3& pos) {
+						*dst = glm::translate(*dst, pos);
+					};
+					constexpr auto scale = [](glm::mat4* dst, const glm::vec3& scl) {
+						*dst = glm::scale(*dst, scl);
+					};
+					*job.dst = identity;
+					translate (job.dst, job.position.object);
+					translate (job.dst, job.position.bone);
+					translate (job.dst, job.position.bone_instance);
+					rotate    (job.dst, job.direction.object);
+					rotate    (job.dst, job.direction.bone);
+					rotate    (job.dst, job.direction.bone_instance);
+					scale     (job.dst, job.scale.object);
+					scale     (job.dst, job.scale.bone);
+					scale     (job.dst, job.scale.bone_instance);
 				}
 				worker.queue.clear();
 
@@ -767,13 +776,11 @@ namespace SKENGINE_NAME_NS {
 			obj.rnd       = dist(rng);
 			obj.color_mul = bone_instance.color_rgba;
 
-			if(src_obj.first.hidden) {
-				obj.model_transf = glm::mat4(0.0f);
-			} else { // Enqueue a matrix assembly job
+			{ // Enqueue a matrix assembly job
 				MatrixAssembler::Job job;
-				job.positions [0] = src_obj.first.position_xyz;  job.positions [1] = bone.position_xyz;  job.positions [2] = bone_instance.position_xyz;
-				job.directions[0] = src_obj.first.direction_ypr; job.directions[1] = bone.direction_ypr; job.directions[2] = bone_instance.direction_ypr;
-				job.scales    [0] = src_obj.first.scale_xyz;     job.scales    [1] = bone.scale_xyz;     job.scales    [2] = bone_instance.scale_xyz;
+				job.position  = { src_obj.first.position_xyz,  bone.position_xyz,  bone_instance.position_xyz };
+				job.direction = { src_obj.first.direction_ypr, bone.direction_ypr, bone_instance.direction_ypr };
+				job.scale     = { src_obj.first.scale_xyz,     bone.scale_xyz,     bone_instance.scale_xyz };
 				job.dst = &obj.model_transf;
 				auto& worker = mMatrixAssembler->workers[object_id_e(obj_id) % mMatrixAssembler->workers.size()];
 				worker.queue.push_back(job);

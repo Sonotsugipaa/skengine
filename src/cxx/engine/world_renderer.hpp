@@ -154,9 +154,15 @@ namespace SKENGINE_NAME_NS {
 
 		struct MatrixAssembler {
 			struct Job {
-				glm::vec3  positions[3];
-				glm::vec3  directions[3];
-				glm::vec3  scales[3];
+				struct {
+					glm::vec3 object, bone, bone_instance;
+				} position;
+				struct {
+					glm::vec3 object, bone, bone_instance;
+				} direction;
+				struct {
+					glm::vec3 object, bone, bone_instance;
+				} scale;
 				glm::mat4* dst;
 			};
 			using JobQueue = std::deque<Job>;
