@@ -4,31 +4,6 @@
 
 namespace SKENGINE_NAME_NS {
 
-	std::size_t ShaderRequirementHash::operator()(const ShaderRequirement& req) const noexcept {
-		using namespace SKENGINE_NAME_NS_SHORT;
-		using ReqType = ShaderRequirement::Type;
-		std::size_t r;
-		switch(req.type) {
-			default:
-				std::unreachable();
-				abort();
-			case ReqType::eWorld:
-				r = std::hash<std::string_view>()(req.world.materialName);
-				break;
-		}
-		return r;
-	}
-
-
-	bool ShaderRequirementCompare::operator()(const ShaderRequirement& l, const ShaderRequirement& r) const noexcept {
-		using namespace SKENGINE_NAME_NS_SHORT;
-		using ReqType = ShaderRequirement::Type;
-		if(l.type != r.type) return false;
-		if(l.type == ReqType::eWorld) return l.world.materialName == r.world.materialName;
-		std::unreachable();
-	}
-
-
 	std::size_t ShaderModuleSetHash::operator()(const ShaderModuleSet& req) const noexcept {
 		using namespace SKENGINE_NAME_NS_SHORT;
 		std::size_t hv = std::hash<VkShaderModule>()(req.vertex);
@@ -61,8 +36,7 @@ namespace SKENGINE_NAME_NS {
 			Engine&                  e,
 			const ShaderRequirement& sr
 	) {
-		ShaderModuleSet r;
-		std::string str;
+		ShaderModuleSet r = { .vertex = nullptr, .fragment = nullptr };
 
 		{
 			auto found = mSetCache.find(sr);
@@ -81,19 +55,34 @@ namespace SKENGINE_NAME_NS {
 			}
 		};
 
-		switch(sr.type) {
-			case ShaderRequirement::Type::eWorld:
-				str = std::string(sr.world.materialName);
-				r = {
-					try_get_shader(mPrefix + "world-" + str + "-vtx.spv", "world-default-vtx.spv"),
-					try_get_shader(mPrefix + "world-" + str + "-frg.spv", "world-default-frg.spv") };
-				break;
-			default: abort();
-		}
+		constexpr auto combineStr = [](const std::string& pfx, PipelineLayoutId pl, std::string_view nm, std::string_view sfx) {
+			constexpr std::string_view plStr[2] = { "unkn-", "3d-" };
+			std::string r;
+			size_t plIndex;
+			switch(pl) {
+				default: plIndex = 0; break;
+				case PipelineLayoutId::e3d: plIndex = 1; break;
+			}
+			r.reserve(pfx.size() + plStr[plIndex].size() + nm.size() + sfx.size());
+			r.append(pfx);
+			r.append(plStr[plIndex]);
+			r.append(nm);
+			r.append(sfx);
+			return r;
+		};
 
-		mSetCache.insert(SetCache::value_type { sr, r });
-		mSetLookup.insert(SetCacheLookup::value_type { r, sr });
-		mModuleCounters[sr] = 1;
+		try {
+			r = {
+				try_get_shader(combineStr(mPrefix, sr.pipelineLayout, sr.name, "-vtx.spv"), combineStr("", sr.pipelineLayout, "default", "-vtx.spv")),
+				try_get_shader(combineStr(mPrefix, sr.pipelineLayout, sr.name, "-frg.spv"), combineStr("", sr.pipelineLayout, "default", "-frg.spv")) };
+			mSetCache.insert(SetCache::value_type { sr, r });
+			mSetLookup.insert(SetCacheLookup::value_type { r, sr });
+			mModuleCounters[sr] = 1;
+		} catch(...) {
+			if(r.vertex)   e.destroyShaderModule(r.vertex);
+			if(r.fragment) e.destroyShaderModule(r.fragment);
+			std::rethrow_exception(std::current_exception());
+		}
 
 		return r;
 	}

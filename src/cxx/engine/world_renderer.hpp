@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.hpp"
+#include "renderer.hpp"
 
 #include <vk-util/memory.hpp>
 
@@ -286,7 +287,7 @@ namespace SKENGINE_NAME_NS {
 	/// order to more easily manage the hardly reasonable number of responsibilities
 	/// both classes have.
 	///
-	class WorldRenderer : public WorldRendererBase {
+	class WorldRenderer : public WorldRendererBase, public Renderer {
 	public:
 		struct LightStorage {
 			vkutil::ManagedBuffer buffer;
@@ -314,7 +315,9 @@ namespace SKENGINE_NAME_NS {
 		using RayLights   = Umap<ObjectId, RayLight>;
 		using PointLights = Umap<ObjectId, PointLight>;
 
-		WorldRenderer() = default;
+		WorldRenderer();
+		WorldRenderer(WorldRenderer&&);
+		~WorldRenderer();
 
 		static WorldRenderer create(
 			std::shared_ptr<spdlog::logger>,
@@ -324,11 +327,17 @@ namespace SKENGINE_NAME_NS {
 
 		static void destroy(WorldRenderer&);
 
+		std::string_view name() const noexcept { return "world-surface"; }
+		void afterSwapchainCreation(ConcurrentAccess&, unsigned) override;
+		void beforePreRender(ConcurrentAccess&, unsigned) override;
+		void duringPrepareStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
+		void duringDrawStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
+
 		const glm::mat4& getViewTransf() noexcept;
 
-		const glm::vec3& getViewPosition () const noexcept { return mViewPosXyz; }
-		const glm::vec3& getViewRotation () const noexcept { return mViewDirYpr; }
-		const glm::vec3& getAmbientLight () const noexcept { return mAmbientLight; }
+		const glm::vec3& getViewPosition () const noexcept { return mState.viewPosXyz; }
+		const glm::vec3& getViewRotation () const noexcept { return mState.viewDirYpr; }
+		const glm::vec3& getAmbientLight () const noexcept { return mState.ambientLight; }
 
 		/// \brief Sets the view position of the camera.
 		/// \param lazy Whether the view is to be considered out of date afterwards.
@@ -361,20 +370,28 @@ namespace SKENGINE_NAME_NS {
 		RayLight&         modifyRayLight   (ObjectId);
 		PointLight&       modifyPointLight (ObjectId);
 
-		const LightStorage& lightStorage() const noexcept { return mLightStorage; };
-
-		bool commitObjects(VkCommandBuffer) override;
+		const LightStorage& lightStorage() const noexcept { return mState.lightStorage; };
 
 	private:
-		RayLights    mRayLights;
-		PointLights  mPointLights;
-		LightStorage mLightStorage;
-		glm::mat4 mViewTransfCache;
-		glm::vec3 mViewPosXyz;
-		glm::vec3 mViewDirYpr;
-		glm::vec3 mAmbientLight;
-		bool      mViewTransfCacheOod : 1;
-		bool      mLightStorageOod    : 1;
+		struct GframeData {
+			vkutil::ManagedBuffer lightStorage;
+			uint32_t lightStorageCapacity;
+		};
+
+		struct {
+			std::vector<GframeData> gframes;
+			RayLights    rayLights;
+			PointLights  pointLights;
+			LightStorage lightStorage;
+			glm::mat4 viewTransfCache;
+			glm::vec3 viewPosXyz;
+			glm::vec3 viewDirYpr;
+			glm::vec3 ambientLight;
+			bool      viewTransfCacheOod  : 1;
+			bool      lightStorageOod     : 1;
+			bool      lightStorageDsetOod : 1;
+			bool      initialized         : 1;
+		} mState;
 
 		WorldRenderer(WorldRendererBase&&);
 	};

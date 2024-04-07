@@ -18,6 +18,7 @@
 namespace SKENGINE_NAME_NS {
 
 	struct Engine::RpassInitializer::State {
+		ConcurrentAccess& concurrentAccess;
 		bool reinit         : 1;
 		bool createGframes  : 1;
 		bool destroyGframes : 1;
@@ -163,14 +164,16 @@ namespace SKENGINE_NAME_NS {
 
 
 	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
-	void Engine::RpassInitializer::init(const RpassConfig& rc) {
+	void Engine::RpassInitializer::init(ConcurrentAccess& ca, const RpassConfig& rc) {
 		mRpassConfig = rc;
+		mSwapchainOld = nullptr;
 		mSwapchainOod = false;
 		mHdrEnabled   = false;
 		validate_prefs(mPrefs);
-		State state = { };
+		State state = { .concurrentAccess = ca, .reinit = false, .createGframes = false, .destroyGframes = false };
 		initSurface();
 		initSwapchain(state);
+		initRenderers(state);
 		initGframeDescPool(state);
 		initGframes(state);
 		initRpasses(state);
@@ -179,11 +182,10 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::reinit() {
+	void Engine::RpassInitializer::reinit(ConcurrentAccess& ca) {
 		logger().trace("Recreating swapchain");
 
-		State state = { };
-		state.reinit = true;
+		State state = { .concurrentAccess = ca, .reinit = true, .createGframes = false, .destroyGframes = false };
 
 		validate_prefs(mPrefs);
 
@@ -194,9 +196,11 @@ namespace SKENGINE_NAME_NS {
 		destroyFramebuffers(state);
 		destroySwapchain(state);
 		destroyGframes(state);
+		destroyRenderers(state);
 		initSwapchain(state);
 		destroyGframeDescPool(state);
 		initGframeDescPool(state);
+		initRenderers(state);
 		initGframes(state);
 		initFramebuffers(state);
 
@@ -216,14 +220,15 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::destroy() {
-		State state = { };
+	void Engine::RpassInitializer::destroy(ConcurrentAccess& ca) {
+		State state = { .concurrentAccess = ca, .reinit = false, .createGframes = false, .destroyGframes = false };
 		destroyTop(state);
 		destroyFramebuffers(state);
 		destroyRpasses(state);
 		destroySwapchain(state);
 		destroyGframes(state);
 		destroyGframeDescPool(state);
+		destroyRenderers(state);
 		destroySurface();
 	}
 
@@ -333,26 +338,25 @@ namespace SKENGINE_NAME_NS {
 			logger().trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
 		}
 
-		mSwapchainOld = mSwapchain;
-
-		if(mSwapchainOld == nullptr) [[unlikely]] {
+		#warning "TODO: remove mSwapchainOld?"
+		VkSwapchainKHR newSc;
+		if(mSwapchain == nullptr) [[unlikely]] {
 			assert(! state.reinit);
-			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &mSwapchain);
+			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &newSc);
 		} else {
 			assert(state.reinit);
 			// The old swapchain is retired, but still exists:
 			// not destroying it when an exception is thrown may
 			// cause a memory leak.
 			try {
-				VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &mSwapchain);
+				VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &newSc);
 			} catch(vkutil::VulkanError& e) {
-				if(mSwapchainOld != nullptr) {
-					vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
-				}
+				vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 				throw e;
 			}
-			vkDestroySwapchainKHR(mDevice, mSwapchainOld, nullptr);
+			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
 		}
+		mSwapchain = newSc;
 
 		{ // Acquire swapchain images
 			std::vector<VkImage> images;
@@ -413,19 +417,30 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::initGframes(State&) {
-		uint32_t light_storage_capacity = mWorldRenderer.lightStorage().bufferCapacity;
+	void Engine::RpassInitializer::initRenderers(State& state) {
+		if(! state.reinit) {
+			auto uptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
+				std::make_shared<spdlog::logger>(logger()),
+				mVma,
+				mMaterialDsetLayout,
+				mAssetSupplier ));
+			mWorldRenderer_TMP_UGLY_NAME = uptr.get();
+			mRenderers.emplace_back(std::move(uptr));
+		}
 
+		assert(! mGframes.empty());
+		auto frame_n = mGframes.size();
+		for(auto& r : mRenderers) r->afterSwapchainCreation(state.concurrentAccess, frame_n);
+	}
+
+
+	void Engine::RpassInitializer::initGframes(State&) {
 		assert(! mGframes.empty());
 		auto frame_n = mGframes.size();
 
 		vkutil::BufferCreateInfo ubo_bc_info = {
 			.size  = sizeof(dev::FrameUniform),
 			.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			.qfamSharing = { } };
-		vkutil::BufferCreateInfo light_storage_bc_info = {
-			.size  = light_storage_capacity * sizeof(dev::Light),
-			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			.qfamSharing = { } };
 
 		mGframeLast = -1;
@@ -445,19 +460,13 @@ namespace SKENGINE_NAME_NS {
 		dsa_info.pSetLayouts        = &mGframeDsetLayout;
 		VkDescriptorBufferInfo frame_db_info = { };
 		frame_db_info.range = VK_WHOLE_SIZE;
-		VkDescriptorBufferInfo light_db_info = frame_db_info;
-		light_db_info.range = light_storage_bc_info.size;
-		VkWriteDescriptorSet dset_wr[2];
-		dset_wr[FRAME_UBO_BINDING] = { };
-		dset_wr[FRAME_UBO_BINDING].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		dset_wr[FRAME_UBO_BINDING].dstBinding = FRAME_UBO_BINDING;
-		dset_wr[FRAME_UBO_BINDING].descriptorCount = 1;
-		dset_wr[FRAME_UBO_BINDING].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		dset_wr[FRAME_UBO_BINDING].pBufferInfo     = &frame_db_info;
-		dset_wr[LIGHT_STORAGE_BINDING] = dset_wr[FRAME_UBO_BINDING];
-		dset_wr[LIGHT_STORAGE_BINDING].dstBinding  = LIGHT_STORAGE_BINDING;
-		dset_wr[LIGHT_STORAGE_BINDING].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		dset_wr[LIGHT_STORAGE_BINDING].pBufferInfo = &light_db_info;
+		VkWriteDescriptorSet frame_dset_wr;
+		frame_dset_wr = { };
+		frame_dset_wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		frame_dset_wr.dstBinding = FRAME_UBO_BINDING;
+		frame_dset_wr.descriptorCount = 1;
+		frame_dset_wr.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		frame_dset_wr.pBufferInfo     = &frame_db_info;
 		vkutil::ImageCreateInfo ic_info = { };
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
 		ic_info.type   = VK_IMAGE_TYPE_2D;
@@ -483,15 +492,12 @@ namespace SKENGINE_NAME_NS {
 			gf.cmd_prepare = cmd[0];
 			memcpy(gf.cmd_draw, cmd+1, sizeof(gf.cmd_draw));
 
-			gf.frame_ubo     = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
-			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(mVma, light_storage_bc_info);
-			gf.light_storage_capacity = light_storage_capacity;
+			gf.frame_ubo = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
 
 			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
-			for(auto& wr : dset_wr) wr.dstSet = gf.frame_dset;
+			frame_dset_wr.dstSet = gf.frame_dset;
 			frame_db_info.buffer = gf.frame_ubo;
-			light_db_info.buffer = gf.light_storage;
-			vkUpdateDescriptorSets(mDevice, std::size(dset_wr), dset_wr, 0, nullptr);
+			vkUpdateDescriptorSets(mDevice, 1, &frame_dset_wr, 0, nullptr);
 
 			ic_info.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 			ic_info.format = mSurfaceFormat.format;
@@ -522,6 +528,88 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t COLOR = 0;
 		constexpr size_t DEPTH = 1;
 
+		using RendererIter = decltype(mRenderers)::iterator;
+		RendererIter* iterators = mRendererIterators;
+		iterators[0] = mRenderers.begin();
+
+		if(mRenderers.empty()) return;
+
+		// Scan renderers, set their iterators at the beginning of each render pass
+		size_t iteratorCount = std::size(mRendererIterators);
+		auto end = mRenderers.end();
+
+		auto currentRpass = mRenderers.front()->pipelineInfo().rpass;
+		size_t currentIter = 0;
+		++ iterators[currentIter];
+		while(currentIter < iteratorCount && iterators[currentIter] < end) {
+			auto& renderer = * iterators[currentIter]->get();
+			auto& spInfo = renderer.pipelineInfo();
+			assert(renderer.pipelineInfo().rpass >= currentRpass);
+			if(spInfo.rpass < currentRpass) continue;
+			if(spInfo.rpass > currentRpass) {
+				++ currentIter;
+				iterators[currentIter] = iterators[currentIter-1];
+				if(currentIter < iteratorCount) [[likely]] {
+					currentRpass = iterators[currentIter]->get()->pipelineInfo().rpass;
+				}
+			}
+			++ iterators[currentIter];
+		}
+
+		VkAttachmentReference subpass_refs[2]; {
+			subpass_refs[COLOR].attachment = COLOR;
+			subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			subpass_refs[DEPTH].attachment = DEPTH;
+			subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		}
+
+		size_t subpassCountHeuristic = (mRenderers.size() * 3) / 4;
+		std::vector<VkSubpassDescription> subpassDescsWorld; subpassDescsWorld.reserve(subpassCountHeuristic);
+		std::vector<VkSubpassDescription> subpassDescsUi;    subpassDescsUi   .reserve(subpassCountHeuristic);
+		std::vector<VkSubpassDependency> subpassDepsWorld;   subpassDescsWorld.reserve(subpassCountHeuristic);
+		std::vector<VkSubpassDependency> subpassDepsUi;      subpassDescsUi   .reserve(subpassCountHeuristic);
+		{ // Create subpass descriptions and references
+			#warning "TODO: write in 'TODO.md' that dependencies can be optimized with a dependency graph"
+			VkSubpassDescription spDescTemplate = { };
+			spDescTemplate.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			spDescTemplate.colorAttachmentCount    = 1;
+			spDescTemplate.pColorAttachments       = subpass_refs + COLOR;
+			spDescTemplate.pDepthStencilAttachment = subpass_refs + DEPTH;
+			VkSubpassDependency spDepTemplate = { };
+			spDepTemplate.srcSubpass = VK_SUBPASS_EXTERNAL;
+			spDepTemplate.dstSubpass = 0;
+			spDepTemplate.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			spDepTemplate.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			spDepTemplate.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+			subpassDepsUi.push_back(spDepTemplate);
+			spDepTemplate.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			spDepTemplate.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			spDepTemplate.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+			auto insertInfo = [&](std::vector<VkSubpassDescription>& descDst, std::vector<VkSubpassDependency>& depDst, std::string_view name) {
+				descDst.push_back(spDescTemplate);
+				mLogger->trace("Creating subpass for renderer \"{}\"{}", name, (descDst.size() >= 2)? " (dependent on the previous subpass)" : " (no dependency)");
+				if(descDst.size() >= 2 /* There can only be a dependency between two things */) [[unlikely]] {
+					depDst.push_back(spDepTemplate);
+					depDst.back().srcSubpass = descDst.size() - 2;
+					depDst.back().dstSubpass = descDst.size() - 1;
+				}
+			};
+			for(auto& r : mRenderers) {
+				auto& spInfo = r->pipelineInfo();
+				switch(spInfo.rpass) {
+					default: mLogger->error("Renderer \"{}\" targets an unexistent render pass"); break;
+					case Renderer::RenderPass::eWorld: insertInfo(subpassDescsWorld, subpassDepsWorld, r->name()); break;
+					case Renderer::RenderPass::eUi:    insertInfo(subpassDescsUi,    subpassDepsUi, r->name()); subpassDescsUi.back().pDepthStencilAttachment = nullptr; break;
+				}
+			}
+
+			#warning "TODO: remove hardcoded UI subpass when appropriate"
+			insertInfo(subpassDescsUi, subpassDepsUi, "!hardcoded-ui-subpass");
+			subpassDescsUi.back().pDepthStencilAttachment = nullptr;
+		}
+
 		{ // Create the render passes
 			VkAttachmentDescription atch_descs[2]; {
 				atch_descs[COLOR] = { };
@@ -544,27 +632,14 @@ namespace SKENGINE_NAME_NS {
 				atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			}
 
-			VkAttachmentReference subpass_refs[2]; {
-				subpass_refs[COLOR].attachment = COLOR;
-				subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				subpass_refs[DEPTH].attachment = DEPTH;
-				subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-			}
-
-			VkSubpassDescription subpasses[1]; {
-				subpasses[0] = { };
-				subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-				subpasses[0].colorAttachmentCount    = 1;
-				subpasses[0].pColorAttachments       = subpass_refs + COLOR;
-				subpasses[0].pDepthStencilAttachment = subpass_refs + DEPTH;
-			}
-
 			VkRenderPassCreateInfo rpc_info = { }; {
 				rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 				rpc_info.attachmentCount = std::size(atch_descs);
 				rpc_info.pAttachments    = atch_descs;
-				rpc_info.subpassCount    = std::size(subpasses);
-				rpc_info.pSubpasses      = subpasses;
+				rpc_info.dependencyCount = subpassDepsWorld.size();
+				rpc_info.pDependencies   = subpassDepsWorld.data();
+				rpc_info.subpassCount    = subpassDescsWorld.size();
+				rpc_info.pSubpasses      = subpassDescsWorld.data();
 			}
 
 			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mWorldRpass);
@@ -574,23 +649,14 @@ namespace SKENGINE_NAME_NS {
 				atch_descs[COLOR].format = mSurfaceFormat.format;
 				atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_LOAD;
 				atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				subpass_refs[COLOR].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				subpasses[0].pDepthStencilAttachment = nullptr;
 
 				// No depth attachment, only color
 				rpc_info.attachmentCount = 1;
 				rpc_info.pAttachments    = atch_descs + COLOR;
-			}
-
-			VkSubpassDependency deps[1] = { }; {
-				deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-				deps[0].dstSubpass = 0;
-				deps[0].srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-				deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-				deps[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-				rpc_info.dependencyCount = std::size(deps);
-				rpc_info.pDependencies   = deps;
+				rpc_info.dependencyCount = subpassDepsUi.size();
+				rpc_info.pDependencies   = subpassDepsUi.data();
+				rpc_info.subpassCount    = subpassDescsUi.size();
+				rpc_info.pSubpasses      = subpassDescsUi.data();
 			}
 
 			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mUiRpass);
@@ -602,13 +668,29 @@ namespace SKENGINE_NAME_NS {
 			plc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 			plc_info.setLayoutCount = std::size(layouts);
 			plc_info.pSetLayouts    = layouts;
-			VK_CHECK(vkCreatePipelineLayout, mDevice, &plc_info, nullptr, &mPipelineLayout);
+			VK_CHECK(vkCreatePipelineLayout, mDevice, &plc_info, nullptr, &mPipelineLayout3d);
 
 			VkPipelineCacheCreateInfo pcc_info = { };
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
 
-			mGenericGraphicsPipeline = createPipeline("default", mWorldRpass);
+			uint32_t worldSubpassIndex = 0;
+			uint32_t uiSubpassIndex = 0;
+			auto fwdSubpassIdx = [&](Renderer::RenderPass rp) { switch(rp) {
+				default: throw EngineRuntimeError("Bad render pass target for renderer pipeline");
+				case Renderer::RenderPass::eWorld: return worldSubpassIndex ++;
+				case Renderer::RenderPass::eUi:    return uiSubpassIndex ++;
+			}};
+			for(auto& r : mRenderers) {
+				using PipelineSet = decltype(mPipelines);
+				auto& info = r->pipelineInfo();
+				auto pl = info.shaderReq.pipelineLayout;
+				switch(pl) {
+					default: throw EngineRuntimeError(fmt::format("Renderer requires bad pipeline layout ({})", std::underlying_type_t<PipelineLayoutId>(pl)));
+					case PipelineLayoutId::e3d:
+						mPipelines.insert(PipelineSet::value_type(info.shaderReq, create3dPipeline(info.shaderReq, fwdSubpassIdx(info.rpass), mWorldRpass)));
+				}
+			}
 
 			geom::PipelineSetCreateInfo gpsci = { };
 			gpsci.subpass        = 0;
@@ -701,9 +783,10 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
 			geom::PipelineSet::destroy(mDevice, mGuiState.geomPipelines);
-			vkDestroyPipeline(mDevice, mGenericGraphicsPipeline, nullptr);
+			for(auto& p : mPipelines) vkDestroyPipeline(mDevice, p.second, nullptr);
+			mPipelines.clear();
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
-			vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);
+			vkDestroyPipelineLayout(mDevice, mPipelineLayout3d, nullptr);
 		}
 		vkDestroyRenderPass(mDevice, mUiRpass, nullptr);
 		vkDestroyRenderPass(mDevice, mWorldRpass, nullptr);
@@ -746,7 +829,6 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
 
 			VK_CHECK(vkFreeDescriptorSets, mDevice, mGframeDescPool, 1, &gf.frame_dset);
-			vkutil::ManagedBuffer::destroy(mVma, gf.light_storage);
 			vkutil::BufferDuplex::destroy(mVma, gf.frame_ubo);
 
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
@@ -757,6 +839,14 @@ namespace SKENGINE_NAME_NS {
 			GframeData& gf  = mGframes[i];
 			VkFence&    gff = mGframeSelectionFences[i];
 			destroy_frame(gf, gff);
+		}
+	}
+
+
+	void Engine::RpassInitializer::destroyRenderers(State& state) {
+		if(! state.reinit) {
+			mWorldRenderer_TMP_UGLY_NAME = nullptr; // Non-owning pointer
+			mRenderers.clear();
 		}
 	}
 

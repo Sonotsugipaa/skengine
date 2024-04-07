@@ -136,7 +136,6 @@ namespace SKENGINE_NAME_NS {
 	struct GframeData {
 		VkDescriptorSet       frame_dset;
 		vkutil::BufferDuplex  frame_ubo;
-		vkutil::ManagedBuffer light_storage;
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
 		VkImage     swapchain_image;
@@ -153,7 +152,6 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_drawGui;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
-		uint32_t    light_storage_capacity;
 	};
 
 
@@ -174,12 +172,16 @@ namespace SKENGINE_NAME_NS {
 		ConcurrentAccess(Engine* e, bool is_thread_local): ca_engine(e), ca_threadLocal(is_thread_local) { }
 
 		WorldRenderer& getWorldRenderer() noexcept;
+		GframeData& getGframeData(unsigned index) noexcept;
+		VkPipeline getPipeline(const ShaderRequirement&);
 
 		void setPresentExtent(VkExtent2D);
 
 		uint_fast32_t currentFrameNumber() const noexcept;
 
 		GuiManager gui() const noexcept; // Defined in `engine_gui_manager.hpp`
+
+		Engine& engine() noexcept { return *ca_engine; }
 
 	private:
 		Engine* ca_engine;
@@ -213,6 +215,8 @@ namespace SKENGINE_NAME_NS {
 		friend GuiManager;
 		friend GuiState;
 
+		using GenericPipelineSet = std::unordered_map<ShaderRequirement, VkPipeline, ShaderRequirementHash, ShaderRequirementCompare>;
+
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
 		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
@@ -240,7 +244,7 @@ namespace SKENGINE_NAME_NS {
 
 		void destroyShaderModule(VkShaderModule);
 
-		VkPipeline createPipeline(std::string_view material_type_name, VkRenderPass);
+		VkPipeline create3dPipeline(const ShaderRequirement&, uint32_t subpass, VkRenderPass);
 
 		FontFace createFontFace();
 
@@ -275,6 +279,7 @@ namespace SKENGINE_NAME_NS {
 		auto getTransferCmdPool    () noexcept { return mTransferCmdPool; }
 		auto getMaterialDsetLayout () noexcept { return mMaterialDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
+		auto getPipelineLayout3d   () noexcept { return mPipelineLayout3d; }
 
 		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
 		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
@@ -331,13 +336,14 @@ namespace SKENGINE_NAME_NS {
 		std::vector<VkFence>      mGframeSelectionFences;
 		std::thread               mGraphicsThread;
 
-		VkExtent2D       mRenderExtent;
-		VkExtent2D       mPresentExtent;
-		VkRenderPass     mWorldRpass;
-		VkRenderPass     mUiRpass;
-		VkPipelineLayout mPipelineLayout;
-		VkPipelineCache  mPipelineCache;
-		VkPipeline       mGenericGraphicsPipeline;
+		VkExtent2D         mRenderExtent;
+		VkExtent2D         mPresentExtent;
+		VkRenderPass       mWorldRpass;
+		VkRenderPass       mUiRpass;
+		VkPipelineCache    mPipelineCache;
+		VkPipelineLayout   mPipelineLayout3d;
+		GenericPipelineSet mPipelines;
+		WorldRenderer*     mWorldRenderer_TMP_UGLY_NAME;
 
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
@@ -346,8 +352,9 @@ namespace SKENGINE_NAME_NS {
 
 		std::mutex mRendererMutex = std::mutex();
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
+		std::vector<std::unique_ptr<Renderer>> mRenderers;
+		decltype(mRenderers)::iterator mRendererIterators[2-1]; // One for each render pass minus the first one
 		AssetSupplier mAssetSupplier;
-		WorldRenderer mWorldRenderer;
 		glm::mat4     mProjTransf;
 
 		FT_Library mFreetype;
@@ -371,8 +378,10 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
 
 
-	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()       noexcept { return ca_engine->mWorldRenderer; }
-	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber () const noexcept { return ca_engine->mGframeCounter; }
+	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()           noexcept { return * ca_engine->mWorldRenderer_TMP_UGLY_NAME; }
+	inline GframeData&    ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
+	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
+	inline VkPipeline ConcurrentAccess::getPipeline(const ShaderRequirement& req) { return ca_engine->mPipelines.at(req); }
 
 }
 

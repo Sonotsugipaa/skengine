@@ -6,44 +6,63 @@
 
 namespace SKENGINE_NAME_NS {
 
-	class Engine;
+	class ConcurrentAccess;
 
 
-	struct SubpassInfo {
-		enum class RenderPass : unsigned { eNone = 0, eWorld = 1, eUi = 2 };
-
-		ShaderRequirement shaderReq;
-		VkPipelineBindPoint bindPoint;
-		VkImageLayout targetFinalLayout;
-		RenderPass target;
-	};
-
-
+	/// ```
+	/// vkAcquireNextImageKHR()
+	/// -- beforePreRender
+	/// loop_async_preRender()
+	/// vkBeginCommandBuffer(cmd_prepare, cmd_draw)
+	/// -- duringPrepareStage
+	/// vkEndCommandBuffer(cmd_prepare)
+	/// vkCmdBeginRenderPass()
+	/// -- duringDrawStage
+	/// vkCmdEndRenderPass()
+	/// vkEndCommandBuffer(cmd_draw)
+	/// vkQueuePresentKHR()
+	/// -- afterPresent
+	/// vkWaitForFences(cmd_prepare, last frame if so required)
+	/// loop_async_postRender()
+	/// -- afterPostRender
+	/// ```
+	///
 	class Renderer {
 	public:
-		Renderer() = default;
-		Renderer(nullptr_t): r_subpassInfo({ }), r_buffersOod(false) { }
-		Renderer(const SubpassInfo& sInfo): r_subpassInfo(sInfo) { }
-		Renderer(SubpassInfo&& sInfo): r_subpassInfo(std::move(sInfo)) { }
+		enum class RenderPass : unsigned { eNone = 0, eWorld = 1, eUi = 2 };
+
+		struct Info {
+			ShaderRequirement shaderReq;
+			RenderPass rpass;
+		};
+
+		Renderer(const Info& sInfo): r_pipelineInfo(sInfo) { }
+		Renderer(Info&& sInfo): r_pipelineInfo(std::move(sInfo)) { }
+		Renderer(const Renderer&) = default; Renderer& operator=(const Renderer&) = default;
+		Renderer(Renderer&&) = default;      Renderer& operator=(Renderer&&) = default;
 		virtual ~Renderer() = default;
 
-		virtual void beforeSwapchainReset(Engine&) { }
-		virtual void afterSwapchainReset(Engine&) { }
+		virtual std::string_view name() const noexcept = 0;
 
-		virtual void beforePreRender(Engine&) { }
-		virtual void duringPrepareStage(Engine&) { }
-		virtual void duringDrawStage(Engine&) { }
-		virtual void afterPresent(Engine&) { }
-		virtual void afterPostRender(Engine&) { }
+		virtual void afterSwapchainCreation(ConcurrentAccess&, unsigned gframeCount) { (void) gframeCount; }
+		virtual void beforeSwapchainDestruction(ConcurrentAccess&) { }
+
+		virtual void beforePreRender(ConcurrentAccess&, unsigned gframeIndex) { (void) gframeIndex; }
+		virtual void duringPrepareStage(ConcurrentAccess&, unsigned gframeIndex, VkCommandBuffer) { (void) gframeIndex; }
+		virtual void duringDrawStage(ConcurrentAccess&, unsigned gframeIndex, VkCommandBuffer) { (void) gframeIndex; }
+		virtual void afterPresent(ConcurrentAccess&, unsigned gframeIndex) { (void) gframeIndex; }
+		virtual void afterRenderPass(ConcurrentAccess&, unsigned gframeIndex) { (void) gframeIndex; }
+		virtual void beforePostRender(ConcurrentAccess&, unsigned gframeIndex) { (void) gframeIndex; }
+		virtual void afterPostRender(ConcurrentAccess&, unsigned gframeIndex) { (void) gframeIndex; }
 
 		void   setBuffersOutOfDate() noexcept { r_buffersOod = true; }
 		void resetBuffersOutOfDate() noexcept { r_buffersOod = false; }
 		bool   areBuffersOutOfDate() const noexcept { return r_buffersOod; }
 
-		const SubpassInfo& subpassInfo() const noexcept { return r_subpassInfo; }
+		const Info& pipelineInfo() const noexcept { return r_pipelineInfo; }
 
 	private:
-		SubpassInfo r_subpassInfo;
+		Info r_pipelineInfo;
 		bool r_buffersOod;
 	};
 

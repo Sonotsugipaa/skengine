@@ -15,6 +15,8 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine; // Defined in `engine.hpp`
 
+	enum class PipelineLayoutId { e3d };
+
 
 	struct ShaderModuleSet {
 		VkShaderModule vertex;
@@ -32,34 +34,18 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	struct WorldShaderRequirement {
-		std::string_view materialName;
-	};
-
-	struct UiShaderRequirement {
-		// TBW
-	};
-
 	struct ShaderRequirement {
-		enum class Type {
-			eWorld
-		};
-
-		union {
-			WorldShaderRequirement world;
-			UiShaderRequirement    ui;
-		};
-
-		Type type;
+		std::string_view name;
+		PipelineLayoutId pipelineLayout;
 	};
 
 
 	struct ShaderRequirementHash {
-		std::size_t operator()(const ShaderRequirement&) const noexcept;
+		std::size_t operator()(const ShaderRequirement& req) const noexcept { return std::hash<std::string_view>()(req.name); }
 	};
 
 	struct ShaderRequirementCompare {
-		bool operator()(const ShaderRequirement&, const ShaderRequirement&) const noexcept;
+		bool operator()(const ShaderRequirement& l, const ShaderRequirement& r) const noexcept { return l.name == r.name; }
 	};
 
 	struct ShaderModuleSetHash {

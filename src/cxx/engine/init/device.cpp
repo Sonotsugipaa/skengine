@@ -267,12 +267,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initRenderer() {
+		#warning "TODO: change name"
 		mAssetSupplier = AssetSupplier(*this, mAssetSource, 0.125f);
-		mWorldRenderer = WorldRenderer::create(
-			std::make_shared<spdlog::logger>(logger()),
-			mVma,
-			mMaterialDsetLayout,
-			mAssetSupplier );
 	}
 
 
@@ -298,7 +294,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::destroyRenderer() {
-		WorldRenderer::destroy(mWorldRenderer);
 		mAssetSupplier.destroy();
 	}
 

@@ -8,7 +8,7 @@
 
 namespace SKENGINE_NAME_NS {
 
-	VkPipeline Engine::createPipeline(std::string_view material_type_name, VkRenderPass worldRpass) {
+	VkPipeline Engine::create3dPipeline(const ShaderRequirement& shReq, uint32_t subpass, VkRenderPass rpass) {
 		VkPipeline pipeline;
 
 		VkVertexInputAttributeDescription vtx_attr[11];
@@ -124,10 +124,7 @@ namespace SKENGINE_NAME_NS {
 		VkPipelineShaderStageCreateInfo stages[2]; {
 			constexpr size_t VTX = 0;
 			constexpr size_t FRG = 1;
-			ShaderRequirement req = {
-				.world = { material_type_name },
-				.type  = ShaderRequirement::Type::eWorld };
-			auto set = mShaderCache->shader_cache_requestModuleSet(*this, req);
+			auto set = mShaderCache->shader_cache_requestModuleSet(*this, shReq);
 			stages[VTX] = { };
 			stages[VTX].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 			stages[VTX].pName  = "main";
@@ -140,9 +137,9 @@ namespace SKENGINE_NAME_NS {
 
 		VkGraphicsPipelineCreateInfo gpc_info = { };
 		gpc_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		gpc_info.renderPass = worldRpass;
-		gpc_info.layout     = mPipelineLayout;
-		gpc_info.subpass    = 0;
+		gpc_info.renderPass = rpass;
+		gpc_info.layout     = mPipelineLayout3d;
+		gpc_info.subpass    = subpass;
 		gpc_info.stageCount = std::size(stages);
 		gpc_info.pStages    = stages;
 		gpc_info.pVertexInputState   = &vi;

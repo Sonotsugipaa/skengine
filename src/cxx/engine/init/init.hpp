@@ -39,14 +39,15 @@ namespace SKENGINE_NAME_NS {
 	public:
 		struct State;
 
-		void init(const RpassConfig&);
-		void reinit();
-		void destroy();
+		void init(ConcurrentAccess&, const RpassConfig&);
+		void reinit(ConcurrentAccess&);
+		void destroy(ConcurrentAccess&);
 
 	private:
 		void initSurface();
 		void initSwapchain(State&);
 		void initGframeDescPool(State&);
+		void initRenderers(State&);
 		void initGframes(State&);
 		void initRpasses(State&);
 		void initFramebuffers(State&);
@@ -56,6 +57,7 @@ namespace SKENGINE_NAME_NS {
 		void destroyRpasses(State&);
 		void destroyGframes(State&);
 		void destroyGframeDescPool(State&);
+		void destroyRenderers(State&);
 		void destroySwapchain(State&);
 		void destroySurface();
 	};

@@ -261,7 +261,6 @@ namespace SKENGINE_NAME_NS {
 				if(dst->bufferCapacity > 0) {
 					dst->buffer.unmap(vma);
 					vkutil::ManagedBuffer::destroy(vma, dst->buffer);
-					dst->bufferCapacity = 0;
 				}
 
 				auto  bc_info = light_storage_create_info(desired);
@@ -318,6 +317,21 @@ namespace SKENGINE_NAME_NS {
 			worker.cond->produce_cond.wait(lock);
 
 			goto begin;
+		}
+
+
+		void updateLightStorageDset(VkDevice dev, VkBuffer buffer, size_t lightCount, VkDescriptorSet dset) {
+			VkDescriptorBufferInfo db_info = { };
+			db_info.buffer = buffer;
+			db_info.range  = lightCount * sizeof(dev::Light);
+			VkWriteDescriptorSet wr = { };
+			wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			wr.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			wr.descriptorCount = 1;
+			wr.dstSet          = dset;
+			wr.dstBinding      = Engine::LIGHT_STORAGE_BINDING;
+			wr.pBufferInfo     = &db_info;
+			vkUpdateDescriptorSets(dev, 1, &wr, 0, nullptr);
 		}
 
 	}
@@ -886,6 +900,29 @@ namespace SKENGINE_NAME_NS {
 
 namespace SKENGINE_NAME_NS {
 
+	constexpr auto world_renderer_subpass_info = Renderer::Info {
+		.shaderReq = { .name = "default", .pipelineLayout = PipelineLayoutId::e3d },
+		.rpass = Renderer::RenderPass::eWorld };
+
+
+	WorldRenderer::WorldRenderer(): Renderer(world_renderer_subpass_info) { mState.initialized = false; }
+
+	WorldRenderer::WorldRenderer(WorldRenderer&& mv):
+		WorldRendererBase(std::move(mv)),
+		Renderer(world_renderer_subpass_info),
+		mState(std::move(mv.mState))
+	{
+		mv.mState.initialized = false;
+	}
+
+	WorldRenderer::~WorldRenderer() {
+		if(mState.initialized) {
+			WorldRenderer::destroy(*this);
+			mState.initialized = false;
+		}
+	}
+
+
 	WorldRenderer WorldRenderer::create(
 			std::shared_ptr<spdlog::logger> logger,
 			VmaAllocator vma,
@@ -893,79 +930,247 @@ namespace SKENGINE_NAME_NS {
 			AssetSupplier& asset_supplier
 	) {
 		WorldRenderer r = WorldRendererBase::create(std::move(logger), vma, dset_layout, asset_supplier);
-		r.mViewPosXyz = { };
-		r.mViewDirYpr = { };
-		r.mAmbientLight = { };
-		r.mLightStorage = { };
-		r.mViewTransfCacheOod = true;
-		set_light_buffer_capacity(r.mVma, &r.mLightStorage, 0);
+		r.mState.viewPosXyz = { };
+		r.mState.viewDirYpr = { };
+		r.mState.ambientLight = { };
+		r.mState.lightStorage = { };
+		r.mState.lightStorageOod = true;
+		r.mState.lightStorageDsetOod = true;
+		r.mState.viewTransfCacheOod = true;
+		r.mState.initialized = true;
+		set_light_buffer_capacity(r.mVma, &r.mState.lightStorage, 0);
 		return r;
 	}
 
 
 	void WorldRenderer::destroy(WorldRenderer& r) {
-		if(r.mLightStorage.bufferCapacity > 0) {
-			r.mLightStorage.bufferCapacity = 0;
-			r.mLightStorage.buffer.unmap(r.mVma);
-			vkutil::ManagedBuffer::destroy(r.mVma, r.mLightStorage.buffer);
+		assert(r.mState.initialized);
+
+		for(auto& gf : r.mState.gframes) {
+			vkutil::ManagedBuffer::destroy(r.mVma, gf.lightStorage);
+		}
+		r.mState.gframes.clear();
+
+		if(r.mState.lightStorage.bufferCapacity > 0) {
+			r.mState.lightStorage.bufferCapacity = 0;
+			r.mState.lightStorage.buffer.unmap(r.mVma);
+			vkutil::ManagedBuffer::destroy(r.mVma, r.mState.lightStorage.buffer);
 		}
 
 		{
 			std::vector<ObjectId> removeList;
-			removeList.reserve(r.mPointLights.size() + r.mRayLights.size());
-			for(auto& l : r.mPointLights) removeList.push_back(l.first);
-			for(auto& l : r.mRayLights  ) removeList.push_back(l.first);
-			for(auto  l : removeList    ) r.removeLight(l);
+			removeList.reserve(r.mState.pointLights.size() + r.mState.rayLights.size());
+			for(auto& l : r.mState.pointLights) removeList.push_back(l.first);
+			for(auto& l : r.mState.rayLights  ) removeList.push_back(l.first);
+			for(auto  l : removeList) r.removeLight(l);
 		}
+
+		r.mState.initialized = false;
 
 		WorldRendererBase::destroy(r);
 	}
 
 
+	void WorldRenderer::afterSwapchainCreation(ConcurrentAccess& ca, unsigned gframeCount) {
+		uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
+
+		size_t oldGframeCount = mState.gframes.size();
+
+		vkutil::BufferCreateInfo lightStorageBcInfo = {
+			.size  = lightCapacity * sizeof(dev::Light),
+			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			.qfamSharing = { } };
+
+		auto setFrameLightStorage = [&](unsigned gfIndex) {
+			GframeData& wgf = mState.gframes[gfIndex];
+			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(mVma, lightStorageBcInfo);
+			wgf.lightStorageCapacity = lightCapacity;
+			mState.lightStorageDsetOod = true;
+		};
+
+		auto unsetFrameLightStorage = [&](unsigned gfIndex) {
+			GframeData& gf = mState.gframes[gfIndex];
+			vkutil::ManagedBuffer::destroy(mVma, gf.lightStorage);
+			gf.lightStorageCapacity = 0;
+		};
+
+		if(oldGframeCount < gframeCount) {
+			#define FOR_EACH_ for(size_t i = oldGframeCount; i < gframeCount; ++i)
+			mState.gframes.resize(gframeCount);
+			if(lightCapacity != 0) FOR_EACH_ setFrameLightStorage(i);
+			#undef FOR_EACH_
+		} else
+		if(oldGframeCount > gframeCount) {
+			#define FOR_EACH_ for(size_t i = gframeCount; i < oldGframeCount; ++i)
+			if(lightCapacity != 0) FOR_EACH_ unsetFrameLightStorage(i);
+			mState.gframes.resize(gframeCount);
+			#undef FOR_EACH_
+		}
+	}
+
+
+	void WorldRenderer::beforePreRender(ConcurrentAccess&, unsigned) { }
+
+
+	void WorldRenderer::duringPrepareStage(ConcurrentAccess& ca, unsigned gframeIndex, VkCommandBuffer cmd) {
+		auto& e   = ca.engine();
+		auto& egf = ca.getGframeData(gframeIndex);
+		auto& wgf = mState.gframes[gframeIndex];
+		auto& ls  = lightStorage();
+		auto& al  = getAmbientLight();
+		auto& ubo = * egf.frame_ubo.mappedPtr<dev::FrameUniform>();
+		auto  dev = e.getDevice();
+		auto  vma = e.getVmaAllocator();
+		auto  all  = glm::length(al);
+
+		if(mState.lightStorageOod) {
+			uint32_t new_ls_size = mState.rayLights.size() + mState.pointLights.size();
+			set_light_buffer_capacity(mVma, &mState.lightStorage, new_ls_size);
+
+			mState.lightStorage.rayCount   = mState.rayLights.size();
+			mState.lightStorage.pointCount = mState.pointLights.size();
+			auto& ray_count = mState.lightStorage.rayCount;
+			for(uint32_t i = 0; auto& rl : mState.rayLights) {
+				auto& dst = *reinterpret_cast<dev::RayLight*>(mState.lightStorage.mappedPtr + i);
+				dst.direction     = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
+				dst.color         = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
+				dst.aoa_threshold = rl.second.aoa_threshold;
+				++ i;
+			}
+			for(uint32_t i = ray_count; auto& pl : mState.pointLights) {
+				auto& dst = *reinterpret_cast<dev::PointLight*>(mState.lightStorage.mappedPtr + i);
+				dst.position    = glm::vec4(pl.second.position, 1.0f);
+				dst.color       = glm::vec4(glm::normalize(pl.second.color), pl.second.intensity);
+				dst.falloff_exp = pl.second.falloff_exp;
+				++ i;
+			}
+
+			mState.lightStorage.buffer.flush(mVma);
+			mState.lightStorageDsetOod = true;
+			mState.lightStorageOod = false;
+		}
+
+		ubo.ambient_lighting  = glm::vec4((all > 0)? glm::normalize(al) : al, all);
+		ubo.view_transf       = getViewTransf();
+		ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
+		ubo.ray_light_count   = ls.rayCount;
+		ubo.point_light_count = ls.pointCount;
+
+		WorldRendererBase::commitObjects(cmd);
+
+		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
+		if(buffer_resized) {
+			mLogger->trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
+			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
+
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
+			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
+
+			#warning "TODO: Renderer-owned descriptor sets, or something"
+
+			mState.lightStorageDsetOod = true;
+			wgf.lightStorageCapacity = ls.bufferCapacity;
+		}
+
+		if(mState.lightStorageDsetOod) {
+			updateLightStorageDset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, egf.frame_dset);
+			mState.lightStorageDsetOod = false;
+		}
+
+		if(true /* Optimizable, but not worth the effort */) {
+			VkBufferCopy cp = { };
+			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
+			vkCmdCopyBuffer(cmd, ls.buffer.value, wgf.lightStorage, 1, &cp);
+		}
+	}
+
+
+	void WorldRenderer::duringDrawStage(ConcurrentAccess& ca, unsigned gfIndex, VkCommandBuffer cmd) {
+		SKENGINE_NAME_NS_SHORT::GframeData& egf = ca.getGframeData(gfIndex);
+		auto& e = ca.engine();
+		auto batches         = getDrawBatches();
+		auto instance_buffer = getInstanceBuffer();
+		auto batch_buffer    = getDrawCommandBuffer();
+
+		if(batches.empty()) return;
+
+		WorldRendererBase::waitUntilReady();
+
+		VkDescriptorSet dsets[]  = { egf.frame_dset, { } };
+		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
+		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ca.getPipeline(pipelineInfo().shaderReq));
+		for(VkDeviceSize i = 0; const auto& batch : batches) {
+			auto* model = getModel(batch.model_id);
+			assert(model != nullptr);
+			if(batch.model_id != last_mdl) {
+				VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
+				constexpr VkDeviceSize offsets[] = { 0, 0 };
+				vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
+				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+			}
+			if(batch.material_id != last_mat) {
+				auto mat = getMaterial(batch.material_id);
+				assert(mat != nullptr);
+				dsets[Engine::MATERIAL_DSET_LOC] = mat->dset;
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.getPipelineLayout3d(), 0, std::size(dsets), dsets, 0, nullptr);
+			}
+			vkCmdDrawIndexedIndirect(
+				cmd, batch_buffer,
+				i * sizeof(VkDrawIndexedIndirectCommand), 1,
+				sizeof(VkDrawIndexedIndirectCommand) );
+			++ i;
+		}
+	}
+
+
 	const glm::mat4& WorldRenderer::getViewTransf() noexcept {
-		if(mViewTransfCacheOod) {
+		if(mState.viewTransfCacheOod) {
 			constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
 			constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
 			constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
 			constexpr glm::mat4 identity = glm::mat4(1.0f);
 
-			glm::mat4 translate = glm::translate(identity, -mViewPosXyz);
-			glm::mat4 rot0      = glm::rotate(identity, +mViewDirYpr.z, z);
-			glm::mat4 rot1      = glm::rotate(identity, -mViewDirYpr.x, y); // I have no idea why this has to be negated for the right-hand rule to apply
-			glm::mat4 rot2      = glm::rotate(identity, +mViewDirYpr.y, x);
-			mViewTransfCache = rot2 * rot1 * rot0 * translate;
-			mViewTransfCacheOod = false;
+			glm::mat4 translate = glm::translate(identity, -mState.viewPosXyz);
+			glm::mat4 rot0      = glm::rotate(identity, +mState.viewDirYpr.z, z);
+			glm::mat4 rot1      = glm::rotate(identity, -mState.viewDirYpr.x, y); // I have no idea why this has to be negated for the right-hand rule to apply
+			glm::mat4 rot2      = glm::rotate(identity, +mState.viewDirYpr.y, x);
+			mState.viewTransfCache = rot2 * rot1 * rot0 * translate;
+			mState.viewTransfCacheOod = false;
 		}
 
-		return mViewTransfCache;
+		return mState.viewTransfCache;
 	}
 
 
 	void WorldRenderer::setViewPosition(const glm::vec3& xyz, bool lazy) noexcept {
-		mViewPosXyz = xyz;
-		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+		mState.viewPosXyz = xyz;
+		mState.viewTransfCacheOod = mState.viewTransfCacheOod | ! lazy;
 	}
 
 
 	void WorldRenderer::setViewRotation(const glm::vec3& ypr, bool lazy) noexcept {
 		{ // Normalize the direction values
 			constexpr auto pi2 = 2.0f * std::numbers::pi_v<float>;
-			#define NORMALIZE_(I_) { if(mViewDirYpr[I_] >= pi2) [[unlikely]] { \
-				mViewDirYpr[I_] = std::floor(mViewDirYpr[I_] / pi2) * pi2; }}
+			#define NORMALIZE_(I_) { if(mState.viewDirYpr[I_] >= pi2) [[unlikely]] { \
+				mState.viewDirYpr[I_] = std::floor(mState.viewDirYpr[I_] / pi2) * pi2; }}
 			NORMALIZE_(0)
 			NORMALIZE_(1)
 			NORMALIZE_(2)
 			#undef NORMALIZE_
 		}
 
-		mViewDirYpr = ypr;
-		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+		mState.viewDirYpr = ypr;
+		mState.viewTransfCacheOod = mState.viewTransfCacheOod | ! lazy;
 	}
 
 
 	void WorldRenderer::setAmbientLight(const glm::vec3& rgb, bool lazy) noexcept {
-		mAmbientLight = rgb;
-		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+		mState.ambientLight = rgb;
+		mState.viewTransfCacheOod = mState.viewTransfCacheOod | ! lazy;
 	}
 
 
@@ -981,8 +1186,8 @@ namespace SKENGINE_NAME_NS {
 		ypr[0] = std::atan2(-xyz.x, -xyz.z);
 		ypr[1] = std::atan2(+xyz.y, -xyz.z);
 		ypr[2] = 0;
-		mViewDirYpr = ypr;
-		mViewTransfCacheOod = mViewTransfCacheOod | ! lazy;
+		mState.viewDirYpr = ypr;
+		mState.viewTransfCacheOod = mState.viewTransfCacheOod | ! lazy;
 	}
 
 
@@ -994,8 +1199,8 @@ namespace SKENGINE_NAME_NS {
 		rl.color         = nrl.color;
 		rl.intensity     = std::max(nrl.intensity, 0.0f);
 		rl.aoa_threshold = nrl.aoaThreshold;
-		mRayLights.insert(RayLights::value_type { r, std::move(rl) });
-		mLightStorageOod = true;
+		mState.rayLights.insert(RayLights::value_type { r, std::move(rl) });
+		mState.lightStorageOod = true;
 		return r;
 	}
 
@@ -1008,75 +1213,45 @@ namespace SKENGINE_NAME_NS {
 		pl.color       = npl.color;
 		pl.intensity   = std::max(npl.intensity, 0.0f);
 		pl.falloff_exp = std::max(npl.falloffExponent, 0.0f);
-		mPointLights.insert(PointLights::value_type { r, std::move(pl) });
-		mLightStorageOod = true;
+		mState.pointLights.insert(PointLights::value_type { r, std::move(pl) });
+		mState.lightStorageOod = true;
 		return r;
 	}
 
 
 	void WorldRenderer::removeLight(ObjectId id) {
-		assert(mPointLights.contains(id) || mRayLights.contains(id));
-		mLightStorageOod = true;
-		if(0 == mRayLights.erase(id)) mPointLights.erase(id);
+		assert(mState.pointLights.contains(id) || mState.rayLights.contains(id));
+		mState.lightStorageOod = true;
+		if(0 == mState.rayLights.erase(id)) mState.pointLights.erase(id);
 		id_generator<ObjectId>.recycle(id);
 	}
 
 
 	const RayLight& WorldRenderer::getRayLight(ObjectId id) const {
-		return assert_not_end_(mRayLights, id)->second;
+		return assert_not_end_(mState.rayLights, id)->second;
 	}
 
 
 	const PointLight& WorldRenderer::getPointLight(ObjectId id) const {
-		return assert_not_end_(mPointLights, id)->second;
+		return assert_not_end_(mState.pointLights, id)->second;
 	}
 
 
 	RayLight& WorldRenderer::modifyRayLight(ObjectId id) {
-		mLightStorageOod = true;
-		return assert_not_end_(mRayLights, id)->second;
+		mState.lightStorageOod = true;
+		return assert_not_end_(mState.rayLights, id)->second;
 	}
 
 
 	PointLight& WorldRenderer::modifyPointLight(ObjectId id) {
-		mLightStorageOod = true;
-		return assert_not_end_(mPointLights, id)->second;
-	}
-
-
-	bool WorldRenderer::commitObjects(VkCommandBuffer cmd) {
-		if(mLightStorageOod) {
-			uint32_t new_ls_size = mRayLights.size() + mPointLights.size();
-			set_light_buffer_capacity(mVma, &mLightStorage, new_ls_size);
-
-			mLightStorage.rayCount   = mRayLights.size();
-			mLightStorage.pointCount = mPointLights.size();
-			auto& ray_count = mLightStorage.rayCount;
-			for(uint32_t i = 0; auto& rl : mRayLights) {
-				auto& dst = *reinterpret_cast<dev::RayLight*>(mLightStorage.mappedPtr + i);
-				dst.direction     = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
-				dst.color         = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
-				dst.aoa_threshold = rl.second.aoa_threshold;
-				++ i;
-			}
-			for(uint32_t i = ray_count; auto& pl : mPointLights) {
-				auto& dst = *reinterpret_cast<dev::PointLight*>(mLightStorage.mappedPtr + i);
-				dst.position    = glm::vec4(pl.second.position, 1.0f);
-				dst.color       = glm::vec4(glm::normalize(pl.second.color), pl.second.intensity);
-				dst.falloff_exp = pl.second.falloff_exp;
-				++ i;
-			}
-
-			mLightStorage.buffer.flush(mVma);
-			mLightStorageOod = false;
-		}
-
-		return WorldRendererBase::commitObjects(cmd);
+		mState.lightStorageOod = true;
+		return assert_not_end_(mState.pointLights, id)->second;
 	}
 
 
 	WorldRenderer::WorldRenderer(WorldRendererBase&& mv):
-		WorldRendererBase::WorldRendererBase(std::move(mv))
+		WorldRendererBase::WorldRendererBase(std::move(mv)),
+		Renderer(world_renderer_subpass_info)
 	{ }
 
 }

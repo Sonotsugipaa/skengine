@@ -45,81 +45,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void prepareLightStorage(Engine& e, VkCommandBuffer cmd, GframeData& gf) {
-		auto& ls = e.mWorldRenderer.lightStorage();
-
-		bool buffer_resized = gf.light_storage_capacity != ls.bufferCapacity;
-		if(buffer_resized) {
-			vkutil::ManagedBuffer::destroy(e.mVma, gf.light_storage);
-			gf.light_storage_capacity = 0;
-
-			vkutil::BufferCreateInfo bc_info = { };
-			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
-			gf.light_storage = vkutil::ManagedBuffer::createStorageBuffer(e.mVma, bc_info);
-
-			VkDescriptorBufferInfo db_info = { };
-			db_info.buffer = gf.light_storage;
-			db_info.range  = bc_info.size;
-			VkWriteDescriptorSet wr = { };
-			wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			wr.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			wr.descriptorCount = 1;
-			wr.dstSet     = gf.frame_dset;
-			wr.dstBinding = LIGHT_STORAGE_BINDING;
-			wr.pBufferInfo = &db_info;
-			vkUpdateDescriptorSets(e.mDevice, 1, &wr, 0, nullptr);
-
-			gf.light_storage_capacity = bc_info.size;
-		}
-
-		if(true /* Optimizable, but not worth the effort */) {
-			VkBufferCopy cp = { };
-			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
-			vkCmdCopyBuffer(cmd, ls.buffer.value, gf.light_storage, 1, &cp);
-		}
-	}
-
-
-	static void recordWorldDrawCommands(
-			Engine& e,
-			VkCommandBuffer cmd,
-			size_t          gf_index,
-			WorldRenderer&  renderer
-	) {
-		GframeData& gf = e.mGframes[gf_index];
-		auto batches         = renderer.getDrawBatches();
-		auto instance_buffer = renderer.getInstanceBuffer();
-		auto batch_buffer    = renderer.getDrawCommandBuffer();
-		if(batches.empty()) return;
-		VkDescriptorSet dsets[]   = { gf.frame_dset, { } };
-		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
-		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGenericGraphicsPipeline);
-		for(VkDeviceSize i = 0; const auto& batch : batches) {
-			auto* model = renderer.getModel(batch.model_id);
-			assert(model != nullptr);
-			if(batch.model_id != last_mdl) {
-				VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
-				constexpr VkDeviceSize offsets[] = { 0, 0 };
-				vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
-				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-			}
-			if(batch.material_id != last_mat) {
-				auto mat = renderer.getMaterial(batch.material_id);
-				assert(mat != nullptr);
-				dsets[MATERIAL_DSET_LOC] = mat->dset;
-				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mPipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
-			}
-			vkCmdDrawIndexedIndirect(
-				cmd, batch_buffer,
-				i * sizeof(VkDrawIndexedIndirectCommand), 1,
-				sizeof(VkDrawIndexedIndirectCommand) );
-			++ i;
-		}
-	}
-
-
 	template <bool doPrepare, bool doDraw>
 	static void recordUiCommands(Engine& e, GframeData& gframe) {
 		static_assert(doPrepare != doDraw);
@@ -307,25 +232,20 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
+		for(auto& r : e.mRenderers) r->beforePreRender(concurrent_access, sc_img_idx);
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[0], &cbb_info);
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[1], &cbb_info);
 
+		e.mRendererMutex.lock();
 		{ // Prepare the gframe buffers
-			e.mRendererMutex.lock();
 			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
-			auto& ls   = e.mWorldRenderer.lightStorage();
-			auto& al   = e.mWorldRenderer.getAmbientLight();
 			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
 			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
-			auto  all  = glm::length(al);
-			e.mWorldRenderer.commitObjects(gframe->cmd_prepare);
+			for(auto& r : e.mRenderers) r->duringPrepareStage(concurrent_access, sc_img_idx, gframe->cmd_prepare);
 			ubo.proj_transf       = e.mProjTransf;
-			ubo.view_transf       = e.mWorldRenderer.getViewTransf();
-			ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-			ubo.ambient_lighting  = glm::vec4((all > 0)? glm::normalize(al) : al, all);
 			ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
 			ubo.shade_step_count  = e.mPrefs.shade_step_count;
 			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
@@ -333,15 +253,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.dithering_steps   = e.mPrefs.dithering_steps;
 			ubo.rnd               = dist(rng);
 			ubo.time_delta        = std::float32_t(delta);
-			ubo.ray_light_count   = ls.rayCount;
-			ubo.point_light_count = ls.pointCount;
 			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
-			prepareLightStorage(e, gframe->cmd_prepare, *gframe);
 			recordUiCommands<true, false>(e, *gframe);
 		}
 
-		e.mWorldRenderer.waitUntilReady();
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
 
 		VkImageMemoryBarrier2 imb[2] = { }; {
@@ -394,7 +310,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			recordWorldDrawCommands(e, cmd, sc_img_idx, e.mWorldRenderer);
+			for(auto& r : e.mRenderers) r->duringDrawStage(concurrent_access, sc_img_idx, cmd);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw[0]);
@@ -524,6 +440,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 
+		for(auto& r : e.mRenderers) r->afterPresent(concurrent_access, sc_img_idx);
+
 		e.mGframeLast = int_fast32_t(sc_img_idx);
 		if(e.mPrefs.wait_for_gframe && (e.mGframeLast >= 0)) {
 			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[e.mGframeLast].fence_draw };
@@ -533,7 +451,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		}
 		e.mRendererMutex.unlock();
 
+		for(auto& r : e.mRenderers) r->beforePostRender(concurrent_access, sc_img_idx);
 		loop.loop_async_postRender(concurrent_access, delta, e.mGraphicsReg.lastDelta());
+		for(auto& r : e.mRenderers) r->afterPostRender(concurrent_access, sc_img_idx);
 
 		e.mGraphicsReg.endCycle();
 
@@ -628,7 +548,7 @@ namespace SKENGINE_NAME_NS {
 			ca_engine->mLogicReg.resetEstimates    (delta_t(1.0) / delta_t(ca_engine->mPrefs.target_tickrate));
 
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
-			init->reinit();
+			init->reinit(*this);
 		};
 
 		// Only unlock/relock the renderer mutex if the access doesn't happen on the graphics thread
@@ -691,7 +611,8 @@ namespace SKENGINE_NAME_NS {
 		{
 			auto rpass_cfg = RpassConfig::default_cfg;
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-			init->init(rpass_cfg);
+			auto ca = ConcurrentAccess(this, true);
+			init->init(ca, rpass_cfg);
 		}
 	}
 
@@ -701,7 +622,8 @@ namespace SKENGINE_NAME_NS {
 
 		{
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-			init->destroy();
+			auto ca = ConcurrentAccess(this, true);
+			init->destroy(ca);
 		}
 
 		{
@@ -793,7 +715,8 @@ namespace SKENGINE_NAME_NS {
 					if(swapchain_ood) {
 						// Some compositors resize the window as soon as it appears, and this seems to cause problems
 						auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-						init->reinit();
+						auto ca = ConcurrentAccess(this, true);
+						init->reinit(ca);
 					}
 					gframeLock.unlock();
 					mGraphicsReg.awaitNextTick();
