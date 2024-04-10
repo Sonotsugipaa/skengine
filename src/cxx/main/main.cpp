@@ -134,9 +134,9 @@ namespace {
 		}
 
 
-		void rotateObject(skengine::WorldRenderer& wr, std::ranlux48& rng, float mul, ObjectId id) {
+		void rotateObject(skengine::ObjectStorage& os, std::ranlux48& rng, float mul, ObjectId id) {
 			auto dist = std::uniform_real_distribution(-0.9f, +0.9f * std::numbers::pi_v<float>);
-			auto obj = wr.modifyObject(id).value();
+			auto obj = os.modifyObject(id).value();
 			obj.direction_ypr.r += mul * dist(rng);
 		}
 
@@ -157,25 +157,25 @@ namespace {
 		}
 
 
-		void createGround(skengine::WorldRenderer& wr) {
-			WorldRenderer::NewObject o = { };
+		void createGround(skengine::ObjectStorage& os) {
+			ObjectStorage::NewObject o = { };
 			o.model_locator = "world.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
-			world = wr.createObject(o);
+			world = os.createObject(o);
 		}
 
 
-		void createSpaceship(skengine::WorldRenderer& wr) {
-			WorldRenderer::NewObject o = { };
+		void createSpaceship(skengine::ObjectStorage& os) {
+			ObjectStorage::NewObject o = { };
 			o.model_locator = "spaceship.fma";
 			o.position_xyz  = { 0.0f, 10.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
-			spaceship = wr.createObject(o);
+			spaceship = os.createObject(o);
 		}
 
 
-		void createTestObjects(skengine::WorldRenderer& wr) {
+		void createTestObjects(skengine::ObjectStorage& os) {
 			using s_object_id_e = std::make_signed_t<object_id_e>;
 
 			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
@@ -184,7 +184,7 @@ namespace {
 				auto rng = std::minstd_rand(size_t(this));
 				auto disti = std::uniform_int_distribution<uint8_t>(0, nameList.size() - 1);
 				auto distf = std::uniform_real_distribution(0.0f, 2.0f * std::numbers::pi_v<float>);
-				WorldRenderer::NewObject o = { };
+				ObjectStorage::NewObject o = { };
 				o.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				o.position_xyz.y = 0.0f;
 				for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
@@ -198,7 +198,7 @@ namespace {
 					size_t xi = x + obj_count_sqrt_half;
 					size_t yi = y + obj_count_sqrt_half;
 					assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
-					objects[yi][xi] = wr.createObject(o);
+					objects[yi][xi] = os.createObject(o);
 				}
 			};
 
@@ -220,7 +220,7 @@ namespace {
 		}
 
 
-		void createLights(skengine::WorldRenderer& wr) {
+		void createLights(skengine::ObjectStorage& os, skengine::WorldRenderer& wr) {
 			WorldRenderer::NewPointLight pl = { };
 			pl.intensity = 2.0f;
 			pl.falloffExponent = 1.0f;
@@ -231,11 +231,11 @@ namespace {
 			camLightRadius = 0.05f;
 			camLight = wr.createPointLight(pl);
 
-			WorldRenderer::NewObject o = { };
+			ObjectStorage::NewObject o = { };
 			o.scale_xyz     = { 0.05f, 0.05f, 0.05f };
 			o.model_locator = "gold-bars.fma";
 			o.hidden        = true;
-			lightGuide = wr.createObject(o);
+			lightGuide = os.createObject(o);
 		}
 
 
@@ -276,14 +276,15 @@ namespace {
 			lightCreated(false)
 		{
 			auto  ca = engine->getConcurrentAccess();
+			auto& os = ca->getObjectStorage();
 			auto& wr = ca->getWorldRenderer();
 			auto  gui = ca->gui();
 
 			setView(wr);
-			createGround(wr);
-			createSpaceship(wr);
-			createTestObjects(wr);
-			createLights(wr);
+			createGround(os);
+			createSpaceship(os);
+			createTestObjects(os);
+			createLights(os, wr);
 			createGui(gui);
 		}
 
@@ -469,6 +470,7 @@ namespace {
 
 
 		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
+			auto& os = ca.getObjectStorage();
 			auto& wr = ca.getWorldRenderer();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
@@ -492,7 +494,7 @@ namespace {
 				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
 				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
 				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
-					rotateObject(wr, rng, delta, objects[x][y]);
+					rotateObject(os, rng, delta, objects[x][y]);
 				}
 			}
 
@@ -542,7 +544,7 @@ namespace {
 
 			if(! move_light_key_pressed) {
 				if(lightGuideVisible) {
-					wr.modifyObject(lightGuide)->hidden = true;
+					os.modifyObject(lightGuide)->hidden = true;
 					lightGuideVisible = false;
 				}
 			} else {
@@ -553,7 +555,7 @@ namespace {
 				} ();
 
 				{ // Handle the light guide
-					auto o = wr.modifyObject(lightGuide).value();
+					auto o = os.modifyObject(lightGuide).value();
 					o.position_xyz    = pos + light_pos;
 					o.hidden          = false;
 					lightGuideVisible = true;

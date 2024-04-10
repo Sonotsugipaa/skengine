@@ -171,6 +171,7 @@ namespace SKENGINE_NAME_NS {
 		ConcurrentAccess() = default;
 		ConcurrentAccess(Engine* e, bool is_thread_local): ca_engine(e), ca_threadLocal(is_thread_local) { }
 
+		ObjectStorage& getObjectStorage() noexcept;
 		WorldRenderer& getWorldRenderer() noexcept;
 		GframeData& getGframeData(unsigned index) noexcept;
 		VkPipeline getPipeline(const ShaderRequirement&);
@@ -322,7 +323,6 @@ namespace SKENGINE_NAME_NS {
 		VkSurfaceKHR       mSurface          = nullptr;
 		QfamIndex          mPresentQfamIndex = QfamIndex::eInvalid;
 		VkQueue            mPresentQueue     = nullptr;
-		VkSwapchainKHR     mSwapchainOld     = nullptr;
 		VkSwapchainKHR     mSwapchain        = nullptr;
 		VkSurfaceCapabilitiesKHR mSurfaceCapabs = { };
 		VkSurfaceFormatKHR       mSurfaceFormat = { };
@@ -350,6 +350,7 @@ namespace SKENGINE_NAME_NS {
 		VkPipelineLayout   mPipelineLayout3d;
 		GenericPipelineSet mPipelines;
 		WorldRenderer*     mWorldRenderer_TMP_UGLY_NAME;
+		std::shared_ptr<ObjectStorage> mObjectStorage;
 
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
@@ -400,6 +401,7 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromMemory(std::span<const uint32_t>);
 
 
+	inline ObjectStorage& ConcurrentAccess::getObjectStorage   ()           noexcept { return * ca_engine->mObjectStorage; }
 	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()           noexcept { return * ca_engine->mWorldRenderer_TMP_UGLY_NAME; }
 	inline GframeData&    ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
 	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }

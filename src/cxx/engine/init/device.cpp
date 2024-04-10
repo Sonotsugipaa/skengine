@@ -23,14 +23,14 @@ namespace SKENGINE_NAME_NS {
 		initTransferCmdPool();
 		initDsetLayouts();
 		initFreetype();
-		initRenderer();
+		initAssets();
 		initGui();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
 		destroyGui();
-		destroyRenderer();
+		destroyAssets();
 		destroyFreetype();
 		destroyDsetLayouts();
 		destroyTransferCmdPool();
@@ -266,8 +266,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initRenderer() {
-		#warning "TODO: change name"
+	void Engine::DeviceInitializer::initAssets() {
 		mAssetSupplier = AssetSupplier(*this, mAssetSource, 0.125f);
 	}
 
@@ -293,7 +292,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::destroyRenderer() {
+	void Engine::DeviceInitializer::destroyAssets() {
 		mAssetSupplier.destroy();
 	}
 

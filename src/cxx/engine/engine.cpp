@@ -417,17 +417,17 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		{ // Submit the prepare and draw commands
 			constexpr VkPipelineStageFlags waitStages[3] = {
 				0,
-				VK_PIPELINE_STAGE_TRANSFER_BIT,
-				VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT };
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0 };
+			VkSemaphore drawSems[3] = { gframe->sem_prepare, gframe->sem_drawWorld, gframe->sem_drawGui };
 			subm.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 			subm.commandBufferCount = 1;
 			subm.pCommandBuffers    = &gframe->cmd_prepare;
 			subm.pWaitDstStageMask  = waitStages + 0;
 			subm.signalSemaphoreCount = 1;
-			subm.pSignalSemaphores    = &gframe->sem_prepare;
+			subm.pSignalSemaphores    = drawSems + 0;
 			VK_CHECK(vkResetFences, e.mDevice,          1,       &gframe->fence_prepare);
 			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, gframe->fence_prepare);
-			VkSemaphore drawSems[3] = { gframe->sem_prepare, gframe->sem_drawWorld, gframe->sem_drawGui };
 			subm.waitSemaphoreCount = 1;
 			subm.pCommandBuffers    = gframe->cmd_draw + 0;
 			subm.pWaitDstStageMask  = waitStages       + 1;

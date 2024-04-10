@@ -15,6 +15,7 @@ add_library(engine
 	init/device.cpp
 	init/rpass.cpp
 	world_renderer.cpp
+	object_storage.cpp
 	gui.cpp
 	engine.cpp
 	engine_buffer.cpp

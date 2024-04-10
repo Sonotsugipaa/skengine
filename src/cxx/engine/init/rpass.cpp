@@ -172,7 +172,6 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::init(ConcurrentAccess& ca, const RpassConfig& rc) {
 		#define SET_STAGE_(B_) state.stages = state.stages | (stages_t(1) << stages_t(B_));
 		mRpassConfig = rc;
-		mSwapchainOld = nullptr;
 		mSwapchainOod = false;
 		mHdrEnabled   = false;
 		validate_prefs(mPrefs);
@@ -387,7 +386,6 @@ namespace SKENGINE_NAME_NS {
 			if(s_info.oldSwapchain != nullptr) vkDestroySwapchainKHR(mDevice, s_info.oldSwapchain, nullptr);
 		};
 
-		#warning "TODO: remove mSwapchainOld?"
 		VkSwapchainKHR newSc;
 		if(mSwapchain == nullptr) [[unlikely]] {
 			assert(! state.reinit);
@@ -468,11 +466,14 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::initRenderers(State& state) {
 		if(! state.reinit) {
-			auto uptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
+			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
 				std::make_shared<spdlog::logger>(logger()),
 				mVma,
 				mMaterialDsetLayout,
 				mAssetSupplier ));
+			auto uptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
+				std::make_shared<spdlog::logger>(logger()),
+				mObjectStorage ));
 			mWorldRenderer_TMP_UGLY_NAME = uptr.get();
 			mRenderers.emplace_back(std::move(uptr));
 		}
@@ -618,7 +619,6 @@ namespace SKENGINE_NAME_NS {
 		std::vector<VkSubpassDependency> subpassDepsWorld;   subpassDescsWorld.reserve(subpassCountHeuristic);
 		std::vector<VkSubpassDependency> subpassDepsUi;      subpassDescsUi   .reserve(subpassCountHeuristic);
 		{ // Create subpass descriptions and references
-			#warning "TODO: write in 'TODO.md' that dependencies can be optimized with a dependency graph"
 			VkSubpassDescription spDescTemplate = { };
 			spDescTemplate.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
 			spDescTemplate.colorAttachmentCount    = 1;
@@ -894,7 +894,8 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRenderers(State& state) {
 		if(! state.reinit) {
-			mWorldRenderer_TMP_UGLY_NAME = nullptr; // Non-owning pointer
+			WorldRenderer::destroy(*mWorldRenderer_TMP_UGLY_NAME);
+			ObjectStorage::destroy(*mObjectStorage);
 			mRenderers.clear();
 		}
 	}
