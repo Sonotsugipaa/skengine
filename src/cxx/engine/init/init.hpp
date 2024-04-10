@@ -44,6 +44,7 @@ namespace SKENGINE_NAME_NS {
 		void destroy(ConcurrentAccess&);
 
 	private:
+		void unwind(State&);
 		void initSurface();
 		void initSwapchain(State&);
 		void initGframeDescPool(State&);

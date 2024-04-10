@@ -215,6 +215,11 @@ namespace SKENGINE_NAME_NS {
 		friend GuiManager;
 		friend GuiState;
 
+		using signal_e = unsigned;
+		enum class Signal : signal_e { eNone = 0, eReinit = 1 };
+		template <Signal signal> static const char signalChars[];
+		static std::string_view signalString(Signal) noexcept;
+
 		using GenericPipelineSet = std::unordered_map<ShaderRequirement, VkPipeline, ShaderRequirementHash, ShaderRequirementCompare>;
 
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
@@ -250,6 +255,7 @@ namespace SKENGINE_NAME_NS {
 
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
+		void signal(Signal);
 
 		[[nodiscard]]
 		std::unique_lock<std::mutex> pauseRenderPass();
@@ -351,6 +357,11 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGuiDsetLayout;
 
 		std::mutex mRendererMutex = std::mutex();
+		std::mutex mSignalMutex = std::mutex(); // Locked when handling a signal
+		std::condition_variable mSignalCv;
+		Signal mSignal[2]; // 0: graphics thread; 1: external thread
+		uint_fast64_t mLastResizeTime; // Bandaid fix to drivers not telling me why they fail to vkCreateSwapchainKHR: don't resize twice in less than <TIMESPAN>
+
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		std::vector<std::unique_ptr<Renderer>> mRenderers;
 		decltype(mRenderers)::iterator mRendererIterators[2-1]; // One for each render pass minus the first one
@@ -367,6 +378,17 @@ namespace SKENGINE_NAME_NS {
 		bool mSwapchainOod;
 		bool mHdrEnabled;
 	};
+
+
+	template <> constexpr const char Engine::signalChars<Engine::Signal::eNone  >[4] = { 'N', 'O', 'N', 'E' };
+	template <> constexpr const char Engine::signalChars<Engine::Signal::eReinit>[6] = { 'R', 'E', 'I', 'N', 'I', 'T' };
+	inline std::string_view Engine::signalString(Engine::Signal signal) noexcept { switch(signal) {
+		#define CASE_(S_) case S_: return std::string_view(signalChars<S_>, std::size(signalChars<S_>));
+		CASE_(Signal::eNone);
+		CASE_(Signal::eReinit);
+		default: return "?";
+		#undef CASE_
+	}}
 
 
 	template <ShaderCodeContainer ShaderCode>

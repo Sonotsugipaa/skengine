@@ -23,7 +23,7 @@ namespace {
 
 	const EnginePreferences engine_preferences = []() {
 		auto prefs = EnginePreferences::default_prefs;
-		prefs.init_present_extent   = { 100, 100 };
+		prefs.init_present_extent   = { 300, 300 };
 		prefs.max_render_extent     = { 500, 500 };
 		prefs.asset_filename_prefix = "assets/";
 		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
@@ -336,6 +336,9 @@ namespace {
 							break;
 						case SDLK_g:
 							doRotateObjects = ! doRotateObjects;
+							break;
+						case SDLK_ESCAPE:
+							active = false;
 							break;
 						default:
 							pressedKeys.insert(SDL_KeyCode(ev.key.keysym.sym));

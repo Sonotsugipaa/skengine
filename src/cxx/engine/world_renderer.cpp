@@ -971,7 +971,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::afterSwapchainCreation(ConcurrentAccess& ca, unsigned gframeCount) {
+	void WorldRenderer::afterSwapchainCreation(ConcurrentAccess&, unsigned gframeCount) {
 		uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
 
 		size_t oldGframeCount = mState.gframes.size();

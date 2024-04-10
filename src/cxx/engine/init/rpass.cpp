@@ -17,11 +17,16 @@
 
 namespace SKENGINE_NAME_NS {
 
+	using stages_t = uint_fast8_t;
+
+
 	struct Engine::RpassInitializer::State {
 		ConcurrentAccess& concurrentAccess;
+		stages_t stages;
 		bool reinit         : 1;
 		bool createGframes  : 1;
 		bool destroyGframes : 1;
+		State(ConcurrentAccess& ca, bool reinit, stages_t stages = ~ stages_t(0)): concurrentAccess(ca), stages(stages), reinit(reinit) { }
 	};
 
 
@@ -165,71 +170,94 @@ namespace SKENGINE_NAME_NS {
 
 	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::RpassInitializer::init(ConcurrentAccess& ca, const RpassConfig& rc) {
+		#define SET_STAGE_(B_) state.stages = state.stages | (stages_t(1) << stages_t(B_));
 		mRpassConfig = rc;
 		mSwapchainOld = nullptr;
 		mSwapchainOod = false;
 		mHdrEnabled   = false;
 		validate_prefs(mPrefs);
-		State state = { .concurrentAccess = ca, .reinit = false, .createGframes = false, .destroyGframes = false };
-		initSurface();
-		initSwapchain(state);
-		initRenderers(state);
-		initGframeDescPool(state);
-		initGframes(state);
-		initRpasses(state);
-		initFramebuffers(state);
-		initTop(state);
+		auto state = State(ca, false, 0);
+		try {
+			initSurface(); SET_STAGE_(0)
+			initSwapchain(state); SET_STAGE_(1)
+			initRenderers(state); SET_STAGE_(2)
+			initGframeDescPool(state); SET_STAGE_(3)
+			initGframes(state); SET_STAGE_(4)
+			initRpasses(state); SET_STAGE_(5)
+			initFramebuffers(state); SET_STAGE_(6)
+			initTop(state); SET_STAGE_(7)
+		} catch(...) {
+			unwind(state);
+			std::rethrow_exception(std::current_exception());
+		}
+		#undef SET_STAGE_
 	}
 
 
 	void Engine::RpassInitializer::reinit(ConcurrentAccess& ca) {
+		#define SET_STAGE_(B_) state.stages = state.stages | (stages_t(1) << stages_t(B_));
+		#define UNSET_STAGE_(B_) state.stages = state.stages & (~ (stages_t(1) << stages_t(B_)));
 		logger().trace("Recreating swapchain");
 
-		State state = { .concurrentAccess = ca, .reinit = true, .createGframes = false, .destroyGframes = false };
+		auto state = State(ca, true);
 
 		validate_prefs(mPrefs);
 
 		VkExtent2D old_render_xt  = mRenderExtent;
 		VkExtent2D old_present_xt = mPresentExtent;
 
-		destroyTop(state);
-		destroyFramebuffers(state);
-		destroySwapchain(state);
-		destroyGframes(state);
-		destroyRenderers(state);
-		initSwapchain(state);
-		destroyGframeDescPool(state);
-		initGframeDescPool(state);
-		initRenderers(state);
-		initGframes(state);
-		initFramebuffers(state);
+		try {
+			destroyTop(state); UNSET_STAGE_(7)
+			destroyFramebuffers(state); UNSET_STAGE_(6)
+			destroySwapchain(state); UNSET_STAGE_(1)
+			destroyGframes(state); UNSET_STAGE_(4)
+			destroyRenderers(state); UNSET_STAGE_(2)
+			initSwapchain(state); SET_STAGE_(1)
+			destroyGframeDescPool(state); UNSET_STAGE_(3)
+			initGframeDescPool(state); SET_STAGE_(3)
+			initRenderers(state); SET_STAGE_(2)
+			initGframes(state); SET_STAGE_(4)
+			initFramebuffers(state); SET_STAGE_(6)
 
-		bool render_xt_changed =
-			(old_render_xt.width  != mRenderExtent.width) ||
-			(old_render_xt.height != mRenderExtent.height);
-		bool present_xt_changed =
-			(old_present_xt.width  != mPresentExtent.width) ||
-			(old_present_xt.height != mPresentExtent.height);
+			bool render_xt_changed =
+				(old_render_xt.width  != mRenderExtent.width) ||
+				(old_render_xt.height != mRenderExtent.height);
+			bool present_xt_changed =
+				(old_present_xt.width  != mPresentExtent.width) ||
+				(old_present_xt.height != mPresentExtent.height);
 
-		if(render_xt_changed || present_xt_changed) {
-			destroyRpasses(state);
-			initRpasses(state);
+			if(render_xt_changed || present_xt_changed) {
+				destroyRpasses(state); UNSET_STAGE_(5)
+				initRpasses(state); SET_STAGE_(5)
+			}
+
+			initTop(state); SET_STAGE_(7)
+		} catch(...) {
+			state.reinit = false;
+			unwind(state);
+			std::rethrow_exception(std::current_exception());
 		}
-
-		initTop(state);
+		#undef SET_STAGE_
+		#undef UNSET_STAGE_
 	}
 
 
 	void Engine::RpassInitializer::destroy(ConcurrentAccess& ca) {
-		State state = { .concurrentAccess = ca, .reinit = false, .createGframes = false, .destroyGframes = false };
-		destroyTop(state);
-		destroyFramebuffers(state);
-		destroyRpasses(state);
-		destroySwapchain(state);
-		destroyGframes(state);
-		destroyGframeDescPool(state);
-		destroyRenderers(state);
-		destroySurface();
+		auto state = State(ca, false);
+		unwind(state);
+	}
+
+
+	void Engine::RpassInitializer::unwind(State& state) {
+		#define IF_STAGE_(B_) if(0 != (state.stages & (stages_t(1) << stages_t(B_))))
+		IF_STAGE_(7) destroyTop(state);
+		IF_STAGE_(6) destroyFramebuffers(state);
+		IF_STAGE_(5) destroyRpasses(state);
+		IF_STAGE_(1) destroySwapchain(state);
+		IF_STAGE_(4) destroyGframes(state);
+		IF_STAGE_(3) destroyGframeDescPool(state);
+		IF_STAGE_(2) destroyRenderers(state);
+		IF_STAGE_(0) destroySurface();
 	}
 
 
@@ -338,23 +366,44 @@ namespace SKENGINE_NAME_NS {
 			logger().trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
 		}
 
+
+		// Bandaid fix for vkCreateSwapchainKHR randomly throwing VK_ERROR_UNKNOWN around
+		auto tryCreateSwapchain = [&](VkSwapchainKHR* dst) {
+			for(auto i = 0u; i < 3u; ++i) {
+				try {
+					VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
+					mLogger->debug("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
+					return;
+				} catch(vkutil::VulkanError& err) {
+					s_info.oldSwapchain = nullptr;
+					mLogger->error("{} ({}) (attempt n. {})", err.what(), int32_t(err.vkResult()), i+1);
+					std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				}
+				mLogger->flush();
+			}
+			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
+		};
+		auto tryDestroySwapchain = [&]() {
+			if(s_info.oldSwapchain != nullptr) vkDestroySwapchainKHR(mDevice, s_info.oldSwapchain, nullptr);
+		};
+
 		#warning "TODO: remove mSwapchainOld?"
 		VkSwapchainKHR newSc;
 		if(mSwapchain == nullptr) [[unlikely]] {
 			assert(! state.reinit);
-			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &newSc);
+			tryCreateSwapchain(&newSc);
 		} else {
 			assert(state.reinit);
 			// The old swapchain is retired, but still exists:
 			// not destroying it when an exception is thrown may
 			// cause a memory leak.
 			try {
-				VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, &newSc);
+				tryCreateSwapchain(&newSc);
 			} catch(vkutil::VulkanError& e) {
-				vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+				tryDestroySwapchain();
 				throw e;
 			}
-			vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+			tryDestroySwapchain();
 		}
 		mSwapchain = newSc;
 

@@ -15,6 +15,8 @@
 #include <random>
 #include <deque>
 
+#include <vulkan/vk_enum_string_helper.h>
+
 
 
 namespace SKENGINE_NAME_NS {
@@ -26,6 +28,12 @@ namespace {
 		delta_t diff = (avg > last)? (avg - last) : (last - avg);
 		if(diff > last * tolerance_factor) avg = last;
 		return avg;
+	}
+
+
+	namespace sig {
+		constexpr size_t localThread = 0;
+		constexpr size_t extThread   = 1;
 	}
 
 }}
@@ -191,8 +199,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	// Returns `false` if the swapchain is out of date
-	static bool draw(Engine& e, LoopInterface& loop) {
+	static void draw(Engine& e, LoopInterface& loop) {
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
@@ -203,20 +210,29 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		e.mGraphicsReg.beginCycle();
 
 		{ // Acquire image
-			VkFence  sc_img_fence = selectGframeFence(e);
+			VkFence sc_img_fence;
+			try {
+				sc_img_fence = selectGframeFence(e);
+			} catch(vkutil::VulkanError& err) {
+				auto str = std::string_view(string_VkResult(err.vkResult()));
+				e.mLogger->error("Failed to acquire gframe fence ({})", str);
+				return;
+			}
 			VkResult res = vkAcquireNextImageKHR(e.mDevice, e.mSwapchain, UINT64_MAX, nullptr, sc_img_fence, &sc_img_idx);
 			switch(res) {
 				case VK_SUCCESS:
 					break;
 				case VK_ERROR_OUT_OF_DATE_KHR:
-					e.logger().trace("Swapchain is  out of date");
-					return false;
+					e.logger().trace("Swapchain is out of date");
+					e.signal(Signal::eReinit);
+					return;
 				case VK_SUBOPTIMAL_KHR:
 					e.logger().trace("Swapchain is suboptimal");
-					return false;
+					e.signal(Signal::eReinit);
+					return;
 				case VK_TIMEOUT:
 					e.logger().trace("Swapchain image request timed out");
-					return true;
+					return;
 				default:
 					assert(res < VkResult(0));
 					throw vkutil::VulkanError("vkAcquireNextImage2KHR", res);
@@ -458,8 +474,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		e.mGraphicsReg.endCycle();
 
 		for(auto& ln : e.mGuiState.textCaches) ln.second.trimChars(e.mPrefs.font_max_cache_size);
-
-		return true;
 	}
 
 
@@ -479,6 +493,77 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mLogicReg.awaitNextTick();
 		return r;
+	}
+
+
+	static void handleSignals(Engine& e) {
+		auto extractSignal = [&](size_t i) {
+			auto r = e.mSignal[i];
+			e.mSignal[i] = Signal::eNone;
+			return r;
+		};
+
+		bool reinitGate = false;
+		auto reinit = [&]() {
+			using tickreg::delta_t;
+
+			if(reinitGate) return;
+			reinitGate = true;
+
+			auto time = std::chrono::duration_cast<std::chrono::duration<decltype(Engine::mLastResizeTime), std::milli>>(std::chrono::steady_clock::now().time_since_epoch()).count();
+			if(e.mLastResizeTime + 1000 > time) return;
+
+			// Some compositors resize the window as soon as it appears, and this seems to cause problems
+			e.mGraphicsReg.resetEstimates (delta_t(1.0) / delta_t(e.mPrefs.target_framerate));
+			e.mLogicReg.resetEstimates    (delta_t(1.0) / delta_t(e.mPrefs.target_tickrate));
+
+			auto init = reinterpret_cast<Engine::RpassInitializer*>(&e);
+			auto ca = ConcurrentAccess(&e, true);
+			init->reinit(ca);
+		};
+
+		auto signalLock = std::unique_lock(e.mSignalMutex);
+		decltype(signalLock) gframeLock;
+
+		bool gframeLockExists = false;
+		auto awaitRpass = [&]() {
+			if(! gframeLockExists) {
+				gframeLock = e.pauseRenderPass();
+				gframeLockExists = true;
+			}
+		};
+
+		auto handleSignal = [&](Signal sig) {
+			switch(sig) {
+				default: [[fallthrough]];
+				case Signal::eNone: return false; break;
+				case Signal::eReinit: reinit(); break;
+			}
+			return true;
+		};
+
+		// Handle the local signal once
+		auto curSignal = extractSignal(sig::localThread);
+		if(curSignal != Signal::eNone) {
+			handleSignal(curSignal);
+			e.mLogger->trace("Handled signal {} from graphics thread", signalString(curSignal));
+		}
+
+		awaitRpass();
+		curSignal = extractSignal(sig::extThread);
+		if(curSignal != Signal::eNone) {
+			do {
+				signalLock.unlock();
+				e.mSignalCv.notify_one();
+				handleSignal(curSignal);
+				signalLock.lock();
+				e.mLogger->trace("Handled signal {} from external thread, polling new immediate signal", signalString(curSignal));
+				e.mLogger->flush();
+				curSignal = extractSignal(sig::extThread);
+			} while(curSignal != Signal::eNone);
+		}
+		assert(e.mSignal[sig::localThread] == Signal::eNone);
+		assert(e.mSignal[sig::extThread] == Signal::eNone);
 	}
 
 };
@@ -538,26 +623,12 @@ namespace SKENGINE_NAME_NS {
 
 
 	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
-		auto reinit = [&]() {
-			using tickreg::delta_t;
-			auto lock = ca_engine->pauseRenderPass();
+		bool extChanged =
+			(ext.width  != ca_engine->mPresentExtent.width) ||
+			(ext.height != ca_engine->mPresentExtent.height);
+		if(extChanged) {
 			ca_engine->mPrefs.init_present_extent = ext;
-
-			// Some compositors resize the window as soon as it appears, and this seems to cause problems
-			ca_engine->mGraphicsReg.resetEstimates (delta_t(1.0) / delta_t(ca_engine->mPrefs.target_framerate));
-			ca_engine->mLogicReg.resetEstimates    (delta_t(1.0) / delta_t(ca_engine->mPrefs.target_tickrate));
-
-			auto init = reinterpret_cast<Engine::RpassInitializer*>(ca_engine);
-			init->reinit(*this);
-		};
-
-		// Only unlock/relock the renderer mutex if the access doesn't happen on the graphics thread
-		if(ca_threadLocal) {
-			reinit();
-		} else {
-			ca_engine->mRendererMutex.unlock();
-			reinit();
-			ca_engine->mRendererMutex.lock();
+			ca_engine->signal(Engine::Signal::eReinit);
 		}
 	}
 
@@ -583,6 +654,8 @@ namespace SKENGINE_NAME_NS {
 			regulator_params ),
 		mGframeCounter(0),
 		mGframeSelector(0),
+		mSignal { Signal::eNone, Signal::eNone },
+		mLastResizeTime(0),
 		mAssetSource(std::move(asi)),
 		mLogger([&]() {
 			decltype(mLogger) r;
@@ -699,6 +772,7 @@ namespace SKENGINE_NAME_NS {
 		auto handle_exception = [&]() {
 			auto lock = std::unique_lock(mGframeMutex, std::try_to_lock);
 			exception = std::current_exception();
+			loop_state = LoopInterface::LoopState::eShouldStop;
 		};
 
 		mGraphicsThread = std::thread([&]() {
@@ -711,13 +785,8 @@ namespace SKENGINE_NAME_NS {
 					} else {
 						gframeLock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
 					}
-					bool swapchain_ood = ! Implementation::draw(*this, loop);
-					if(swapchain_ood) {
-						// Some compositors resize the window as soon as it appears, and this seems to cause problems
-						auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
-						auto ca = ConcurrentAccess(this, true);
-						init->reinit(ca);
-					}
+					Implementation::draw(*this, loop);
+					Implementation::handleSignals(*this);
 					gframeLock.unlock();
 					mGraphicsReg.awaitNextTick();
 				} catch(...) {
@@ -744,6 +813,30 @@ namespace SKENGINE_NAME_NS {
 
 		if(exception) {
 			std::rethrow_exception(exception);
+		}
+	}
+
+
+	void Engine::signal(Signal newSig) {
+		Signal oldSig;
+		bool thisIsGraphicsThread = mGraphicsThread.get_id() == std::this_thread::get_id();
+		auto exchangeSig = [&](size_t i) { auto r = mSignal[i]; mSignal[i] = newSig; return r; };
+
+		if(thisIsGraphicsThread) {
+			mLogger->trace("Graphics thread signaling {}", signalString(newSig));
+			oldSig = exchangeSig(sig::localThread);
+			assert(oldSig == Signal::eNone);
+		} else {
+			auto signalLock = std::unique_lock(mSignalMutex);
+			oldSig = exchangeSig(sig::extThread);
+			while(oldSig != Signal::eNone) {
+				mSignal[sig::extThread] = oldSig;
+				mSignalCv.wait(signalLock);
+				oldSig = exchangeSig(sig::extThread);
+			}
+			assert(oldSig == Signal::eNone);
+			mLogger->trace("External thread signaling {}", signalString(newSig));
+			mLogger->flush();
 		}
 	}
 
