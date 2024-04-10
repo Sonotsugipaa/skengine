@@ -1,4 +1,5 @@
 #include "engine.hpp"
+#include "debug.inl.hpp"
 
 #include "init/init.hpp"
 
@@ -672,6 +673,7 @@ namespace SKENGINE_NAME_NS {
 					r->set_level(spdlog::level::debug);
 				#endif
 			}
+			debug::setLogger(r);
 			return r;
 		} ()),
 		mPrefs(ep)

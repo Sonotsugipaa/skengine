@@ -41,7 +41,7 @@ namespace {
 	} ();
 
 
-	void readConfigFile(EnginePreferences* dst, const char* filename, spdlog::logger* logger) {
+	void readConfigFile(EnginePreferences* dst, spdlog::level::level_enum* dstLogLevel, const char* filename, spdlog::logger* logger) {
 		Settings settings;
 		settings.initialPresentExtent = { dst->init_present_extent.width, dst->init_present_extent.height };
 		settings.maxRenderExtent      = { dst->max_render_extent.width, dst->max_render_extent.height };
@@ -59,6 +59,7 @@ namespace {
 		settings.targetFramerate  = dst->target_framerate;
 		settings.targetTickrate   = dst->target_tickrate;
 		settings.fieldOfView      = glm::degrees(dst->fov_y);
+		settings.logLevel         = *dstLogLevel;
 
 		auto file = posixfio::File::open(filename, O_RDONLY | O_CREAT);
 		parseSettings(&settings, file.mmap(file.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0), *logger);
@@ -79,6 +80,7 @@ namespace {
 		dst->target_framerate      = settings.targetFramerate;
 		dst->target_tickrate       = settings.targetTickrate;
 		dst->fov_y                 = glm::radians(settings.fieldOfView);
+		*dstLogLevel = settings.logLevel;
 	}
 
 
@@ -595,9 +597,6 @@ int main(int argn, char** argv) {
 		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
 	logger->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
 
-	auto prefs = engine_preferences;
-	readConfigFile(&prefs, "assets/engine-settings.cfg", logger.get());
-
 	#ifdef NDEBUG
 		spdlog::set_level(spdlog::level::info);
 		logger->set_level(spdlog::level::info);
@@ -605,6 +604,13 @@ int main(int argn, char** argv) {
 		spdlog::set_level(spdlog::level::debug);
 		logger->set_level(spdlog::level::debug);
 	#endif
+
+	auto prefs = engine_preferences;
+	auto log_level = logger->level();
+	readConfigFile(&prefs, &log_level, "assets/engine-settings.cfg", logger.get());
+
+	spdlog::set_level(log_level);
+	logger->set_level(log_level);
 
 	try {
 		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");

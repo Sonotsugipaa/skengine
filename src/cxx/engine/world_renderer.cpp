@@ -1,6 +1,7 @@
 #include "world_renderer.hpp"
 
 #include "engine.hpp"
+#include "debug.inl.hpp"
 
 #include <bit>
 #include <cassert>
@@ -33,10 +34,16 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
-		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY = 4;
-		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR  = OBJECT_MAP_INITIAL_CAPACITY;
-		constexpr size_t BATCH_MAP_INITIAL_CAPACITY  = 16;
-		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR   = 1.0;
+		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY_KB = 32;
+		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = 2;
+		constexpr size_t MODEL_MAP_INITIAL_CAPACITY_KB  = 2;
+		constexpr float  MODEL_MAP_MAX_LOAD_FACTOR      = 0.8;
+		constexpr size_t BATCH_MAP_INITIAL_CAPACITY_KB  = 16;
+		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 0.8;
+		constexpr size_t UNBOUND_BATCH_LEVEL_1_INIT_CAP = 16;
+		constexpr float  UNBOUND_BATCH_LEVEL_1_LOAD_FAC = 0.8;
+		constexpr size_t UNBOUND_BATCH_LEVEL_2_INIT_CAP = 2;
+		constexpr float  UNBOUND_BATCH_LEVEL_2_LOAD_FAC = 4.0;
 
 
 		constexpr auto light_storage_create_info(size_t light_count) {
@@ -184,7 +191,9 @@ namespace SKENGINE_NAME_NS {
 			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 			ac_info.vmaFlags          = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			auto r = vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			debug::createdBuffer(r, "object instances");
+			return r;
 		}
 
 
@@ -195,7 +204,9 @@ namespace SKENGINE_NAME_NS {
 			vkutil::AllocationCreateInfo ac_info = { };
 			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-			return vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			auto r = vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			debug::createdBuffer(r, "indirect draw commands");
+			return r;
 		}
 
 
@@ -209,8 +220,9 @@ namespace SKENGINE_NAME_NS {
 
 			if(batches.empty()) return;
 
-			if(batches.size() * sizeof(DrawBatch) > buffer.size()) {
+			if(batches.size() * sizeof(VkDrawIndexedIndirectCommand) > buffer.size()) {
 				BufferDuplex::destroy(vma, buffer);
+				debug::destroyedBuffer(buffer, "indirect draw commands");
 				buffer = create_draw_buffer(vma, batches.size());
 			}
 
@@ -226,6 +238,21 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			buffer.flush(cmd, vma);
+			if(! buffer.isHostVisible()) {
+				VkBufferMemoryBarrier2 bar = { };
+				bar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+				bar.buffer = buffer;
+				bar.size = buffer.size();
+				bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bar.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+				bar.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+				VkDependencyInfo depInfo = { };
+				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				depInfo.bufferMemoryBarrierCount = 1;
+				depInfo.pBufferMemoryBarriers = &bar;
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+			}
 		}
 
 
@@ -260,6 +287,7 @@ namespace SKENGINE_NAME_NS {
 			if(desired != dst->bufferCapacity) {
 				if(dst->bufferCapacity > 0) {
 					dst->buffer.unmap(vma);
+					debug::destroyedBuffer(dst->buffer, "host-writeable light storage");
 					vkutil::ManagedBuffer::destroy(vma, dst->buffer);
 				}
 
@@ -267,6 +295,7 @@ namespace SKENGINE_NAME_NS {
 				auto& ac_info = light_storage_allocate_info;
 				dst->buffer    = vkutil::ManagedBuffer::create(vma, bc_info, ac_info);
 				dst->mappedPtr = dst->buffer.map<dev::Light>(vma);
+				debug::createdBuffer(dst->buffer, "host-writeable light storage");
 
 				dst->bufferCapacity = desired;
 			}
@@ -351,19 +380,20 @@ namespace SKENGINE_NAME_NS {
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
 		r.mAssetSupplier = &asset_supplier;
-		r.mObjects             = decltype(mObjects)            (OBJECT_MAP_INITIAL_CAPACITY);
-		r.mModelLocators       = decltype(mModelLocators)      (OBJECT_MAP_INITIAL_CAPACITY);
-		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (OBJECT_MAP_INITIAL_CAPACITY);
+		r.mObjects             = decltype(mObjects)            (1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(decltype(mObjects)::value_type));
+		r.mModelLocators       = decltype(mModelLocators)      (1024 * MODEL_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mModelLocators)::value_type));
+		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mUnboundDrawBatches)::value_type));
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
-		r.mUnboundDrawBatches.max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
+		r.mModelLocators.     max_load_factor(MODEL_MAP_MAX_LOAD_FACTOR);
+		r.mUnboundDrawBatches.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
 		r.mDsetLayout    = dset_layout;
 		r.mDpoolCapacity = 0;
 		r.mDpoolSize     = 0;
 		r.mBatchesNeedUpdate  = true;
 		r.mObjectsNeedRebuild = true;
 		r.mObjectsNeedFlush   = true;
-		r.mObjectBuffer = create_object_buffer(r.mVma, OBJECT_MAP_INITIAL_CAPACITY);
-		r.mBatchBuffer  = create_draw_buffer(r.mVma, BATCH_MAP_INITIAL_CAPACITY);
+		r.mObjectBuffer = create_object_buffer(r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Instance));
+		r.mBatchBuffer  =   create_draw_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
 
 		{ // Initialize the matrix assembler
 			constexpr auto maxWorkerCount = 4; // This heuristic value seems to outperform other bottlenecks
@@ -386,7 +416,9 @@ namespace SKENGINE_NAME_NS {
 		assert(r.mDevice != nullptr);
 
 		r.clearObjects();
+		debug::destroyedBuffer(r.mBatchBuffer, "indirect draw commands");
 		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
+		debug::destroyedBuffer(r.mObjectBuffer, "object instances");
 		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
 
 		vkDestroyDescriptorPool(r.mDevice, r.mDpool, nullptr);
@@ -596,12 +628,15 @@ namespace SKENGINE_NAME_NS {
 		auto  model_ins = mModels.insert(ModelMap::value_type(id, { model, std::string(locator) }));
 		auto& locator_r = model_ins.first->second.locator;
 		mModelLocators.insert(ModelLookup::value_type(locator_r, id));
-		auto batch_ins = mUnboundDrawBatches.insert(UnboundBatchMap::value_type(id, UnboundBatchMap::mapped_type(BATCH_MAP_INITIAL_CAPACITY)));
-		batch_ins.first->second.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
+		auto batch_ins = mUnboundDrawBatches.insert(UnboundBatchMap::value_type(id, UnboundBatchMap::mapped_type(UNBOUND_BATCH_LEVEL_1_INIT_CAP)));
+		batch_ins.first->second.max_load_factor(UNBOUND_BATCH_LEVEL_1_LOAD_FAC);
 
 		auto& bones = model_ins.first->second.bones;
 		for(bone_id_e i = 0; i < bones.size(); ++i) {
-			batch_ins.first->second.insert(UnboundBatchMap::mapped_type::value_type(i, UnboundBatchMap::mapped_type::mapped_type()));
+			auto bone_ins = batch_ins.first->second.insert(UnboundBatchMap::mapped_type::value_type(
+				i,
+				UnboundBatchMap::mapped_type::mapped_type(UNBOUND_BATCH_LEVEL_2_INIT_CAP) ));
+			bone_ins.first->second.max_load_factor(UNBOUND_BATCH_LEVEL_2_LOAD_FAC);
 		}
 
 		return id;
@@ -745,8 +780,8 @@ namespace SKENGINE_NAME_NS {
 			return i;
 		} ();
 
-		std::size_t    new_size   = new_instance_count * sizeof(dev::Instance);
-		constexpr auto shrink_fac = OBJECT_MAP_INITIAL_CAPACITY;
+		size_t new_size = new_instance_count * sizeof(dev::Instance);
+		constexpr size_t shrink_fac = 4;
 
 		{ // Ensure the object buffer is big enough
 			bool size_too_small = (new_size > mObjectBuffer.size());
@@ -754,6 +789,7 @@ namespace SKENGINE_NAME_NS {
 			if(size_too_small || size_too_big) {
 				mObjectsNeedRebuild = true;
 				mObjectsNeedFlush   = true;
+				debug::destroyedBuffer(mObjectBuffer, "object instances");
 				vkutil::BufferDuplex::destroy(mVma, mObjectBuffer);
 				mObjectBuffer = create_object_buffer(mVma, std::bit_ceil(new_instance_count));
 			}
@@ -984,14 +1020,16 @@ namespace SKENGINE_NAME_NS {
 		auto setFrameLightStorage = [&](unsigned gfIndex) {
 			GframeData& wgf = mState.gframes[gfIndex];
 			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(mVma, lightStorageBcInfo);
+			debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
 			wgf.lightStorageCapacity = lightCapacity;
 			mState.lightStorageDsetOod = true;
 		};
 
 		auto unsetFrameLightStorage = [&](unsigned gfIndex) {
-			GframeData& gf = mState.gframes[gfIndex];
-			vkutil::ManagedBuffer::destroy(mVma, gf.lightStorage);
-			gf.lightStorageCapacity = 0;
+			GframeData& wgf = mState.gframes[gfIndex];
+			debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
+			vkutil::ManagedBuffer::destroy(mVma, wgf.lightStorage);
+			wgf.lightStorageCapacity = 0;
 		};
 
 		if(oldGframeCount < gframeCount) {
@@ -1062,12 +1100,14 @@ namespace SKENGINE_NAME_NS {
 		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
 		if(buffer_resized) {
 			mLogger->trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
+			debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
 			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
 
 			vkutil::BufferCreateInfo bc_info = { };
 			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
 			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
+			debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
 
 			#warning "TODO: Renderer-owned descriptor sets, or something"
 
@@ -1084,6 +1124,19 @@ namespace SKENGINE_NAME_NS {
 			VkBufferCopy cp = { };
 			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
 			vkCmdCopyBuffer(cmd, ls.buffer.value, wgf.lightStorage, 1, &cp);
+			VkBufferMemoryBarrier2 bar = { };
+			bar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+			bar.buffer = wgf.lightStorage;
+			bar.size = wgf.lightStorageCapacity;
+			bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			bar.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+			bar.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+			VkDependencyInfo depInfo = { };
+			depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			depInfo.bufferMemoryBarrierCount = 1;
+			depInfo.pBufferMemoryBarriers = &bar;
+			vkCmdPipelineBarrier2(cmd, &depInfo);
 		}
 	}
 

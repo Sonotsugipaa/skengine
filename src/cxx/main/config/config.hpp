@@ -1,6 +1,6 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
+#include <spdlog/logger.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -36,6 +36,7 @@ inline namespace main_ns {
 		float       targetFramerate;
 		float       targetTickrate;
 		float       fieldOfView;
+		spdlog::level::level_enum logLevel;
 	};
 
 

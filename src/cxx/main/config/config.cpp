@@ -192,6 +192,15 @@ inline namespace main_ns {
 				logger.error("Invalid field of view: \"{}\"", ln);
 			}
 		};
+		auto parseLogLevel = [&](spdlog::level::level_enum* dst, const std::string_view& ln) {
+			if     (ln == "trace")    *dst = spdlog::level::trace;
+			else if(ln == "debug")    *dst = spdlog::level::debug;
+			else if(ln == "info")     *dst = spdlog::level::info;
+			else if(ln == "error")    *dst = spdlog::level::err;
+			else if(ln == "critical") *dst = spdlog::level::critical;
+			else if(ln == "off")      *dst = spdlog::level::off;
+			else logger.error("Invalid log level: \"{}\"", ln);
+		};
 		#pragma endregion
 
 		auto trimTrailingWspaces = [&](Span& ln) {
@@ -231,6 +240,7 @@ inline namespace main_ns {
 				else if(key == u8"target-framerate")           UL_ parseRealFramerate(&dst->targetFramerate, lnv);
 				else if(key == u8"target-tickrate")            UL_ parseRealFramerate(&dst->targetTickrate, lnv);
 				else if(key == u8"field-of-view")              UL_ parseFov(&dst->fieldOfView, lnv);
+				else if(key == u8"log-level")                  UL_ parseLogLevel(&dst->logLevel, lnv);
 				else logger.error("Unrecognized settings key: \"{}\"", std::string_view(reinterpret_cast<const char*>(key.begin()), reinterpret_cast<const char*>(key.end())));
 				#undef UL_
 			} else {

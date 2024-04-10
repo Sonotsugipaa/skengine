@@ -4,6 +4,7 @@
 	"C_Cpp.default.cStandard": "c23",
 	"C_Cpp.default.defines": [
 		"OS_LINUX", "OS=LINUX",
+		"NDEBUG",
 		"SKENGINE_VERSION=1.2.3",
 		"SKENGINE_VERSION_MAJOR=1",
 		"SKENGINE_VERSION_MINOR=2",
