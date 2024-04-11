@@ -87,7 +87,17 @@ namespace SKENGINE_NAME_NS {
 
 
 
+	#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
+	constexpr VkDescriptorSetLayoutBinding dset_layout_bindings[] = {
+	B_(Engine::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+	B_(Engine::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+	B_(Engine::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+	B_(Engine::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+	B_(Engine::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
+	#undef B_
+
 	constexpr auto world_renderer_subpass_info = Renderer::Info {
+		.dsetLayoutBindings = Renderer::Info::DsetLayoutBindings::referenceTo(dset_layout_bindings),
 		.shaderReq = { .name = "default", .pipelineLayout = PipelineLayoutId::e3d },
 		.rpass = Renderer::RenderPass::eWorld };
 

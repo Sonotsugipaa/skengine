@@ -138,7 +138,7 @@ namespace SKENGINE_NAME_NS {
 		VkGraphicsPipelineCreateInfo gpc_info = { };
 		gpc_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		gpc_info.renderPass = rpass;
-		gpc_info.layout     = mPipelineLayout3d;
+		gpc_info.layout     = m3dPipelineLayout;
 		gpc_info.subpass    = subpass;
 		gpc_info.stageCount = std::size(stages);
 		gpc_info.pStages    = stages;

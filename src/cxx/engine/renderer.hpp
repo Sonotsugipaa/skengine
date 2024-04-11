@@ -2,6 +2,8 @@
 
 #include "shader_cache.hpp"
 
+#include <misc-util.tpp>
+
 
 
 namespace SKENGINE_NAME_NS {
@@ -32,6 +34,8 @@ namespace SKENGINE_NAME_NS {
 		enum class RenderPass : unsigned { eNone = 0, eWorld = 1, eUi = 2 };
 
 		struct Info {
+			using DsetLayoutBindings = util::TransientPtrRange<const VkDescriptorSetLayoutBinding>;
+			DsetLayoutBindings dsetLayoutBindings;
 			ShaderRequirement shaderReq;
 			RenderPass rpass;
 		};

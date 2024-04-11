@@ -69,7 +69,7 @@ namespace SKENGINE_NAME_NS {
 
 		static void destroy(WorldRenderer&);
 
-		std::string_view name() const noexcept { return "world-surface"; }
+		std::string_view name() const noexcept override { return "world-surface"; }
 		void afterSwapchainCreation(ConcurrentAccess&, unsigned) override;
 		void beforePreRender(ConcurrentAccess&, unsigned) override;
 		void duringPrepareStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;

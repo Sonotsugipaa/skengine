@@ -228,7 +228,7 @@ namespace {
 			pl.color    = { 1.0f, 0.0f, 0.34f };
 			camLightCenter = pl.position;
 			camLightAngle = 0.0f;
-			camLightRadius = 0.05f;
+			camLightRadius = 0.01f;
 			camLight = wr.createPointLight(pl);
 
 			ObjectStorage::NewObject o = { };

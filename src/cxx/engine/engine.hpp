@@ -284,9 +284,9 @@ namespace SKENGINE_NAME_NS {
 		auto getDevice             () noexcept { return mDevice; }
 		auto getPhysDevice         () noexcept { return mPhysDevice; }
 		auto getTransferCmdPool    () noexcept { return mTransferCmdPool; }
-		auto getMaterialDsetLayout () noexcept { return mMaterialDsetLayout; }
+		auto getMaterialDsetLayout () noexcept { return m3dPipelineMaterialDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
-		auto getPipelineLayout3d   () noexcept { return mPipelineLayout3d; }
+		auto getPipelineLayout3d   () noexcept { return m3dPipelineLayout; }
 
 		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
 		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
@@ -342,19 +342,19 @@ namespace SKENGINE_NAME_NS {
 		std::vector<VkFence>      mGframeSelectionFences;
 		std::thread               mGraphicsThread;
 
-		VkExtent2D         mRenderExtent;
-		VkExtent2D         mPresentExtent;
-		VkRenderPass       mWorldRpass;
-		VkRenderPass       mUiRpass;
-		VkPipelineCache    mPipelineCache;
-		VkPipelineLayout   mPipelineLayout3d;
-		GenericPipelineSet mPipelines;
-		WorldRenderer*     mWorldRenderer_TMP_UGLY_NAME;
+		VkExtent2D            mRenderExtent;
+		VkExtent2D            mPresentExtent;
+		VkRenderPass          mWorldRpass;
+		VkRenderPass          mUiRpass;
+		VkPipelineCache       mPipelineCache;
+		VkPipelineLayout      m3dPipelineLayout;
+		VkDescriptorSetLayout m3dPipelineMaterialDsetLayout;
+		GenericPipelineSet    mPipelines;
+		WorldRenderer*        mWorldRenderer_TMP_UGLY_NAME;
 		std::shared_ptr<ObjectStorage> mObjectStorage;
 
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
-		VkDescriptorSetLayout mMaterialDsetLayout;
 		VkDescriptorSetLayout mGuiDsetLayout;
 
 		std::mutex mRendererMutex = std::mutex();
