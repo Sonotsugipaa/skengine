@@ -256,7 +256,7 @@ namespace SKENGINE_NAME_NS {
 
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
-		void signal(Signal);
+		void signal(Signal, bool discardDuplicate = false) noexcept;
 
 		[[nodiscard]]
 		std::unique_lock<std::mutex> pauseRenderPass();
@@ -357,11 +357,11 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGframeDsetLayout;
 		VkDescriptorSetLayout mGuiDsetLayout;
 
-		std::mutex mRendererMutex = std::mutex();
-		std::mutex mSignalMutex = std::mutex(); // Locked when handling a signal
-		std::condition_variable mSignalCv;
-		Signal mSignal[2]; // 0: graphics thread; 1: external thread
+		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
+		Signal              mSignalGthread;
+		std::atomic<Signal> mSignalXthread; // 0: graphics thread; 1: external thread
 		uint_fast64_t mLastResizeTime; // Bandaid fix to drivers not telling me why they fail to vkCreateSwapchainKHR: don't resize twice in less than <TIMESPAN>
+		static_assert(decltype(mSignalXthread)::is_always_lock_free);
 
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		std::vector<std::unique_ptr<Renderer>> mRenderers;
@@ -376,6 +376,7 @@ namespace SKENGINE_NAME_NS {
 
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;
+		std::atomic_bool  mIsRunning;
 		bool mSwapchainOod;
 		bool mHdrEnabled;
 	};

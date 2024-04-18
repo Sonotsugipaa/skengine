@@ -31,12 +31,6 @@ namespace {
 		return avg;
 	}
 
-
-	namespace sig {
-		constexpr size_t localThread = 0;
-		constexpr size_t extThread   = 1;
-	}
-
 }}
 
 
@@ -230,7 +224,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				case VK_SUBOPTIMAL_KHR:
 					e.logger().trace("Swapchain is suboptimal");
 					e.signal(Signal::eReinit);
-					return;
+					break;
 				case VK_TIMEOUT:
 					e.logger().trace("Swapchain image request timed out");
 					return;
@@ -460,8 +454,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		for(auto& r : e.mRenderers) r->afterPresent(concurrent_access, sc_img_idx);
 
 		e.mGframeLast = int_fast32_t(sc_img_idx);
-		if(e.mPrefs.wait_for_gframe && (e.mGframeLast >= 0)) {
-			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[e.mGframeLast].fence_draw };
+		if(e.mPrefs.wait_for_gframe) {
+			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[sc_img_idx].fence_draw };
 			VK_CHECK(vkWaitForFences, e.mDevice, std::size(fences), fences, true, UINT64_MAX);
 		} else {
 			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
@@ -498,12 +492,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	static void handleSignals(Engine& e) {
-		auto extractSignal = [&](size_t i) {
-			auto r = e.mSignal[i];
-			e.mSignal[i] = Signal::eNone;
-			return r;
-		};
-
 		bool reinitGate = false;
 		auto reinit = [&]() {
 			using tickreg::delta_t;
@@ -523,8 +511,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			init->reinit(ca);
 		};
 
-		auto signalLock = std::unique_lock(e.mSignalMutex);
-		decltype(signalLock) gframeLock;
+		std::unique_lock<std::mutex> gframeLock;
 
 		bool gframeLockExists = false;
 		auto awaitRpass = [&]() {
@@ -532,6 +519,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				gframeLock = e.pauseRenderPass();
 				gframeLockExists = true;
 			}
+		};
+
+		auto extractSignal = [&]() {
+			auto r = e.mSignalXthread.exchange(Signal::eNone, std::memory_order::seq_cst);
+			return Signal(r);
 		};
 
 		auto handleSignal = [&](Signal sig) {
@@ -544,27 +536,25 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		};
 
 		// Handle the local signal once
-		auto curSignal = extractSignal(sig::localThread);
+		Signal curSignal;
+		std::swap(curSignal, e.mSignalGthread);
 		if(curSignal != Signal::eNone) {
 			handleSignal(curSignal);
 			e.mLogger->trace("Handled signal {} from graphics thread", signalString(curSignal));
 		}
 
 		awaitRpass();
-		curSignal = extractSignal(sig::extThread);
+		curSignal = extractSignal();
 		if(curSignal != Signal::eNone) {
 			do {
-				signalLock.unlock();
-				e.mSignalCv.notify_one();
 				handleSignal(curSignal);
-				signalLock.lock();
 				e.mLogger->trace("Handled signal {} from external thread, polling new immediate signal", signalString(curSignal));
 				e.mLogger->flush();
-				curSignal = extractSignal(sig::extThread);
+				curSignal = extractSignal();
 			} while(curSignal != Signal::eNone);
 		}
-		assert(e.mSignal[sig::localThread] == Signal::eNone);
-		assert(e.mSignal[sig::extThread] == Signal::eNone);
+		assert(e.mSignalGthread == Signal::eNone);
+		assert(e.mSignalXthread.load(std::memory_order::relaxed) == Signal::eNone);
 	}
 
 };
@@ -629,7 +619,22 @@ namespace SKENGINE_NAME_NS {
 			(ext.height != ca_engine->mPresentExtent.height);
 		if(extChanged) {
 			ca_engine->mPrefs.init_present_extent = ext;
-			ca_engine->signal(Engine::Signal::eReinit);
+
+			auto gframeLock = std::unique_lock(ca_engine->mGframeMutex, std::defer_lock_t());
+			bool gframeNotRunning = gframeLock.try_lock();
+			if(gframeNotRunning) {
+				ca_engine->signal(Engine::Signal::eReinit);
+			} else {
+				// A gframe is already running, and would deadlock on mRendererMutex;
+				// we need to wait for the gframe to end, and the state of the engine
+				// protected by mRendererMutex may change unbeknownst to the caller.
+				ca_engine->mGframePriorityOverride.store(true, std::memory_order::seq_cst);
+				ca_engine->mRendererMutex.unlock();
+				ca_engine->signal(Engine::Signal::eReinit, true);
+				ca_engine->mGframePriorityOverride.store(false, std::memory_order::seq_cst);
+				ca_engine->mGframeResumeCond.notify_one();
+				ca_engine->mRendererMutex.lock();
+			}
 		}
 	}
 
@@ -653,9 +658,11 @@ namespace SKENGINE_NAME_NS {
 			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
 			tickreg::WaitStrategyState::eSleepUntil,
 			regulator_params ),
+		mGframePriorityOverride(false),
 		mGframeCounter(0),
 		mGframeSelector(0),
-		mSignal { Signal::eNone, Signal::eNone },
+		mSignalGthread(Signal::eNone),
+		mSignalXthread(Signal::eNone),
 		mLastResizeTime(0),
 		mAssetSource(std::move(asi)),
 		mLogger([&]() {
@@ -676,7 +683,8 @@ namespace SKENGINE_NAME_NS {
 			debug::setLogger(r);
 			return r;
 		} ()),
-		mPrefs(ep)
+		mPrefs(ep),
+		mIsRunning(false)
 	{
 		{
 			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
@@ -778,6 +786,12 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		mGraphicsThread = std::thread([&]() {
+			#ifdef NDEBUG
+				mIsRunning.store(true, std::memory_order::seq_cst);
+			#else
+				bool wasRunningBeforeBeginning = mIsRunning.exchange(true, std::memory_order::seq_cst);
+				assert(! wasRunningBeforeBeginning);
+			#endif
 			while(loop_state != LoopInterface::LoopState::eShouldStop) {
 				try {
 					auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock);
@@ -795,6 +809,7 @@ namespace SKENGINE_NAME_NS {
 					handle_exception();
 				}
 			}
+			mIsRunning.store(false, std::memory_order::seq_cst);
 		});
 
 		while((exception == nullptr) && (loop_state != LoopInterface::LoopState::eShouldStop)) {
@@ -819,26 +834,43 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::signal(Signal newSig) {
+	bool Engine::isRunning() const noexcept {
+		return mIsRunning.load(std::memory_order::seq_cst);
+	}
+
+
+	void Engine::signal(Signal newSig, bool discardDuplicate) noexcept {
+		using Ms = std::chrono::duration<float, std::milli>;
 		Signal oldSig;
 		bool thisIsGraphicsThread = mGraphicsThread.get_id() == std::this_thread::get_id();
-		auto exchangeSig = [&](size_t i) { auto r = mSignal[i]; mSignal[i] = newSig; return r; };
+		auto exchangeSig = [&]() { auto r = mSignalXthread.exchange(newSig, std::memory_order::seq_cst); return Signal(r); };
+		auto discardBecauseDuplicateFn = [&]() { return discardDuplicate && (oldSig == newSig); };
 
 		if(thisIsGraphicsThread) {
 			mLogger->trace("Graphics thread signaling {}", signalString(newSig));
-			oldSig = exchangeSig(sig::localThread);
+			oldSig = Signal(mSignalGthread);
+			mSignalGthread = newSig;
 			assert(oldSig == Signal::eNone);
 		} else {
-			auto signalLock = std::unique_lock(mSignalMutex);
-			oldSig = exchangeSig(sig::extThread);
-			while(oldSig != Signal::eNone) {
-				mSignal[sig::extThread] = oldSig;
-				mSignalCv.wait(signalLock);
-				oldSig = exchangeSig(sig::extThread);
+			auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock_t());
+			oldSig = exchangeSig();
+			bool discardBecauseDuplicate = discardBecauseDuplicateFn();
+			while((oldSig != Signal::eNone) && (! discardBecauseDuplicate)) {
+				auto sleepTime = Ms(100.0f* 1000.0f / (mPrefs.target_tickrate * float(mPrefs.max_concurrent_frames)));
+				mSignalXthread.store(oldSig, std::memory_order::seq_cst);
+				std::this_thread::sleep_for(sleepTime);
+				mGframeResumeCond.notify_one();
+				oldSig = exchangeSig();
+				discardBecauseDuplicate = discardBecauseDuplicateFn();
 			}
-			assert(oldSig == Signal::eNone);
-			mLogger->trace("External thread signaling {}", signalString(newSig));
-			mLogger->flush();
+			if(discardBecauseDuplicate) {
+				assert(oldSig == newSig);
+				mLogger->trace("Discarded duplicate signal {}", signalString(newSig));
+			} else {
+				assert(oldSig == Signal::eNone);
+				mLogger->trace("External thread signaling {}", signalString(newSig));
+				mLogger->flush();
+			}
 		}
 	}
 
@@ -880,8 +912,13 @@ namespace SKENGINE_NAME_NS {
 
 	MutexAccess<ConcurrentAccess> Engine::getConcurrentAccess() noexcept {
 		assert(mGraphicsThread.get_id() != std::this_thread::get_id() && "This *will* cause a deadlock");
+		auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock);
+		auto rendererLock = std::unique_lock(mRendererMutex);
+		if(this->isRunning()) {
+			mGframeResumeCond.notify_one();
+		}
 		auto ca = ConcurrentAccess(this, false);
-		return MutexAccess(std::move(ca), mRendererMutex);
+		return MutexAccess(std::move(ca), std::move(rendererLock));
 	}
 
 }

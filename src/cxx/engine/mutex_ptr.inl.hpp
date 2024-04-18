@@ -13,6 +13,7 @@ namespace SKENGINE_NAME_NS {
 
 		MutexAccess() = default;
 		MutexAccess(T value, Lock::mutex_type& mutex): mp_value(std::move(value)), mp_lock(mutex) { }
+		MutexAccess(T value, Lock&& lock): mp_value(std::move(value)), mp_lock(std::move(lock)) { }
 		MutexAccess(MutexAccess&& mv): mp_value(std::move(mv.mp_value)), mp_lock(std::move(mp_lock)) { }
 		MutexAccess& operator=(MutexAccess&& mv) { this->~MutexAccess(); return * new (this) MutexAccess(std::move(mv)); }
 

@@ -43,12 +43,14 @@ namespace SKENGINE_NAME_NS {
 
 		{ // Change the present extent, as the window decided it to be
 			int w, h;
+			uint32_t uw, uh;
 			auto& w0 = mPrefs.init_present_extent.width;
 			auto& h0 = mPrefs.init_present_extent.height;
 			SDL_Vulkan_GetDrawableSize(mSdlWindow, &w, &h);
-			if(uint32_t(w) != w0 || uint32_t(h) != h0) {
-				mPrefs.init_present_extent = { uint32_t(w), uint32_t(h) };
-				logger().warn("Requested window size {}x{}, got {}x{}", w0, h0, w, h);
+			uw = uint32_t(w); uh = uint32_t(h);
+			if((uw != w0) || (uh != h0)) {
+				logger().warn("Requested window size {}x{}, got {}x{}", w0, h0, uw, uh);
+				mPrefs.init_present_extent = { uw, uh };
 			}
 		}
 
