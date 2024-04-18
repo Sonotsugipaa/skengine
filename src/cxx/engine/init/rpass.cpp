@@ -289,6 +289,7 @@ namespace SKENGINE_NAME_NS {
 						mPresentQueue = mQueues.FAM_; \
 						logger().debug("[+] Queue family {} can be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
+						found = true; \
 					} else { \
 						logger().debug("[ ] Queue family {} cannot be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
@@ -349,17 +350,21 @@ namespace SKENGINE_NAME_NS {
 			s_info.clipped          = VK_TRUE;
 			s_info.oldSwapchain     = mSwapchain;
 			s_info.pQueueFamilyIndices   = concurrent_qfams;
-			s_info.queueFamilyIndexCount = 2;
-			s_info.imageSharingMode      =
-				(concurrent_qfams[0] == concurrent_qfams[1])?
-				VK_SHARING_MODE_EXCLUSIVE :
-				VK_SHARING_MODE_CONCURRENT;
+			if(concurrent_qfams[0] == concurrent_qfams[1]) {
+				s_info.queueFamilyIndexCount = 0;
+				s_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
+				logger().trace("Swapchain uses one queue family => exclusive sharing mode");
+			} else {
+				s_info.queueFamilyIndexCount = 2;
+				s_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
+				logger().trace("Swapchain uses queue families {} and {} => concurrent sharing mode", concurrent_qfams[0], concurrent_qfams[1]);
+			}
 		}
 
 		{ // Select min image count
 			unsigned desired = mPrefs.max_concurrent_frames + 1;
 			unsigned max = (mSurfaceCapabs.maxImageCount == 0 /* 0 => no limit */)?
-				desired :
+				std::max(desired, mSurfaceCapabs.minImageCount) :
 				mSurfaceCapabs.maxImageCount;
 			s_info.minImageCount = std::clamp<unsigned>(
 				desired,

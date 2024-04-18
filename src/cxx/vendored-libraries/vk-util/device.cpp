@@ -76,42 +76,54 @@ namespace vkutil {
 	) {
 		findQueueFamilies(logger, dst.queues.families, info.physDev, *info.pPhysDevProps);
 
+		auto& qFams = dst.queues.families;
 		#define MERGE_(SRC_, DST_) \
-			assert(dst.queues.families.DST_##Index != invalidQueueIndex); \
-			assert(dst.queues.families.SRC_##Index != invalidQueueIndex); \
-			if(dst.queues.families.DST_##Index == dst.queues.families.SRC_##Index) { \
-				DST_##FamQCount += SRC_##FamQCount; \
-				SRC_##QIndex     = DST_##QIndex + 1; \
-				SRC_##FamQCount  = 0; \
+			assert(qFams.DST_##Index != invalidQueueIndex); \
+			assert(qFams.SRC_##Index != invalidQueueIndex); \
+			if(qFams.DST_##Index == qFams.SRC_##Index) { \
+				++ DST_##FamQCount; \
+				SRC_##QIndex    = DST_##QIndex + 1; \
+				SRC_##FamQCount = 0; \
+				SRC_##QCount    = DST_##QCount; \
+				if(DST_##FamQCount > qFams.DST_##Props.queueCount) { \
+					DST_##FamQCount = qFams.DST_##Props.queueCount; \
+				} \
 			}
 		uint32_t graphicsFamQCount = 1;
 		uint32_t computeFamQCount  = 1;
 		uint32_t transferFamQCount = 1;
+		uint32_t* graphicsQCount = &graphicsFamQCount;
+		uint32_t* computeQCount  = &computeFamQCount;
+		uint32_t* transferQCount = &transferFamQCount;
 		uint32_t graphicsQIndex = 0;
 		uint32_t computeQIndex  = 0;
 		uint32_t transferQIndex = 0;
 		MERGE_(transfer, compute)
 		MERGE_(          compute, graphics)
+		MERGE_(                   graphics, transfer)
+		assert(*graphicsQCount > 0); graphicsQIndex = graphicsQIndex % *graphicsQCount;
+		assert(*computeQCount  > 0); computeQIndex  = computeQIndex  % *computeQCount;
+		assert(*transferQCount > 0); transferQIndex = transferQIndex % *transferQCount;
 		#undef MERGE_
 
 		std::vector<VkDeviceQueueCreateInfo> dqInfos;
 		dqInfos.reserve(3);
-		const auto ins = [&](uint32_t fam, uint32_t count) {
+		const auto ins = [&](uint32_t fam, const VkQueueFamilyProperties& famProps, uint32_t count) {
 			static constexpr float priorities[] = { .0f, .0f, .0f };
 			assert(count <= std::size(priorities));
 			if(count > 0) {
 				VkDeviceQueueCreateInfo ins = { };
 				ins.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 				ins.queueFamilyIndex = fam;
-				ins.queueCount       = count;
+				ins.queueCount       = std::min(count, famProps.queueCount);
 				ins.pQueuePriorities = priorities;
 				dqInfos.push_back(ins);
 				if(logger != nullptr) logger->info("Assigned {} queue{} to family {}", count, count == 1? "":"s", fam);
 			}
 		};
-		ins(dst.queues.families.graphicsIndex, graphicsFamQCount);
-		ins(dst.queues.families.computeIndex,  computeFamQCount);
-		ins(dst.queues.families.transferIndex, transferFamQCount);
+		ins(dst.queues.families.graphicsIndex, dst.queues.families.graphicsProps, graphicsFamQCount);
+		ins(dst.queues.families.computeIndex,  dst.queues.families.computeProps,  computeFamQCount);
+		ins(dst.queues.families.transferIndex, dst.queues.families.transferProps, transferFamQCount);
 
 		VkPhysicalDeviceSynchronization2Features features2 = { };
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;

@@ -359,7 +359,7 @@ namespace SKENGINE_NAME_NS {
 
 		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
 		Signal              mSignalGthread;
-		std::atomic<Signal> mSignalXthread; // 0: graphics thread; 1: external thread
+		std::atomic<Signal> mSignalXthread;
 		uint_fast64_t mLastResizeTime; // Bandaid fix to drivers not telling me why they fail to vkCreateSwapchainKHR: don't resize twice in less than <TIMESPAN>
 		static_assert(decltype(mSignalXthread)::is_always_lock_free);
 
