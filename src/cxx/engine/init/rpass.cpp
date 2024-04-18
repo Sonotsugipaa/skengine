@@ -357,11 +357,14 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Select min image count
-			unsigned desired     = mPrefs.max_concurrent_frames + 1;
+			unsigned desired = mPrefs.max_concurrent_frames + 1;
+			unsigned max = (mSurfaceCapabs.maxImageCount == 0 /* 0 => no limit */)?
+				desired :
+				mSurfaceCapabs.maxImageCount;
 			s_info.minImageCount = std::clamp<unsigned>(
 				desired,
 				mSurfaceCapabs.minImageCount,
-				mSurfaceCapabs.maxImageCount );
+				max );
 			logger().trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
 		}
 
@@ -374,10 +377,10 @@ namespace SKENGINE_NAME_NS {
 					mLogger->debug("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
 					return;
 				} catch(vkutil::VulkanError& err) {
-					s_info.oldSwapchain = nullptr;
 					mLogger->error("{} ({}) (attempt n. {})", err.what(), int32_t(err.vkResult()), i+1);
 					std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				}
+				s_info.oldSwapchain = nullptr;
 				mLogger->flush();
 			}
 			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
@@ -407,7 +410,7 @@ namespace SKENGINE_NAME_NS {
 
 		{ // Acquire swapchain images
 			std::vector<VkImage> images;
-			uint32_t count;
+			uint32_t count = 0;
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, nullptr);
 			images.resize(count);
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, images.data());

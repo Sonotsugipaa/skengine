@@ -164,13 +164,14 @@ namespace SKENGINE_NAME_NS {
 			#undef INS_IF_AVAIL_
 
 			// Required extensions
-			auto require_ext = [&](std::string_view nm) {
-				if(! avail_extensions.contains(nm)) {
-					mLogger->error("Required device extension not available: {}", nm);
+			auto request_ext = [&](std::string_view nm) {
+				if(avail_extensions.contains(nm)) {
+					extensions.push_back(nm.data());
+				} else {
+					mLogger->error("Desired device extension not available: {}", nm);
 				}
-				extensions.push_back(nm.data());
 			};
-			require_ext("VK_EXT_hdr_metadata");
+			request_ext("VK_EXT_hdr_metadata");
 
 			vkutil::CreateDeviceInfo cd_info = { };
 			cd_info.physDev           = mPhysDevice;
