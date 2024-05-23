@@ -48,134 +48,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	template <bool doPrepare, bool doDraw>
-	static void recordUiCommands(Engine& e, GframeData& gframe) {
-		static_assert(doPrepare != doDraw);
-
-		gui::DrawContext guiCtx = gui::DrawContext {
-			.magicNumber = gui::DrawContext::magicNumberValue,
-			.engine = &e,
-			.prepareCmdBuffer = doPrepare? gframe.cmd_prepare : nullptr,
-			.drawJobs = { } };
-		ui::DrawContext uiCtx = { &guiCtx };
-
-		std::deque<std::pair<LotId, Lot*>> recursiveVisitList;
-
-		std::function<void(LotId, Lot&)> drawLot = [&](LotId lotId, Lot& lot) {
-			if(lot.hasChildGrid()) {
-				auto grid = lot.childGrid();
-				// // // Disregard the commented comments, grids can set themselves as modified but elements can't;
-				// // // making it so that they can would probably be a nightmare.
-				// // If the grid's structure has not been modified, there's no need to recursively prepare;
-				// // there is, however, always need to recursively draw.
-				// if(doDraw || grid->isModified()) {
-				// 	for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
-				// 	grid->resetModified();
-				// }
-				for(auto& lot : grid->lots()) drawLot(lotId, *lot.second);
-			}
-
-			recursiveVisitList.push_back({ lotId, &lot });
-		};
-
-		for(auto& lot : e.mGuiState.canvas->lots()) {
-			drawLot(lot.first, *lot.second);
-		}
-
-		if constexpr(doPrepare) {
-			std::deque<std::tuple<LotId, Lot*, Element*>> repeatList;
-			for(auto& lot : recursiveVisitList) {
-				for(auto& elem : lot.second->elements()) {
-					auto ps = elem.second->ui_elem_prepareForDraw(lot.first, *lot.second, 0, uiCtx);
-					if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back({ lot.first, lot.second, elem.second.get() });
-				}
-			}
-			unsigned repeatCount = 0;
-			std::deque<std::tuple<LotId, Lot*, Element*>> repeatListSwap;
-			while(! repeatList.empty()) {
-				for(auto& row : repeatList) {
-					auto ps = std::get<2>(row)->ui_elem_prepareForDraw(std::get<0>(row), *std::get<1>(row), repeatCount, uiCtx);
-					if(ps == ui::Element::PrepareState::eDefer) repeatListSwap.push_back(row);
-				}
-				repeatList = std::move(repeatListSwap);
-				++ repeatCount;
-			}
-		}
-
-		if constexpr(doDraw) {
-			for(auto& lot : recursiveVisitList) {
-				for(auto& elem : lot.second->elements()) elem.second->ui_elem_draw(lot.first, *lot.second, uiCtx);
-			}
-
-			// The caches will need for this draw op to finish before preparing for the next one
-			// (unless they're up to date, in which case they won't do anything)
-			for(auto& ln : e.mGuiState.textCaches) ln.second.syncWithFence(gframe.fence_draw);
-
-			auto& cmd = gframe.cmd_draw[1];
-			VkPipeline             lastPl = nullptr;
-			const ViewportScissor* lastVs = nullptr;
-			VkDescriptorSet        lastImageDset = nullptr;
-
-			// This lambda ladder turns what follows into something readable:
-			//
-			//    for(auto& jobPl : guiCtx.drawJobs) {
-			//       // ...
-			//       for(auto& jobVs : jobPl.second) {
-			//          // ...
-			//          for(auto& jobDs : jobVs.second) {
-			//             // ...
-			//             for(auto& job : jobDs.second) {
-			//                // ...
-			//             }
-			//          }
-			//       }
-			//    }
-			//
-			// Note that the JobPl->JobVs->JobDs order appears to be reversed, but it isn't.
-			using JobPl = gui::DrawJobSet::value_type;
-			using JobVs = gui::DrawJobVsSet::value_type;
-			using JobDs = gui::DrawJobDsetSet::value_type;
-			auto forEachJob = [&](gui::DrawJob& job) {
-				auto& shapeSet = *job.shapeSet;
-				VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
-				VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-				vkCmdPushConstants(cmd, e.mGuiState.geomPipelines.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant), &job.transform);
-				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
-				vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
-			};
-
-			auto forEachDs = [&](JobDs& jobDs) {
-				if(lastImageDset != jobDs.first) {
-					lastImageDset = jobDs.first;
-					if(lastImageDset != nullptr) {
-						vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.mGuiState.geomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
-					}
-				}
-				for(auto& job : jobDs.second) forEachJob(job);
-			};
-
-			auto forEachVs = [&](JobVs& jobVs) {
-				if(lastVs != &jobVs.first) {
-					lastVs = &jobVs.first;
-					vkCmdSetViewport(cmd, 0, 1, &lastVs->viewport);
-					vkCmdSetScissor(cmd, 0, 1, &lastVs->scissor);
-				}
-				for(auto& jobDs : jobVs.second) forEachDs(jobDs);
-			};
-
-			auto forEachPl = [&](JobPl& jobPl) {
-				if(lastPl != jobPl.first) {
-					lastPl = jobPl.first;
-					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPl);
-				}
-				for(auto& jobVs : jobPl.second) forEachVs(jobVs);
-			};
-
-			for(auto& jobPl : guiCtx.drawJobs) forEachPl(jobPl);
-		}
-	}
-
-
 	static void setHdrMetadata(Engine& e) {
 		// HDR (This is just a stub, apparently HDR isn't a Linux thing yet and `vkSetHdrMetadataEXT` is not defined in the (standard?) Vulkan ICD)
 		//
@@ -195,6 +67,8 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 
 	static void draw(Engine& e, LoopInterface& loop) {
+		#define IF_WORLD_RPASS_(RENDERER_) if(RENDERER_->pipelineInfo().rpass == Renderer::RenderPass::eWorld)
+		#define IF_UI_RPASS_(RENDERER_)    if(RENDERER_->pipelineInfo().rpass == Renderer::RenderPass::eUi)
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
@@ -266,7 +140,6 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			ubo.time_delta        = std::float32_t(delta);
 			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
 			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
-			recordUiCommands<true, false>(e, *gframe);
 		}
 
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
@@ -304,24 +177,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		{ // Draw the objects
 			auto& cmd = gframe->cmd_draw[0];
-
-			VkViewport viewport = { }; {
-				viewport.x      = 0.0f;
-				viewport.y      = 0.0f;
-				viewport.width  = e.mRenderExtent.width;
-				viewport.height = e.mRenderExtent.height;
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
-			}
-
-			VkRect2D scissor = { }; {
-				scissor.offset = { };
-				scissor.extent = { e.mRenderExtent.width, e.mRenderExtent.height };
-			}
-
-			vkCmdSetViewport(cmd, 0, 1, &viewport);
-			vkCmdSetScissor(cmd, 0, 1, &scissor);
-			for(auto& r : e.mRenderers) r->duringDrawStage(concurrent_access, sc_img_idx, cmd);
+			for(auto& r : e.mRenderers) IF_WORLD_RPASS_(r) r->duringDrawStage(concurrent_access, sc_img_idx, cmd);
 		}
 
 		vkCmdEndRenderPass(gframe->cmd_draw[0]);
@@ -384,11 +240,11 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			rpb_info.framebuffer = gframe->uiFramebuffer;
 			rpb_info.renderPass  = e.mUiRpass;
-			rpb_info.renderArea  = { VkOffset2D { 0, 0 }, e.mRenderExtent };
+			rpb_info.renderArea  = { VkOffset2D { 0, 0 }, e.mPresentExtent };
 			vkCmdBeginRenderPass(gframe->cmd_draw[1], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 		}
 
-		recordUiCommands<false, true>(e, *gframe);
+		for(auto& r : e.mRenderers) IF_UI_RPASS_(r) r->duringDrawStage(concurrent_access, sc_img_idx, gframe->cmd_draw[1]);
 
 		vkCmdEndRenderPass(gframe->cmd_draw[1]);
 
@@ -468,7 +324,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mGraphicsReg.endCycle();
 
-		for(auto& ln : e.mGuiState.textCaches) ln.second.trimChars(e.mPrefs.font_max_cache_size);
+		for(auto& ln : e.mUiStorage->textCaches) ln.second.trimChars(e.mPrefs.font_max_cache_size);
+		#undef IF_WORLD_RPASS_
+		#undef IF_UI_RPASS_
 	}
 
 
@@ -596,21 +454,6 @@ namespace SKENGINE_NAME_NS {
 		.compensationFactor = 0.0,
 		.strategyMask       = tickreg::strategy_flag_t(tickreg::WaitStrategyFlags::eSleepUntil) };
 
-
-
-	TextCache& GuiState::getTextCache(Engine& e, unsigned short size) {
-		using Caches = decltype(e.mGuiState.textCaches);
-		auto& caches = e.mGuiState.textCaches;
-		auto found = caches.find(size);
-		if(found == caches.end()) {
-			found = caches.insert(Caches::value_type(size, TextCache(
-				e.mDevice, e.mVma,
-				e.mGuiDsetLayout,
-				std::make_shared<FontFace>(e.createFontFace()),
-				size ))).first;
-		}
-		return found->second;
-	}
 
 
 	void ConcurrentAccess::setPresentExtent(VkExtent2D ext) {
@@ -770,11 +613,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	FontFace Engine::createFontFace() {
-		return FontFace::fromFile(mFreetype, false, mPrefs.font_location.c_str());
-	}
-
-
 	void Engine::run(LoopInterface& loop) {
 		auto loop_state = loop.loop_pollState();
 		auto exception  = std::exception_ptr(nullptr);
@@ -891,7 +729,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 
 			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
-			for(auto& ln : mGuiState.textCaches) ln.second.forgetFence();
+			for(auto& ln : mUiStorage->textCaches) ln.second.forgetFence();
 		};
 
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();

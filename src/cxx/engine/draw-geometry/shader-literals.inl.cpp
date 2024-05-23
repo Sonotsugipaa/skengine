@@ -16,8 +16,8 @@ inline namespace geom_shaders {
 	"layout(location = 0) out vec4 frg_col;"
 	""
 	"void main() {"
-		"gl_Position   = in_transform * vec4(in_pos, 1.0);"
-		"frg_col       = in_col;"
+		"gl_Position = in_transform * vec4(in_pos, 1.0);"
+		"frg_col     = in_col;"
 	"}";
 
 
@@ -52,11 +52,11 @@ inline namespace geom_shaders {
 	"} transform;"
 	""
 	"void main() {"
-		"gl_Position   = in_transform * vec4(in_pos, 1.0);"
-		"gl_Position  *= vec4(transform.xScale,  transform.yScale,  transform.zScale,  1);"
-		"gl_Position  += vec4(transform.xOffset, transform.yOffset, transform.zOffset, 0);"
-		"frg_col       = in_col;"
-		"frg_tex       = in_tex;"
+		"gl_Position  = in_transform * vec4(in_pos, 1.0);"
+		"gl_Position *= vec4(transform.xScale,  transform.yScale,  transform.zScale,  1);"
+		"gl_Position += vec4(transform.xOffset, transform.yOffset, transform.zOffset, 0);"
+		"frg_col      = in_col;"
+		"frg_tex      = in_tex;"
 	"}";
 
 

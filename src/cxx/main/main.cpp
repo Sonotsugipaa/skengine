@@ -130,7 +130,7 @@ namespace {
 			float     dist = object_spacing / 2.0f;
 			wr.setViewRotation(dir);
 			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
-			wr.setAmbientLight({ 0.06f, 0.06f, 0.06f });
+			wr.setAmbientLight({ 0.03f, 0.03f, 0.03f });
 		}
 
 

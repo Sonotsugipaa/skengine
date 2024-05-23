@@ -31,6 +31,23 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
+		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
+		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
+		B_(Engine::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(Engine::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(Engine::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(Engine::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(Engine::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
+		#undef B_
+
+		constexpr ShaderRequirement world_pipelines[] = {
+			{ .name = "default", .pipelineLayout = PipelineLayoutId::e3d } };
+
+		constexpr auto world_renderer_subpass_info = Renderer::Info {
+			.dsetLayoutBindings = Renderer::Info::DsetLayoutBindings::referenceTo(world_dset_layout_bindings),
+			.shaderRequirements = Renderer::Info::ShaderRequirements::referenceTo(world_pipelines),
+			.rpass = Renderer::RenderPass::eWorld };
+
 		constexpr auto light_storage_create_info(size_t light_count) {
 			vkutil::BufferCreateInfo r = { };
 			r.size  = light_count * sizeof(dev::Light);
@@ -85,21 +102,6 @@ namespace SKENGINE_NAME_NS {
 
 	}
 
-
-
-	#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
-	constexpr VkDescriptorSetLayoutBinding dset_layout_bindings[] = {
-	B_(Engine::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-	B_(Engine::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-	B_(Engine::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-	B_(Engine::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-	B_(Engine::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
-	#undef B_
-
-	constexpr auto world_renderer_subpass_info = Renderer::Info {
-		.dsetLayoutBindings = Renderer::Info::DsetLayoutBindings::referenceTo(dset_layout_bindings),
-		.shaderReq = { .name = "default", .pipelineLayout = PipelineLayoutId::e3d },
-		.rpass = Renderer::RenderPass::eWorld };
 
 
 	WorldRenderer::WorldRenderer(): Renderer(world_renderer_subpass_info) { mState.initialized = false; }
@@ -207,9 +209,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::beforePreRender(ConcurrentAccess&, unsigned) { }
-
-
 	void WorldRenderer::duringPrepareStage(ConcurrentAccess& ca, unsigned gframeIndex, VkCommandBuffer cmd) {
 		auto& e   = ca.engine();
 		auto& egf = ca.getGframeData(gframeIndex);
@@ -298,12 +297,28 @@ namespace SKENGINE_NAME_NS {
 
 		if(batches.empty()) return;
 
+		auto& renderExtent = ca.engine().getRenderExtent();
+		VkViewport viewport = { }; {
+			viewport.x      = 0.0f;
+			viewport.y      = 0.0f;
+			viewport.width  = renderExtent.width;
+			viewport.height = renderExtent.height;
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+		}
+		VkRect2D scissor = { }; {
+			scissor.offset = { };
+			scissor.extent = { renderExtent.width, renderExtent.height };
+		}
+		vkCmdSetViewport(cmd, 0, 1, &viewport);
+		vkCmdSetScissor(cmd, 0, 1, &scissor);
+
 		objStorage.waitUntilReady();
 
 		VkDescriptorSet dsets[]  = { egf.frame_dset, { } };
 		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ca.getPipeline(pipelineInfo().shaderReq));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ca.getPipeline(pipelineInfo().shaderRequirements[0]));
 		for(VkDeviceSize i = 0; const auto& batch : batches) {
 			auto* model = objStorage.getModel(batch.model_id);
 			assert(model != nullptr);

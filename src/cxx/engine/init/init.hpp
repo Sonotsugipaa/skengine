@@ -18,16 +18,14 @@ namespace SKENGINE_NAME_NS {
 		void initVkInst(const DeviceInitInfo*);
 		void initVkDev();
 		void initVma();
-		void initTransferCmdPool();
+		void initTransferContext();
 		void initDsetLayouts();
-		void initFreetype();
 		void initAssets();
 		void initGui();
 		void destroyGui();
 		void destroyAssets();
-		void destroyFreetype();
 		void destroyDsetLayouts();
-		void destroyTransferCmdPool();
+		void destroyTransferContext();
 		void destroyVma();
 		void destroyVkDev();
 		void destroyVkInst();

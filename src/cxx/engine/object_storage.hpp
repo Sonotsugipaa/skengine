@@ -75,18 +75,20 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	/// \internal
+	///
 	class AssetSupplier {
 	public:
 		using Models           = std::unordered_map<std::string, DevModel>;
 		using Materials        = std::unordered_map<std::string, Material>;
 		using MissingMaterials = std::unordered_set<std::string>;
 
-		AssetSupplier(): as_engine(nullptr) { }
-		AssetSupplier(Engine& engine, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio);
+		AssetSupplier(): as_initialized(false) { }
+		AssetSupplier(Engine&, std::shared_ptr<spdlog::logger>, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy();
-		~AssetSupplier();
+		~AssetSupplier() { if(as_initialized) destroy(); }
 
 		DevModel requestModel(std::string_view locator);
 		void     releaseModel(std::string_view locator) noexcept;
@@ -96,8 +98,12 @@ namespace SKENGINE_NAME_NS {
 		void     releaseMaterial(std::string_view locator) noexcept;
 		void releaseAllMaterials() noexcept;
 
+		VmaAllocator vma() const noexcept { return as_transferContext.vma; }
+		VkDevice     vkDevice() const noexcept { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma(), &i); return i.device; }
+
 	private:
-		Engine* as_engine;
+		TransferContext as_transferContext;
+		std::shared_ptr<spdlog::logger> as_logger;
 		std::shared_ptr<AssetSourceInterface> as_srcInterface;
 		Models    as_activeModels;
 		Models    as_inactiveModels;
@@ -106,6 +112,8 @@ namespace SKENGINE_NAME_NS {
 		Material  as_fallbackMaterial;
 		MissingMaterials as_missingMaterials;
 		float as_maxInactiveRatio;
+		float as_maxSamplerAnisotropy;
+		bool as_initialized;
 	};
 
 

@@ -175,8 +175,8 @@ namespace util {
 		constexpr const T* begin() const noexcept { return tr_begin; }
 		constexpr T*         end()       noexcept { return tr_begin + size(); }
 		constexpr const T*   end() const noexcept { return tr_begin + size(); }
-		constexpr T*       operator[](size_t i)       noexcept { return tr_begin + i; }
-		constexpr const T* operator[](size_t i) const noexcept { return tr_begin + i; }
+		constexpr T&       operator[](size_t i)       noexcept { return tr_begin[i]; }
+		constexpr const T& operator[](size_t i) const noexcept { return tr_begin[i]; }
 
 	private:
 		T*     tr_begin;

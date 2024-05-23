@@ -1,9 +1,8 @@
 #pragma once
 
 #include "world_renderer.hpp"
+#include "ui_renderer.hpp"
 #include "shader_cache.hpp"
-#include "draw-geometry/core.hpp"
-#include "gui.hpp"
 
 #include <vk-util/init.hpp>
 #include <vk-util/memory.hpp>
@@ -133,6 +132,19 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	class EngineTransferContext {
+	public:
+		EngineTransferContext() = default;
+		EngineTransferContext(const TransferContext& m): etc_tc(m) { }
+
+
+		const auto& members() const noexcept { return etc_tc; }
+
+	private:
+		TransferContext etc_tc;
+	};
+
+
 	struct GframeData {
 		VkDescriptorSet       frame_dset;
 		vkutil::BufferDuplex  frame_ubo;
@@ -152,15 +164,6 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_drawGui;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
-	};
-
-
-	struct GuiState {
-		std::unique_ptr<ui::Canvas> canvas;
-		std::unordered_map<unsigned short, TextCache> textCaches;
-		geom::PipelineSet geomPipelines;
-
-		TextCache& getTextCache(Engine&, unsigned short size);
 	};
 
 
@@ -214,7 +217,6 @@ namespace SKENGINE_NAME_NS {
 		friend ConcurrentAccess;
 		friend gui::DrawContext;
 		friend GuiManager;
-		friend GuiState;
 
 		using signal_e = unsigned;
 		enum class Signal : signal_e { eNone = 0, eReinit = 1 };
@@ -252,8 +254,6 @@ namespace SKENGINE_NAME_NS {
 
 		VkPipeline create3dPipeline(const ShaderRequirement&, uint32_t subpass, VkRenderPass);
 
-		FontFace createFontFace();
-
 		void run(LoopInterface&);
 		bool isRunning() const noexcept;
 		void signal(Signal, bool discardDuplicate = false) noexcept;
@@ -277,16 +277,18 @@ namespace SKENGINE_NAME_NS {
 		void setUpscaleFactor    (float pixels_per_fragment);
 		void setFullscreen       (bool should_be_fullscreen);
 
-		void pushBuffer(vkutil::BufferDuplex&);
-		void pullBuffer(vkutil::BufferDuplex&);
+		static void pushBuffer(const TransferContext&, vkutil::BufferDuplex&);
+		static void pullBuffer(const TransferContext&, vkutil::BufferDuplex&);
 
 		auto getVmaAllocator       () noexcept { return mVma; }
 		auto getDevice             () noexcept { return mDevice; }
 		auto getPhysDevice         () noexcept { return mPhysDevice; }
-		auto getTransferCmdPool    () noexcept { return mTransferCmdPool; }
 		auto getMaterialDsetLayout () noexcept { return m3dPipelineMaterialDsetLayout; }
+		auto getImageDsetLayout    () noexcept { return mImagePipelineDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
 		auto getPipelineLayout3d   () noexcept { return m3dPipelineLayout; }
+
+		auto getTransferContext() const noexcept { return mTransferContext; }
 
 		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
 		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
@@ -318,7 +320,7 @@ namespace SKENGINE_NAME_NS {
 		VkPhysicalDeviceProperties mDevProps;
 		VkPhysicalDeviceFeatures   mDevFeatures;
 
-		VkCommandPool mTransferCmdPool;
+		TransferContext mTransferContext;
 
 		VkSurfaceKHR       mSurface          = nullptr;
 		QfamIndex          mPresentQfamIndex = QfamIndex::eInvalid;
@@ -349,13 +351,16 @@ namespace SKENGINE_NAME_NS {
 		VkPipelineCache       mPipelineCache;
 		VkPipelineLayout      m3dPipelineLayout;
 		VkDescriptorSetLayout m3dPipelineMaterialDsetLayout;
+		VkDescriptorSetLayout mGeometryPipelineDsetLayout;
+		VkDescriptorSetLayout mImagePipelineDsetLayout;
 		GenericPipelineSet    mPipelines;
-		WorldRenderer*        mWorldRenderer_TMP_UGLY_NAME;
+		WorldRenderer*        mWorldRenderer_TMP_UGLY_NAME; // This is currently needed to reference one specific renderer of the many, but it should be managed by the Engine user in the future
+		UiRenderer*           mUiRenderer_TMP_UGLY_NAME;    // Ditto
 		std::shared_ptr<ObjectStorage> mObjectStorage;
+		std::shared_ptr<UiStorage>     mUiStorage;
 
 		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
-		VkDescriptorSetLayout mGuiDsetLayout;
 
 		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
 		Signal              mSignalGthread;
@@ -365,12 +370,8 @@ namespace SKENGINE_NAME_NS {
 
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		std::vector<std::unique_ptr<Renderer>> mRenderers;
-		decltype(mRenderers)::iterator mRendererIterators[2-1]; // One for each render pass minus the first one
 		AssetSupplier mAssetSupplier;
 		glm::mat4     mProjTransf;
-
-		FT_Library mFreetype;
-		GuiState   mGuiState;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 

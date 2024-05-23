@@ -17,7 +17,8 @@ namespace debug {
 	#ifndef NDEBUG
 		struct State {
 			std::shared_ptr<spdlog::logger> logger;
-		} state = { };
+		};
+		inline State state = { };
 	#endif
 
 

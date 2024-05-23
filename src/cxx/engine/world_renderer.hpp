@@ -24,12 +24,8 @@
 
 namespace SKENGINE_NAME_NS {
 
-	class WorldRenderer;
-
-
-	/// \brief
-	/// A Renderer that manages light sources, their device storage and
-	/// the view/camera logistics.
+	/// \brief A Renderer that manages light sources, their device storage and
+	///        the view/camera logistics.
 	///
 	class WorldRenderer : public Renderer {
 	public:
@@ -71,7 +67,6 @@ namespace SKENGINE_NAME_NS {
 
 		std::string_view name() const noexcept override { return "world-surface"; }
 		void afterSwapchainCreation(ConcurrentAccess&, unsigned) override;
-		void beforePreRender(ConcurrentAccess&, unsigned) override;
 		void duringPrepareStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
 		void duringDrawStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
 

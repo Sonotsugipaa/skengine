@@ -13,8 +13,8 @@ namespace SKENGINE_NAME_NS {
 
 	// These functions are defined in a similarly named translation unit,
 	// but not exposed through any header.
-	void create_texture_from_pixels(Engine&, Material::Texture*, const void*, VkFormat, size_t, size_t);
-	bool create_texture_from_file(Engine&, Material::Texture*, size_t*, size_t*, const char*);
+	void create_texture_from_pixels(const TransferContext&, Material::Texture*, const void*, float, VkFormat, size_t, size_t);
+	bool create_texture_from_file(const TransferContext&, Material::Texture*, size_t*, size_t*, const char*, spdlog::logger&, float);
 	size_t texture_size_bytes(const Material::Texture&);
 
 
@@ -35,7 +35,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void create_fallback_mat(Engine& e, Material* dst) {
+	void create_fallback_mat(const TransferContext& tc, Material* dst, float maxSamplerAnisotropy) {
 		// -- 0- +-
 		// -0 00 +0
 		// -+ 0+ ++
@@ -55,16 +55,16 @@ namespace SKENGINE_NAME_NS {
 		uint8_t texels_spc[4] = { 0xff, 0xff, 0xff, 0x00 };
 		uint8_t texels_emi[4] = { 0xff, 0xff, 0xff, 0x02 };
 
-		create_texture_from_pixels(e, &dst->texture_diffuse,  texels_col, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
-		create_texture_from_pixels(e, &dst->texture_normal,   texels_nrm, VK_FORMAT_R8G8B8A8_UNORM, 3, 3);
-		create_texture_from_pixels(e, &dst->texture_specular, texels_spc, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
-		create_texture_from_pixels(e, &dst->texture_emissive, texels_emi, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
+		create_texture_from_pixels(tc, &dst->texture_diffuse,  texels_col, maxSamplerAnisotropy, VK_FORMAT_R8G8B8A8_UNORM, 2, 2);
+		create_texture_from_pixels(tc, &dst->texture_normal,   texels_nrm, maxSamplerAnisotropy, VK_FORMAT_R8G8B8A8_UNORM, 3, 3);
+		create_texture_from_pixels(tc, &dst->texture_specular, texels_spc, maxSamplerAnisotropy, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
+		create_texture_from_pixels(tc, &dst->texture_emissive, texels_emi, maxSamplerAnisotropy, VK_FORMAT_R8G8B8A8_UNORM, 1, 1);
 
 		{ // Create the material uniform buffer
 			vkutil::BufferCreateInfo bc_info = { };
 			bc_info.size  = sizeof(dev::MaterialUniform);
 			bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-			dst->mat_uniform = vkutil::BufferDuplex::createUniformBuffer(e.getVmaAllocator(), bc_info);
+			dst->mat_uniform = vkutil::BufferDuplex::createUniformBuffer(tc.vma, bc_info);
 		}
 
 		[&](dev::MaterialUniform& uni) {
@@ -92,8 +92,7 @@ namespace SKENGINE_NAME_NS {
 
 			Material r;
 
-			auto& log  = as_engine->logger();
-			auto  src  = as_srcInterface->asi_requestMaterialData(locator);
+			auto src   = as_srcInterface->asi_requestMaterialData(locator);
 			auto flags = mf_e(src.fmaHeader.flags());
 
 			auto load_texture = [&](
@@ -112,8 +111,8 @@ namespace SKENGINE_NAME_NS {
 						((u4_t(fma_value >> u8_t(16)) & u4_t(0xff)) << u4_t(16)) |
 						((u4_t(fma_value >> u8_t( 8)) & u4_t(0xff)) << u4_t( 8)) |
 						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
-					create_texture_from_pixels(*as_engine, &dst, &value4, fmt, 1, 1);
-					log.trace(
+					create_texture_from_pixels(as_transferContext, &dst, &value4, as_maxSamplerAnisotropy, fmt, 1, 1);
+					as_logger->trace(
 						"Loaded {} texture as a single texel ({:02x}{:02x}{:02x}{:02x})",
 						name,
 						(value4 >> u4_t( 0)) & u4_t(0xff),
@@ -128,13 +127,13 @@ namespace SKENGINE_NAME_NS {
 					texture_filename.append(texture_name);
 					size_t w;
 					size_t h;
-					auto success = create_texture_from_file(*as_engine, &dst, &w, &h, texture_filename.c_str());
+					auto success = create_texture_from_file(as_transferContext, &dst, &w, &h, texture_filename.c_str(), *as_logger, as_maxSamplerAnisotropy);
 					if(success) {
-						log.trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
+						as_logger->trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
-						log.warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
+						as_logger->warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
 					}
 				}
 			};
@@ -149,7 +148,7 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferCreateInfo bc_info = { };
 				bc_info.size  = sizeof(dev::MaterialUniform);
 				bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-				r.mat_uniform = vkutil::BufferDuplex::createUniformBuffer(as_engine->getVmaAllocator(), bc_info);
+				r.mat_uniform = vkutil::BufferDuplex::createUniformBuffer(vma(), bc_info);
 			}
 
 			[&](dev::MaterialUniform& uni) {
@@ -168,7 +167,7 @@ namespace SKENGINE_NAME_NS {
 				size /= 1024.0*1024.0; unit = "GiB";
 				if(size > 5'000.0) [[unlikely]] { size /= 1024.0; unit = "TiB"; }
 			}
-			log.info(
+			as_logger->info(
 				"Loaded material \"{}\" ({:.3f} {})",
 				locator,
 				size, unit );
@@ -179,8 +178,8 @@ namespace SKENGINE_NAME_NS {
 
 	void AssetSupplier::releaseMaterial(std::string_view locator) noexcept {
 		auto missing = decltype(as_missingMaterials)::iterator();
-		auto dev     = as_engine->getDevice();
-		auto vma     = as_engine->getVmaAllocator();
+		auto vma     = this->vma();
+		auto dev     = vkDevice();
 
 		std::string locator_s = std::string(locator);
 
@@ -194,14 +193,14 @@ namespace SKENGINE_NAME_NS {
 				destroy_material(dev, vma, victim->second);
 				as_inactiveMaterials.erase(victim);
 			}
-			as_engine->logger().info("Released material \"{}\"", locator);
+			as_logger->info("Released material \"{}\"", locator);
 		}
 		else if(as_missingMaterials.end() != (missing = as_missingMaterials.find(locator_s))) {
-			as_engine->logger().trace("Releasing missing material \"{}\"", locator);
+			as_logger->trace("Releasing missing material \"{}\"", locator);
 			as_missingMaterials.erase(missing);
 		}
 		else {
-			as_engine->logger().debug("Tried to release material \"{}\", but it's not loaded", locator);
+			as_logger->debug("Tried to release material \"{}\", but it's not loaded", locator);
 		}
 	}
 

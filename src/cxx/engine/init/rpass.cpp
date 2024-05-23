@@ -317,7 +317,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mSurfaceFormat = vkutil::selectSwapchainFormat(mLogger.get(), mPhysDevice, mSurface);
+		mSurfaceFormat = vkutil::selectSwapchainFormat(state.reinit? nullptr : mLogger.get(), mPhysDevice, mSurface);
 		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
@@ -379,7 +379,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto i = 0u; i < 3u; ++i) {
 				try {
 					VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
-					mLogger->debug("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
+					mLogger->trace("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
 					return;
 				} catch(vkutil::VulkanError& err) {
 					mLogger->error("{} ({}) (attempt n. {})", err.what(), int32_t(err.vkResult()), i+1);
@@ -419,7 +419,7 @@ namespace SKENGINE_NAME_NS {
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, nullptr);
 			images.resize(count);
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, images.data());
-			logger().debug("Acquired {} swapchain image{}", count, count == 1? "":"s");
+			logger().trace("Acquired {} swapchain image{}", count, count == 1? "":"s");
 
 			assert(mGframes.empty() || state.reinit);
 			if(mGframes.size() < images.size()) state.createGframes  = true;
@@ -503,11 +503,17 @@ namespace SKENGINE_NAME_NS {
 				m3dPipelineMaterialDsetLayout,
 				mAssetSupplier ));
 
-			auto uptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
+			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
 				std::make_shared<spdlog::logger>(logger()),
 				mObjectStorage ));
-			mWorldRenderer_TMP_UGLY_NAME = uptr.get();
-			mRenderers.emplace_back(std::move(uptr));
+			mWorldRenderer_TMP_UGLY_NAME = wrUptr.get();
+			mRenderers.emplace_back(std::move(wrUptr));
+
+			auto uiUptr = std::make_unique<UiRenderer>(UiRenderer::create(
+				std::make_shared<spdlog::logger>(logger()),
+				mUiStorage ));
+			mUiRenderer_TMP_UGLY_NAME = uiUptr.get();
+			mRenderers.emplace_back(std::move(uiUptr));
 		}
 
 		assert(! mGframes.empty());
@@ -610,33 +616,7 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t COLOR = 0;
 		constexpr size_t DEPTH = 1;
 
-		using RendererIter = decltype(mRenderers)::iterator;
-		RendererIter* iterators = mRendererIterators;
-		iterators[0] = mRenderers.begin();
-
 		if(mRenderers.empty()) return;
-
-		// Scan renderers, set their iterators at the beginning of each render pass
-		size_t iteratorCount = std::size(mRendererIterators);
-		auto end = mRenderers.end();
-
-		auto currentRpass = mRenderers.front()->pipelineInfo().rpass;
-		size_t currentIter = 0;
-		++ iterators[currentIter];
-		while(currentIter < iteratorCount && iterators[currentIter] < end) {
-			auto& renderer = * iterators[currentIter]->get();
-			auto& spInfo = renderer.pipelineInfo();
-			assert(renderer.pipelineInfo().rpass >= currentRpass);
-			if(spInfo.rpass < currentRpass) continue;
-			if(spInfo.rpass > currentRpass) {
-				++ currentIter;
-				iterators[currentIter] = iterators[currentIter-1];
-				if(currentIter < iteratorCount) [[likely]] {
-					currentRpass = iterators[currentIter]->get()->pipelineInfo().rpass;
-				}
-			}
-			++ iterators[currentIter];
-		}
 
 		VkAttachmentReference subpass_refs[2]; {
 			subpass_refs[COLOR].attachment = COLOR;
@@ -645,11 +625,13 @@ namespace SKENGINE_NAME_NS {
 			subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 		}
 
+		using SpassDescs = std::vector<VkSubpassDescription>;
+		using SpassDeps  = std::vector<VkSubpassDependency>;
 		size_t subpassCountHeuristic = (mRenderers.size() * 3) / 4;
-		std::vector<VkSubpassDescription> subpassDescsWorld; subpassDescsWorld.reserve(subpassCountHeuristic);
-		std::vector<VkSubpassDescription> subpassDescsUi;    subpassDescsUi   .reserve(subpassCountHeuristic);
-		std::vector<VkSubpassDependency> subpassDepsWorld;   subpassDescsWorld.reserve(subpassCountHeuristic);
-		std::vector<VkSubpassDependency> subpassDepsUi;      subpassDescsUi   .reserve(subpassCountHeuristic);
+		SpassDescs subpassDescsWorld; subpassDescsWorld.reserve(subpassCountHeuristic);
+		SpassDescs subpassDescsUi;    subpassDescsUi   .reserve(subpassCountHeuristic);
+		SpassDeps subpassDepsWorld;   subpassDescsWorld.reserve(subpassCountHeuristic);
+		SpassDeps subpassDepsUi;      subpassDescsUi   .reserve(subpassCountHeuristic);
 		{ // Create subpass descriptions and references
 			VkSubpassDescription spDescTemplate = { };
 			spDescTemplate.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -668,7 +650,7 @@ namespace SKENGINE_NAME_NS {
 			spDepTemplate.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			spDepTemplate.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-			auto insertInfo = [&](std::vector<VkSubpassDescription>& descDst, std::vector<VkSubpassDependency>& depDst, std::string_view name) {
+			auto insertInfo = [&](SpassDescs& descDst, SpassDeps& depDst, std::string_view name) {
 				descDst.push_back(spDescTemplate);
 				mLogger->trace("Creating subpass for renderer \"{}\"{}", name, (descDst.size() >= 2)? " (dependent on the previous subpass)" : " (no dependency)");
 				if(descDst.size() >= 2 /* There can only be a dependency between two things */) [[unlikely]] {
@@ -685,10 +667,10 @@ namespace SKENGINE_NAME_NS {
 					case Renderer::RenderPass::eUi:    insertInfo(subpassDescsUi,    subpassDepsUi, r->name()); subpassDescsUi.back().pDepthStencilAttachment = nullptr; break;
 				}
 			}
-
-			#warning "TODO: remove hardcoded UI subpass when appropriate"
-			insertInfo(subpassDescsUi, subpassDepsUi, "!hardcoded-ui-subpass");
-			subpassDescsUi.back().pDepthStencilAttachment = nullptr;
+			mLogger->trace("Rpass 0 has {} subpass{}", subpassDescsWorld.size(), subpassDescsWorld.size() == 1? "":"es");
+			mLogger->trace("Rpass 1 has {} subpass{}", subpassDescsUi   .size(), subpassDescsUi   .size() == 1? "":"es");
+			for(auto& dep : subpassDepsWorld) mLogger->trace("Rpass 0 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
+			for(auto& dep : subpassDepsUi)    mLogger->trace("Rpass 1 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
 		}
 
 		{ // Create the render passes
@@ -755,6 +737,15 @@ namespace SKENGINE_NAME_NS {
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
 
+			geom::PipelineSetCreateInfo gpsci = { };
+			gpsci.subpass        = 0;
+			gpsci.renderPass     = mUiRpass;
+			gpsci.pipelineCache  = mPipelineCache;
+			gpsci.polyDsetLayout = mGeometryPipelineDsetLayout;
+			gpsci.textDsetLayout = mImagePipelineDsetLayout;
+			auto& geomPipelines = mUiStorage->geomPipelines;
+			geomPipelines = geom::PipelineSet::create(mDevice, gpsci);
+
 			uint32_t worldSubpassIndex = 0;
 			uint32_t uiSubpassIndex = 0;
 			auto fwdSubpassIdx = [&](Renderer::RenderPass rp) { switch(rp) {
@@ -765,21 +756,19 @@ namespace SKENGINE_NAME_NS {
 			for(auto& r : mRenderers) {
 				using PipelineSet = decltype(mPipelines);
 				auto& info = r->pipelineInfo();
-				auto pl = info.shaderReq.pipelineLayout;
-				switch(pl) {
-					default: throw EngineRuntimeError(fmt::format("Renderer requires bad pipeline layout ({})", std::underlying_type_t<PipelineLayoutId>(pl)));
-					case PipelineLayoutId::e3d:
-						mPipelines.insert(PipelineSet::value_type(info.shaderReq, create3dPipeline(info.shaderReq, fwdSubpassIdx(info.rpass), mWorldRpass)));
+				for(auto& shaderReq : info.shaderRequirements) {
+					auto pl = shaderReq.pipelineLayout;
+					switch(pl) {
+						default: throw EngineRuntimeError(fmt::format("Renderer requires bad pipeline layout ({})", std::underlying_type_t<PipelineLayoutId>(pl)));
+						case PipelineLayoutId::e3d:
+							mPipelines.insert(PipelineSet::value_type(shaderReq, create3dPipeline(shaderReq, fwdSubpassIdx(info.rpass), mWorldRpass)));
+							break;
+						case PipelineLayoutId::eGeometry: [[fallthrough]];
+						case PipelineLayoutId::eImage:
+							break;
+					}
 				}
 			}
-
-			geom::PipelineSetCreateInfo gpsci = { };
-			gpsci.subpass        = 0;
-			gpsci.renderPass     = mUiRpass;
-			gpsci.pipelineCache  = mPipelineCache;
-			gpsci.polyDsetLayout = nullptr;
-			gpsci.textDsetLayout = mGuiDsetLayout;
-			mGuiState.geomPipelines = geom::PipelineSet::create(mDevice, gpsci);
 		}
 	}
 
@@ -797,7 +786,6 @@ namespace SKENGINE_NAME_NS {
 		VkFramebufferCreateInfo fc_info = { };
 		fc_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		fc_info.layers = 1;
-
 		for(size_t i = 0; i < mGframes.size(); ++i) {
 			GframeData& gf = mGframes[i];
 			ivc_info.image  = gf.atch_color;
@@ -819,7 +807,7 @@ namespace SKENGINE_NAME_NS {
 				VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.worldFramebuffer);
 			}
 
-			{ // Create the world rpass framebuffer
+			{ // Create the ui rpass framebuffer
 				VkImageView atchs[] = { gf.swapchain_image_view };
 				fc_info.renderPass = mUiRpass;
 				fc_info.attachmentCount = std::size(atchs);
@@ -863,7 +851,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
-			geom::PipelineSet::destroy(mDevice, mGuiState.geomPipelines);
+			geom::PipelineSet::destroy(mDevice, mUiStorage->geomPipelines);
 			for(auto& p : mPipelines) vkDestroyPipeline(mDevice, p.second, nullptr);
 			mPipelines.clear();
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);

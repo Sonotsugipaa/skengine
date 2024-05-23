@@ -45,26 +45,30 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	void Engine::pushBuffer(vkutil::BufferDuplex& b) {
+	void Engine::pushBuffer(const TransferContext& tc, vkutil::BufferDuplex& b) {
 		if(b.isHostVisible()) {
-			b.flush(nullptr, mVma);
+			b.flush(nullptr, tc.vma);
 		} else {
-			auto cmd = create_cmd_buffer(mDevice, mTransferCmdPool);
-			b.flush(cmd, mVma);
-			submit_onetime_cmd(mDevice, mQueues.transfer, cmd);
-			vkFreeCommandBuffers(mDevice, mTransferCmdPool, 1, &cmd);
+			VmaAllocatorInfo vaInfo;
+			vmaGetAllocatorInfo(tc.vma, &vaInfo);
+			auto cmd = create_cmd_buffer(vaInfo.device, tc.cmdPool);
+			b.flush(cmd, tc.vma);
+			submit_onetime_cmd(vaInfo.device, tc.cmdQueue, cmd);
+			vkFreeCommandBuffers(vaInfo.device, tc.cmdPool, 1, &cmd);
 		}
 	}
 
 
-	void Engine::pullBuffer(vkutil::BufferDuplex& b) {
+	void Engine::pullBuffer(const TransferContext& tc, vkutil::BufferDuplex& b) {
 		if(b.isHostVisible()) {
-			b.invalidate(nullptr, mVma);
+			b.invalidate(nullptr, tc.vma);
 		} else {
-			auto cmd = create_cmd_buffer(mDevice, mTransferCmdPool);
-			b.invalidate(cmd, mVma);
-			submit_onetime_cmd(mDevice, mQueues.transfer, cmd);
-			vkFreeCommandBuffers(mDevice, mTransferCmdPool, 1, &cmd);
+			VmaAllocatorInfo vaInfo;
+			vmaGetAllocatorInfo(tc.vma, &vaInfo);
+			auto cmd = create_cmd_buffer(vaInfo.device, tc.cmdPool);
+			b.invalidate(cmd, tc.vma);
+			submit_onetime_cmd(vaInfo.device, tc.cmdQueue, cmd);
+			vkFreeCommandBuffers(vaInfo.device, tc.cmdPool, 1, &cmd);
 		}
 	}
 

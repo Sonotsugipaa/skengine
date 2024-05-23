@@ -13,23 +13,27 @@ namespace SKENGINE_NAME_NS {
 
 	// These functions are defined in a similarly named translation unit,
 	// but not exposed through any header.
-	void create_fallback_mat(Engine&, Material*);
+	void create_fallback_mat(const TransferContext&, Material*, float);
 	void destroy_material(VkDevice, VmaAllocator, Material&);
 
 
 
-	AssetSupplier::AssetSupplier(Engine& e, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio):
-			as_engine(&e),
+	AssetSupplier::AssetSupplier(Engine& e, std::shared_ptr<spdlog::logger> logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy):
+			as_transferContext(e.getTransferContext()),
+			as_logger(std::move(logger)),
 			as_srcInterface(std::move(asi)),
-			as_maxInactiveRatio(max_inactive_ratio)
+			as_maxInactiveRatio(max_inactive_ratio),
+			as_maxSamplerAnisotropy(max_sampler_anisotropy),
+			as_initialized(true)
 	{
-		create_fallback_mat(e, &as_fallbackMaterial);
+		create_fallback_mat(as_transferContext, &as_fallbackMaterial, as_maxSamplerAnisotropy);
 	}
 
 
 	AssetSupplier::AssetSupplier(AssetSupplier&& mv):
 			#define MV_(M_) M_(std::move(mv.M_))
-			MV_(as_engine),
+			MV_(as_transferContext),
+			MV_(as_logger),
 			MV_(as_srcInterface),
 			MV_(as_activeModels),
 			MV_(as_inactiveModels),
@@ -37,17 +41,19 @@ namespace SKENGINE_NAME_NS {
 			MV_(as_inactiveMaterials),
 			MV_(as_fallbackMaterial),
 			MV_(as_missingMaterials),
-			MV_(as_maxInactiveRatio)
+			MV_(as_maxInactiveRatio),
+			MV_(as_maxSamplerAnisotropy),
+			MV_(as_initialized)
 			#undef MV_
 	{
-		mv.as_engine = nullptr;
+		mv.as_initialized = false;
 	}
 
 
 	void AssetSupplier::destroy() {
-		assert(as_engine != nullptr);
-		auto dev = as_engine->getDevice();
-		auto vma = as_engine->getVmaAllocator();
+		assert(as_initialized);
+		auto vma = this->vma();
+		auto dev = vkDevice();
 		releaseAllModels();
 		releaseAllMaterials();
 
@@ -63,18 +69,11 @@ namespace SKENGINE_NAME_NS {
 		as_inactiveMaterials.clear();
 		destroy_material(dev, vma, as_fallbackMaterial);
 
-		as_engine = nullptr;
-	}
-
-
-	AssetSupplier::~AssetSupplier() {
-		if(as_engine != nullptr) destroy();
+		as_initialized = false;
 	}
 
 
 	DevModel AssetSupplier::requestModel(std::string_view locator) {
-		auto vma = as_engine->getVmaAllocator();
-
 		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeModels.find(locator_s);
@@ -89,6 +88,7 @@ namespace SKENGINE_NAME_NS {
 		}
 		else {
 			DevModel r;
+			auto vma = this->vma();
 			auto src = as_srcInterface->asi_requestModelData(locator);
 			auto materials = src.fmaHeader.materials();
 			auto meshes    = src.fmaHeader.meshes();
@@ -97,7 +97,7 @@ namespace SKENGINE_NAME_NS {
 			auto vertices  = src.fmaHeader.vertices();
 
 			if(meshes.empty()) {
-				as_engine->logger().critical(
+				as_logger->critical(
 					"Attempting to load model \"{}\" without meshes; fallback model logic is not implemented yet",
 					locator );
 				abort();
@@ -116,8 +116,8 @@ namespace SKENGINE_NAME_NS {
 
 				memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
 				memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
-				as_engine->pushBuffer(r.indices);
-				as_engine->pushBuffer(r.vertices);
+				Engine::pushBuffer(as_transferContext, r.indices);
+				Engine::pushBuffer(as_transferContext, r.vertices);
 			}
 
 			for(auto& mesh : meshes) {
@@ -136,7 +136,7 @@ namespace SKENGINE_NAME_NS {
 
 			as_activeModels.insert(Models::value_type(std::move(locator_s), r));
 			double size_kib = indices.size_bytes() + vertices.size_bytes();
-			as_engine->logger().info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+			as_logger->info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
 
 			as_srcInterface->asi_releaseModelData(locator);
 			return r;
@@ -145,7 +145,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void AssetSupplier::releaseModel(std::string_view locator) noexcept {
-		auto vma = as_engine->getVmaAllocator();
+		auto vma = this->vma();
 
 		std::string locator_s = std::string(locator);
 
@@ -160,9 +160,9 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferDuplex::destroy(vma, victim->second.vertices);
 				as_inactiveModels.erase(victim);
 			}
-			as_engine->logger().info("Released model \"{}\"", locator);
+			as_logger->info("Released model \"{}\"", locator);
 		} else {
-			as_engine->logger().debug("Tried to release model \"{}\", but it's not loaded", locator);
+			as_logger->debug("Tried to release model \"{}\", but it's not loaded", locator);
 		}
 	}
 

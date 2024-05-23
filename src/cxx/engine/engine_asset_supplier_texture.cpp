@@ -69,9 +69,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	void create_texture_from_pixels(
-			Engine& e,
+			const TransferContext& tc,
 			Material::Texture* dst,
 			const void*        src,
+			float    maxSamplerAnisotropy,
 			VkFormat fmt,
 			size_t   width,
 			size_t   height
@@ -81,8 +82,8 @@ namespace SKENGINE_NAME_NS {
 		auto fmt_block_size = vk::blockSize(vk::Format(fmt));
 		auto fmt_map        = format_mapping(fmt);
 
-		auto dev = e.getDevice();
-		auto vma = e.getVmaAllocator();
+		auto vma = tc.vma;
+		auto dev = [&]() { VmaAllocatorInfo vai; vmaGetAllocatorInfo(vma, &vai); return vai.device; } ();
 
 		auto mip_levels = mip_level_count(width, height);
 
@@ -129,7 +130,7 @@ namespace SKENGINE_NAME_NS {
 			VkCommandBufferAllocateInfo cba_info = { };
 			cba_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			cba_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			cba_info.commandPool = e.getTransferCmdPool();
+			cba_info.commandPool = tc.cmdPool;
 			cba_info.commandBufferCount = 1;
 			VK_CHECK(vkAllocateCommandBuffers, dev, &cba_info, &cmd);
 			VkCommandBufferBeginInfo cbb_info = { };
@@ -241,12 +242,12 @@ namespace SKENGINE_NAME_NS {
 			submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 			submit.commandBufferCount = 1;
 			submit.pCommandBuffers    = &cmd;
-			VK_CHECK(vkQueueSubmit, e.getQueues().graphics, 1, &submit, fence);
+			VK_CHECK(vkQueueSubmit, tc.cmdQueue, 1, &submit, fence);
 			VK_CHECK(vkWaitForFences, dev, 1, &fence, true, UINT64_MAX);
 			vkDestroyFence(dev, fence, nullptr);
 		}
 
-		vkFreeCommandBuffers(dev, e.getTransferCmdPool(), 1, &cmd);
+		vkFreeCommandBuffers(dev, tc.cmdPool, 1, &cmd);
 		vkutil::ManagedBuffer::destroy(vma, staging_buffer);
 
 		{ // Create the image view
@@ -269,7 +270,7 @@ namespace SKENGINE_NAME_NS {
 			sc_info.addressModeU =
 			sc_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 			sc_info.anisotropyEnable = true;
-			sc_info.maxAnisotropy    = e.getPhysDeviceProperties().limits.maxSamplerAnisotropy;
+			sc_info.maxAnisotropy    = maxSamplerAnisotropy;
 			sc_info.mipmapMode       = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 			sc_info.minFilter = VK_FILTER_NEAREST;
 			sc_info.magFilter = VK_FILTER_NEAREST;
@@ -279,11 +280,13 @@ namespace SKENGINE_NAME_NS {
 
 
 	bool create_texture_from_file(
-			Engine& e,
+			const TransferContext& tc,
 			Material::Texture* dst,
 			size_t*            dst_width,
 			size_t*            dst_height,
-			const char*        locator
+			const char*        locator,
+			spdlog::logger& logger,
+			float maxSamplerAnisotropy
 	) {
 		using posixfio::MemProtFlags;
 		using posixfio::MemMapFlags;
@@ -296,7 +299,7 @@ namespace SKENGINE_NAME_NS {
 
 		VkFormat fmt = format_from_locator(locator_sv);
 		if(fmt == VK_FORMAT_UNDEFINED) {
-			e.logger().error(FAILED_PRE_ "bad format/extension", locator_sv);
+			logger.error(FAILED_PRE_ "bad format/extension", locator_sv);
 			return false;
 		}
 		size_t block_size = vk::blockSize(vk::Format(fmt));
@@ -305,7 +308,7 @@ namespace SKENGINE_NAME_NS {
 		try {
 			file = posixfio::File::open(locator, O_RDONLY);
 		} catch(posixfio::Errcode& ex) {
-			e.logger().error(FAILED_PRE_ "errno {}", locator_sv, ex.errcode);
+			logger.error(FAILED_PRE_ "errno {}", locator_sv, ex.errcode);
 			return false;
 		}
 
@@ -318,11 +321,11 @@ namespace SKENGINE_NAME_NS {
 		file_len     -= 2 * sizeof(w);
 
 		if(pixel_n * block_size > file_len) {
-			e.logger().error(FAILED_PRE_ "bad image size ({}x{} > {})", locator_sv, w, h, file_len / block_size);
+			logger.error(FAILED_PRE_ "bad image size ({}x{} > {})", locator_sv, w, h, file_len / block_size);
 			return false;
 		}
 
-		create_texture_from_pixels(e, dst, ptr, fmt, w, h);
+		create_texture_from_pixels(tc, dst, ptr, maxSamplerAnisotropy, fmt, w, h);
 		*dst_width  = w;
 		*dst_height = h;
 		return true;

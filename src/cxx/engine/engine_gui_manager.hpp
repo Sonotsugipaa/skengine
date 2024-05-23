@@ -15,7 +15,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		friend ConcurrentAccess;
 
-		ui::Canvas& canvas() noexcept { return *gm_engine->mGuiState.canvas; }
+		ui::Canvas& canvas() noexcept { return *gm_engine->mUiStorage->canvas; }
 
 		auto createBasicShape(ui::Lot&, ShapeSet, bool doFill);
 		auto createTextLine(ui::Lot&, float depth, const TextInfo&, std::u32string);

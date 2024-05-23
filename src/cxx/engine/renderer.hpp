@@ -11,6 +11,10 @@ namespace SKENGINE_NAME_NS {
 	class ConcurrentAccess;
 
 
+	/// \brief A Renderer describes all the procedures that need to be called
+	///        when running one or more consequent subpasses, and the ones needed
+	///        to set up and manage their contexts.
+	///
 	/// ```
 	/// vkAcquireNextImageKHR()
 	/// -- beforePreRender
@@ -18,9 +22,15 @@ namespace SKENGINE_NAME_NS {
 	/// vkBeginCommandBuffer(cmd_prepare, cmd_draw)
 	/// -- duringPrepareStage
 	/// vkEndCommandBuffer(cmd_prepare)
-	/// vkCmdBeginRenderPass()
-	/// -- duringDrawStage
-	/// vkCmdEndRenderPass()
+	///
+	/// vkCmdBeginRenderPass(1)
+	/// -- duringDrawStage, only for rpass 1
+	/// vkCmdEndRenderPass(1)
+	///
+	/// vkCmdBeginRenderPass(2)
+	/// -- duringDrawStage, only for rpass 2
+	/// vkCmdEndRenderPass(2)
+	///
 	/// vkEndCommandBuffer(cmd_draw)
 	/// vkQueuePresentKHR()
 	/// -- afterPresent
@@ -35,8 +45,9 @@ namespace SKENGINE_NAME_NS {
 
 		struct Info {
 			using DsetLayoutBindings = util::TransientPtrRange<const VkDescriptorSetLayoutBinding>;
+			using ShaderRequirements = util::TransientPtrRange<const ShaderRequirement>;
 			DsetLayoutBindings dsetLayoutBindings;
-			ShaderRequirement shaderReq;
+			ShaderRequirements shaderRequirements;
 			RenderPass rpass;
 		};
 

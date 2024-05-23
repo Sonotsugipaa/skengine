@@ -13,6 +13,8 @@
 
 #include <vk-util/desc_proxy.hpp>
 
+#include <vma/vk_mem_alloc.h>
+
 
 
 #define ALIGNF32(N_) alignas((N_) * sizeof(float))
@@ -33,6 +35,15 @@ namespace SKENGINE_NAME_NS {
 	enum class ModelInstanceId : model_instance_id_e { };
 	enum class MaterialId      : material_id_e       { };
 	enum class ModelId         : model_id_e          { };
+
+
+	struct TransferContext {
+		VmaAllocator  vma;
+		VkCommandPool cmdPool;
+		VkFence       cmdFence;
+		VkQueue       cmdQueue;
+		unsigned      cmdQueueFamily;
+	};
 
 
 	struct Object {

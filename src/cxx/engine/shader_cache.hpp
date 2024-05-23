@@ -15,7 +15,7 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine; // Defined in `engine.hpp`
 
-	enum class PipelineLayoutId { e3d };
+	enum class PipelineLayoutId { eImage, eGeometry, e3d };
 
 
 	struct ShaderModuleSet {

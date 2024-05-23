@@ -20,9 +20,8 @@ namespace SKENGINE_NAME_NS {
 		initVkInst(dii);
 		initVkDev();
 		initVma();
-		initTransferCmdPool();
+		initTransferContext();
 		initDsetLayouts();
-		initFreetype();
 		initAssets();
 		initGui();
 	}
@@ -31,9 +30,8 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::destroy() {
 		destroyGui();
 		destroyAssets();
-		destroyFreetype();
 		destroyDsetLayouts();
-		destroyTransferCmdPool();
+		destroyTransferContext();
 		destroyVma();
 		destroyVkDev();
 		destroyVkInst();
@@ -195,12 +193,15 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initTransferCmdPool() {
+	void Engine::DeviceInitializer::initTransferContext() {
+		#warning "TODO: intialize mTransferContext.cmdFence and use it in pushBuffer and pullBuffer"
+		VkCommandPool pool;
 		VkCommandPoolCreateInfo cpc_info = { };
 		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		cpc_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 		cpc_info.queueFamilyIndex = mQueues.families.graphicsIndex;
-		vkCreateCommandPool(mDevice, &cpc_info, nullptr, &mTransferCmdPool);
+		VK_CHECK(vkCreateCommandPool, mDevice, &cpc_info, nullptr, &pool);
+		mTransferContext = { .vma = mVma, .cmdPool = pool, .cmdFence = nullptr, .cmdQueue = mQueues.graphics, .cmdQueueFamily = mQueues.families.graphicsIndex };
 	}
 
 
@@ -222,7 +223,7 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
 		}
 
-		{ // GUI dset layout
+		{ // GUI dset layouts
 			VkDescriptorSetLayoutBinding dslb[1] = { };
 			dslb[0].binding = DIFFUSE_TEX_BINDING;
 			dslb[0].descriptorCount = 1;
@@ -233,40 +234,51 @@ namespace SKENGINE_NAME_NS {
 			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 			dslc_info.bindingCount = std::size(dslb);
 			dslc_info.pBindings = dslb;
-			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGuiDsetLayout);
+			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mImagePipelineDsetLayout);
+
+			mGeometryPipelineDsetLayout = nullptr;
 		}
 	}
 
 
-	void Engine::DeviceInitializer::initFreetype() {
-		auto error = FT_Init_FreeType(&mFreetype);
-		if(error) throw FontError("failed to initialize FreeType", error);
-	}
-
-
 	void Engine::DeviceInitializer::initAssets() {
-		mAssetSupplier = AssetSupplier(*this, mAssetSource, 0.125f);
+		auto newLogger = std::make_shared<spdlog::logger>(logger());
+		mAssetSupplier = AssetSupplier(*this, std::move(newLogger), mAssetSource, 0.125f, mDevProps.limits.maxSamplerAnisotropy);
 	}
 
 
 	void Engine::DeviceInitializer::initGui() {
-		// Hardcoded GUI canvas
+		#warning "TODO: UiStorage is closely tied to UiRenderer, so the former should be initialized and destroyed by code in the files of the latter"
+		mUiStorage = std::make_shared<UiStorage>();
+		auto& uiStorage = *mUiStorage.get();
 
-		float ratio = 1.0f;
-		float hSize = 0.1f;
-		float wSize = hSize * ratio;
-		float wComp = 0.5f * (hSize - wSize);
-		float chBlank = (1.0 - hSize) / 2.0;
-		auto& canvas = mGuiState.canvas;
-		canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.01, 0.01, 0.98, 0.98 });
-		canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
-		canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
+		uiStorage.vma = mVma;
+		uiStorage.fontFilePath = mPrefs.font_location.c_str();
+
+		{ // Init freetype
+			auto error = FT_Init_FreeType(&uiStorage.freetype);
+			if(error) throw FontError("failed to initialize FreeType", error);
+		}
+
+		{ // Hardcoded GUI canvas
+			float ratio = 1.0f;
+			float hSize = 0.1f;
+			float wSize = hSize * ratio;
+			float wComp = 0.5f * (hSize - wSize);
+			float chBlank = (1.0 - hSize) / 2.0;
+			auto& canvas = uiStorage.canvas;
+			canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.01, 0.01, 0.98, 0.98 });
+			canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
+			canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
+		}
 	}
 
 
 	void Engine::DeviceInitializer::destroyGui() {
-		mGuiState.textCaches.clear();
-		mGuiState.canvas = { };
+		auto& uiStorage = *mUiStorage.get();
+		uiStorage.textCaches.clear();
+		uiStorage.canvas = { };
+		FT_Done_FreeType(uiStorage.freetype);
 	}
 
 
@@ -275,19 +287,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::destroyFreetype() {
-		FT_Done_FreeType(mFreetype);
-	}
-
-
 	void Engine::DeviceInitializer::destroyDsetLayouts() {
-		vkDestroyDescriptorSetLayout(mDevice, mGuiDsetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(mDevice, mImagePipelineDsetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
 	}
 
 
-	void Engine::DeviceInitializer::destroyTransferCmdPool() {
-		vkDestroyCommandPool(mDevice, mTransferCmdPool, nullptr);
+	void Engine::DeviceInitializer::destroyTransferContext() {
+		vkDestroyCommandPool(mDevice, mTransferContext.cmdPool, nullptr);
 	}
 
 
