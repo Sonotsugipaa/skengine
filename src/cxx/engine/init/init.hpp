@@ -45,7 +45,6 @@ namespace SKENGINE_NAME_NS {
 		void unwind(State&);
 		void initSurface();
 		void initSwapchain(State&);
-		void initGframeDescPool(State&);
 		void initRenderers(State&);
 		void initGframes(State&);
 		void initRpasses(State&);
@@ -55,7 +54,6 @@ namespace SKENGINE_NAME_NS {
 		void destroyFramebuffers(State&);
 		void destroyRpasses(State&);
 		void destroyGframes(State&);
-		void destroyGframeDescPool(State&);
 		void destroyRenderers(State&);
 		void destroySwapchain(State&);
 		void destroySurface();

@@ -8,10 +8,12 @@
 #include <atomic>
 #include <tuple>
 #include <type_traits>
+#include <random>
 
 #include "atomic_id_gen.inl.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/matrix_clip_space.hpp>
 
 #include <vk-util/error.hpp>
 
@@ -95,9 +97,28 @@ namespace SKENGINE_NAME_NS {
 			wr.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			wr.descriptorCount = 1;
 			wr.dstSet          = dset;
-			wr.dstBinding      = Engine::LIGHT_STORAGE_BINDING;
+			wr.dstBinding      = WorldRenderer::LIGHT_STORAGE_BINDING;
 			wr.pBufferInfo     = &db_info;
 			vkUpdateDescriptorSets(dev, 1, &wr, 0, nullptr);
+		}
+
+
+		VkDescriptorPool create_gframe_dpool(VkDevice dev, const std::vector<WorldRenderer::GframeData>& gframes) {
+			auto gframeCount = uint32_t(gframes.size());
+
+			VkDescriptorPoolSize sizes[] = {
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, gframeCount * 1 },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gframeCount * 1 } };
+
+			VkDescriptorPoolCreateInfo dpc_info = { };
+			dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			dpc_info.poolSizeCount = std::size(sizes);
+			dpc_info.pPoolSizes    = sizes;
+			dpc_info.maxSets = gframeCount;
+
+			VkDescriptorPool r;
+			VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, &r);
+			return r;
 		}
 
 	}
@@ -123,7 +144,8 @@ namespace SKENGINE_NAME_NS {
 
 	WorldRenderer WorldRenderer::create(
 			std::shared_ptr<spdlog::logger> logger,
-			std::shared_ptr<ObjectStorage> objectStorage
+			std::shared_ptr<ObjectStorage> objectStorage,
+			const ProjectionInfo& projInfo
 	) {
 		WorldRenderer r;
 		r.mState.logger = std::move(logger);
@@ -136,6 +158,9 @@ namespace SKENGINE_NAME_NS {
 		r.mState.lightStorageDsetOod = true;
 		r.mState.viewTransfCacheOod = true;
 		r.mState.initialized = true;
+
+		r.setProjection(projInfo);
+
 		set_light_buffer_capacity(r.vma(), &r.mState.lightStorage, 0);
 		return r;
 	}
@@ -144,15 +169,22 @@ namespace SKENGINE_NAME_NS {
 	void WorldRenderer::destroy(WorldRenderer& r) {
 		assert(r.mState.initialized);
 		auto vma = r.vma();
+		auto dev = [&]() { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; } ();
 
 		for(auto& gf : r.mState.gframes) {
+			debug::destroyedBuffer(gf.frameUbo, "gframe UBO");
+			vkutil::BufferDuplex::destroy(vma, gf.frameUbo);
+			debug::destroyedBuffer(gf.frameUbo, "device-readable light storage");
 			vkutil::ManagedBuffer::destroy(vma, gf.lightStorage);
 		}
 		r.mState.gframes.clear();
 
+		vkDestroyDescriptorPool(dev, r.mState.gframeDpool, nullptr);
+
 		if(r.mState.lightStorage.bufferCapacity > 0) {
 			r.mState.lightStorage.bufferCapacity = 0;
 			r.mState.lightStorage.buffer.unmap(vma);
+			debug::destroyedBuffer(r.mState.lightStorage.buffer, "host-writeable light storage");
 			vkutil::ManagedBuffer::destroy(vma, r.mState.lightStorage.buffer);
 		}
 
@@ -168,43 +200,90 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::afterSwapchainCreation(ConcurrentAccess&, unsigned gframeCount) {
-		uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
-		auto vma = this->vma();
+	void WorldRenderer::afterSwapchainCreation(ConcurrentAccess& ca, unsigned gframeCount) {
+		auto& e   = ca.engine();
+		auto  dev = e.getDevice();
+		auto  vma = this->vma();
 
 		size_t oldGframeCount = mState.gframes.size();
 
-		vkutil::BufferCreateInfo lightStorageBcInfo = {
-			.size  = lightCapacity * sizeof(dev::Light),
-			.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			.qfamSharing = { } };
-
-		auto setFrameLightStorage = [&](unsigned gfIndex) {
+		auto createGframeData = [&](unsigned gfIndex) {
 			GframeData& wgf = mState.gframes[gfIndex];
-			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, lightStorageBcInfo);
-			debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
-			wgf.lightStorageCapacity = lightCapacity;
-			mState.lightStorageDsetOod = true;
+
+			uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
+			if(lightCapacity > 0) { // Create the light storage
+				vkutil::BufferCreateInfo lightStorageBcInfo = {
+					.size  = lightCapacity * sizeof(dev::Light),
+					.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+					.qfamSharing = { } };
+				wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, lightStorageBcInfo);
+				debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
+				wgf.lightStorageCapacity = lightCapacity;
+				mState.lightStorageDsetOod = true;
+			}
+
+			{ // Create the frame UBO
+				vkutil::BufferCreateInfo ubo_bc_info = {
+					.size  = sizeof(dev::FrameUniform),
+					.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+					.qfamSharing = { } };
+				wgf.frameUbo = vkutil::BufferDuplex::createUniformBuffer(vma, ubo_bc_info);
+				debug::createdBuffer(wgf.frameUbo, "gframe UBO");
+			}
 		};
 
-		auto unsetFrameLightStorage = [&](unsigned gfIndex) {
+		auto destroyGframeData = [&](unsigned gfIndex) {
 			GframeData& wgf = mState.gframes[gfIndex];
-			debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
-			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
-			wgf.lightStorageCapacity = 0;
+
+			debug::destroyedBuffer(wgf.frameUbo, "gframe UBO");
+			vkutil::BufferDuplex::destroy(vma, wgf.frameUbo);
+
+			uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
+			if(lightCapacity > 0) {
+				debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
+				vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
+				wgf.lightStorageCapacity = 0;
+			}
 		};
 
-		if(oldGframeCount < gframeCount) {
-			#define FOR_EACH_ for(size_t i = oldGframeCount; i < gframeCount; ++i)
-			mState.gframes.resize(gframeCount);
-			if(lightCapacity != 0) FOR_EACH_ setFrameLightStorage(i);
-			#undef FOR_EACH_
-		} else
-		if(oldGframeCount > gframeCount) {
-			#define FOR_EACH_ for(size_t i = gframeCount; i < oldGframeCount; ++i)
-			if(lightCapacity != 0) FOR_EACH_ unsetFrameLightStorage(i);
-			mState.gframes.resize(gframeCount);
-			#undef FOR_EACH_
+		if(oldGframeCount != gframeCount) {
+			if(oldGframeCount < gframeCount) {
+				mState.gframes.resize(gframeCount);
+				for(size_t i = oldGframeCount; i < gframeCount; ++i) createGframeData(i);
+			} else /* if(oldGframeCount > gframeCount) */ {
+				for(size_t i = gframeCount; i < oldGframeCount; ++i) destroyGframeData(i);
+				mState.gframes.resize(gframeCount);
+			}
+
+			if(oldGframeCount > 0 || gframeCount == 0) {
+				vkDestroyDescriptorPool(dev, mState.gframeDpool, nullptr);
+			}
+
+			if(gframeCount > 0) { // Create the gframe dpool, then allocate and write dsets
+				mState.gframeDpool = create_gframe_dpool(dev, mState.gframes);
+				mState.projTransfOod = true;
+
+				VkDescriptorSetAllocateInfo dsa_info = { };
+				VkDescriptorSetLayout dsetLayouts[] = { e.getGframeDsetLayout() };
+				dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				dsa_info.descriptorPool     = mState.gframeDpool;
+				dsa_info.descriptorSetCount = std::size(dsetLayouts);
+				dsa_info.pSetLayouts        = dsetLayouts;
+				VkWriteDescriptorSet frame_dset_wr = { };
+				frame_dset_wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				frame_dset_wr.dstBinding = FRAME_UBO_BINDING;
+				frame_dset_wr.descriptorCount = 1;
+				frame_dset_wr.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				VkDescriptorBufferInfo frame_db_info = { nullptr, 0, VK_WHOLE_SIZE };
+
+				for(auto& wgf : mState.gframes) {
+					VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &wgf.frameDset);
+					frame_dset_wr.pBufferInfo = &frame_db_info;
+					frame_dset_wr.dstSet = wgf.frameDset;
+					frame_db_info.buffer = wgf.frameUbo;
+					vkUpdateDescriptorSets(dev, 1, &frame_dset_wr, 0, nullptr);
+				}
+			}
 		}
 	}
 
@@ -215,10 +294,11 @@ namespace SKENGINE_NAME_NS {
 		auto& wgf = mState.gframes[gframeIndex];
 		auto& ls  = lightStorage();
 		auto& al  = getAmbientLight();
-		auto& ubo = * egf.frame_ubo.mappedPtr<dev::FrameUniform>();
+		auto& ubo = * wgf.frameUbo.mappedPtr<dev::FrameUniform>();
+		auto& renderExtent = ca.engine().getRenderExtent();
 		auto  dev = e.getDevice();
 		auto  vma = e.getVmaAllocator();
-		auto  all  = glm::length(al);
+		auto  all = glm::length(al);
 
 		if(mState.lightStorageOod) {
 			uint32_t new_ls_size = mState.rayLights.size() + mState.pointLights.size();
@@ -247,12 +327,32 @@ namespace SKENGINE_NAME_NS {
 			mState.lightStorageOod = false;
 		}
 
+		auto rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
+		auto dist = std::uniform_real_distribution(0.0f, 1.0f);
+		ubo.shade_step_count  = e.getPreferences().shade_step_count;
+		ubo.shade_step_smooth = e.getPreferences().shade_step_smoothness;
+		ubo.shade_step_exp    = e.getPreferences().shade_step_exponent;
+		ubo.dithering_steps   = e.getPreferences().dithering_steps;
+		ubo.rnd               = dist(rng);
+		ubo.time_delta        = std::float32_t(egf.frame_delta);
+		ubo.flags             = dev::FrameUniformFlags(dev::FRAME_UNI_ZERO);
 		ubo.ambient_lighting  = glm::vec4((all > 0)? glm::normalize(al) : al, all);
 		ubo.view_transf       = getViewTransf();
 		ubo.view_pos          = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
 		ubo.ray_light_count   = ls.rayCount;
 		ubo.point_light_count = ls.pointCount;
+		if(wgf.lastRenderExtent != renderExtent) [[unlikely]] {
+			wgf.lastRenderExtent = renderExtent;
+			mState.projTransfOod = true;
+		}
+		if(mState.projTransfOod) [[unlikely]] {
+			float aspectRatio = double(renderExtent.width) / double(renderExtent.height);
+			ubo.proj_transf = glm::perspective<float>(mState.projInfo.verticalFov, aspectRatio, mState.projInfo.zNear, mState.projInfo.zFar);
+			ubo.proj_transf[1][1] *= -1.0f; // Clip +y is view -y
+			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
+		}
+		wgf.frameUbo.flush(cmd, vma);
 
 		mState.objectStorage->commitObjects(cmd);
 
@@ -268,14 +368,12 @@ namespace SKENGINE_NAME_NS {
 			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
 			debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
 
-			#warning "TODO: Renderer-owned descriptor sets, or something"
-
 			mState.lightStorageDsetOod = true;
 			wgf.lightStorageCapacity = ls.bufferCapacity;
 		}
 
 		if(mState.lightStorageDsetOod) {
-			update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, egf.frame_dset);
+			update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, wgf.frameDset);
 			mState.lightStorageDsetOod = false;
 		}
 
@@ -288,9 +386,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	void WorldRenderer::duringDrawStage(ConcurrentAccess& ca, unsigned gfIndex, VkCommandBuffer cmd) {
-		SKENGINE_NAME_NS_SHORT::GframeData& egf = ca.getGframeData(gfIndex);
+		assert(gfIndex < mState.gframes.size());
 		auto& e = ca.engine();
 		auto& objStorage     = * mState.objectStorage.get();
+		auto& wgf            = mState.gframes[gfIndex];
 		auto batches         = objStorage.getDrawBatches();
 		auto instance_buffer = objStorage.getInstanceBuffer();
 		auto batch_buffer    = objStorage.getDrawCommandBuffer();
@@ -315,7 +414,7 @@ namespace SKENGINE_NAME_NS {
 
 		objStorage.waitUntilReady();
 
-		VkDescriptorSet dsets[]  = { egf.frame_dset, { } };
+		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
 		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ca.getPipeline(pipelineInfo().shaderRequirements[0]));

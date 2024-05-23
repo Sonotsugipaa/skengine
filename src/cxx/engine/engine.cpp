@@ -13,7 +13,6 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include <random>
 #include <deque>
 
 #include <vulkan/vk_enum_string_helper.h>
@@ -116,6 +115,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		VkCommandBufferBeginInfo cbb_info = { };
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		gframe->frame_delta = delta;
 
 		for(auto& r : e.mRenderers) r->beforePreRender(concurrent_access, sc_img_idx);
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
@@ -125,22 +125,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[1], &cbb_info);
 
 		e.mRendererMutex.lock();
-		{ // Prepare the gframe buffers
-			auto& ubo  = *gframe->frame_ubo.mappedPtr<dev::FrameUniform>();
-			auto  rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
-			auto  dist = std::uniform_real_distribution(0.0f, 1.0f);
-			for(auto& r : e.mRenderers) r->duringPrepareStage(concurrent_access, sc_img_idx, gframe->cmd_prepare);
-			ubo.proj_transf       = e.mProjTransf;
-			ubo.projview_transf   = ubo.proj_transf * ubo.view_transf;
-			ubo.shade_step_count  = e.mPrefs.shade_step_count;
-			ubo.shade_step_smooth = e.mPrefs.shade_step_smoothness;
-			ubo.shade_step_exp    = e.mPrefs.shade_step_exponent;
-			ubo.dithering_steps   = e.mPrefs.dithering_steps;
-			ubo.rnd               = dist(rng);
-			ubo.time_delta        = std::float32_t(delta);
-			ubo.flags             = dev::FrameUniformFlags(e.mHdrEnabled? dev::FRAME_UNI_ZERO : dev::FRAME_UNI_HDR_ENABLED);
-			gframe->frame_ubo.flush(gframe->cmd_prepare, e.mVma);
-		}
+		for(auto& r : e.mRenderers) r->duringPrepareStage(concurrent_access, sc_img_idx, gframe->cmd_prepare);
 
 		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
 
@@ -312,9 +297,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		e.mGframeLast = int_fast32_t(sc_img_idx);
 		if(e.mPrefs.wait_for_gframe) {
 			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[sc_img_idx].fence_draw };
-			VK_CHECK(vkWaitForFences, e.mDevice, std::size(fences), fences, true, UINT64_MAX);
+			vkWaitForFences(e.mDevice, std::size(fences), fences, true, UINT64_MAX);
 		} else {
-			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+			vkWaitForFences(e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
 		}
 		e.mRendererMutex.unlock();
 
@@ -394,7 +379,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		};
 
 		// Handle the local signal once
-		Signal curSignal;
+		Signal curSignal = Signal::eNone;
 		std::swap(curSignal, e.mSignalGthread);
 		if(curSignal != Signal::eNone) {
 			handleSignal(curSignal);
@@ -719,14 +704,14 @@ namespace SKENGINE_NAME_NS {
 		auto wait_for_fences = [&]() {
 			// Wait for all fences, in this order: selection -> prepare -> draw
 			std::vector<VkFence> fences;
-			for(auto& gff : mGframeSelectionFences) VK_CHECK(vkWaitForFences, mDevice, 1, &gff, true, UINT64_MAX);
+			for(auto& gff : mGframeSelectionFences) vkWaitForFences(mDevice, 1, &gff, true, UINT64_MAX);
 			fences.reserve(mGframes.size());
 			for(auto& gframe : mGframes) fences.push_back(gframe.fence_prepare);
-			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
+			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 			fences.clear();
 			fences.reserve(mGframes.size());
 			for(auto& gframe : mGframes) fences.push_back(gframe.fence_draw);
-			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), true, UINT64_MAX);
+			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 
 			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
 			for(auto& ln : mUiStorage->textCaches) ln.second.forgetFence();
@@ -742,7 +727,7 @@ namespace SKENGINE_NAME_NS {
 		} else {
 			wait_for_fences();
 		}
-		VK_CHECK(vkDeviceWaitIdle, mDevice);
+		vkDeviceWaitIdle(mDevice);
 
 		return lock;
 	}

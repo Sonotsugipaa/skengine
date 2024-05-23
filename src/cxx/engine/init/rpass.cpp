@@ -8,9 +8,6 @@
 
 #include <vulkan/vk_enum_string_helper.h>
 
-#include <glm/ext/matrix_clip_space.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
 #include <ui-structure/ui.hpp>
 
 
@@ -180,11 +177,10 @@ namespace SKENGINE_NAME_NS {
 			initSurface(); SET_STAGE_(0)
 			initSwapchain(state); SET_STAGE_(1)
 			initRenderers(state); SET_STAGE_(2)
-			initGframeDescPool(state); SET_STAGE_(3)
-			initGframes(state); SET_STAGE_(4)
-			initRpasses(state); SET_STAGE_(5)
-			initFramebuffers(state); SET_STAGE_(6)
-			initTop(state); SET_STAGE_(7)
+			initGframes(state); SET_STAGE_(3)
+			initRpasses(state); SET_STAGE_(3)
+			initFramebuffers(state); SET_STAGE_(4)
+			initTop(state); SET_STAGE_(5)
 		} catch(...) {
 			unwind(state);
 			std::rethrow_exception(std::current_exception());
@@ -206,17 +202,15 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_present_xt = mPresentExtent;
 
 		try {
-			destroyTop(state); UNSET_STAGE_(7)
-			destroyFramebuffers(state); UNSET_STAGE_(6)
+			destroyTop(state); UNSET_STAGE_(6)
+			destroyFramebuffers(state); UNSET_STAGE_(5)
 			destroySwapchain(state); UNSET_STAGE_(1)
-			destroyGframes(state); UNSET_STAGE_(4)
+			destroyGframes(state); UNSET_STAGE_(3)
 			destroyRenderers(state); UNSET_STAGE_(2)
 			initSwapchain(state); SET_STAGE_(1)
-			destroyGframeDescPool(state); UNSET_STAGE_(3)
-			initGframeDescPool(state); SET_STAGE_(3)
 			initRenderers(state); SET_STAGE_(2)
-			initGframes(state); SET_STAGE_(4)
-			initFramebuffers(state); SET_STAGE_(6)
+			initGframes(state); SET_STAGE_(3)
+			initFramebuffers(state); SET_STAGE_(5)
 
 			bool render_xt_changed =
 				(old_render_xt.width  != mRenderExtent.width) ||
@@ -226,11 +220,11 @@ namespace SKENGINE_NAME_NS {
 				(old_present_xt.height != mPresentExtent.height);
 
 			if(render_xt_changed || present_xt_changed) {
-				destroyRpasses(state); UNSET_STAGE_(5)
-				initRpasses(state); SET_STAGE_(5)
+				destroyRpasses(state); UNSET_STAGE_(4)
+				initRpasses(state); SET_STAGE_(4)
 			}
 
-			initTop(state); SET_STAGE_(7)
+			initTop(state); SET_STAGE_(6)
 		} catch(...) {
 			state.reinit = false;
 			unwind(state);
@@ -249,12 +243,11 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::unwind(State& state) {
 		#define IF_STAGE_(B_) if(0 != (state.stages & (stages_t(1) << stages_t(B_))))
-		IF_STAGE_(7) destroyTop(state);
-		IF_STAGE_(6) destroyFramebuffers(state);
-		IF_STAGE_(5) destroyRpasses(state);
+		IF_STAGE_(6) destroyTop(state);
+		IF_STAGE_(5) destroyFramebuffers(state);
+		IF_STAGE_(4) destroyRpasses(state);
 		IF_STAGE_(1) destroySwapchain(state);
-		IF_STAGE_(4) destroyGframes(state);
-		IF_STAGE_(3) destroyGframeDescPool(state);
+		IF_STAGE_(3) destroyGframes(state);
 		IF_STAGE_(2) destroyRenderers(state);
 		IF_STAGE_(0) destroySurface();
 	}
@@ -321,12 +314,6 @@ namespace SKENGINE_NAME_NS {
 		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
-
-		mProjTransf = glm::perspective<float>(
-			mPrefs.fov_y,
-			float(mRenderExtent.width) / float(mRenderExtent.height),
-			mPrefs.z_near, mPrefs.z_far );
-		mProjTransf[1][1] *= -1.0f; // Clip +y is view -y
 
 		uint32_t concurrent_qfams[] = {
 			mQueues.families.graphicsIndex,
@@ -447,31 +434,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::initGframeDescPool(State& state) {
-		// Descriptor pool initialization only required if gframes will be created or deleted
-		bool ood = state.createGframes || state.destroyGframes;
-		if(state.reinit && ! ood) return;
-
-		assert(! mGframes.empty() /* The gframe vector should be resized by the swapchain init procedure */);
-		auto frame_n = uint32_t(mGframes.size());
-
-		VkDescriptorPoolSize sizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_n * 1 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame_n * 1 } };
-
-		VkDescriptorPoolCreateInfo dpc_info = { };
-		dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		dpc_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		dpc_info.poolSizeCount = std::size(sizes);
-		dpc_info.pPoolSizes    = sizes;
-
-		dpc_info.maxSets = 0;
-		for(auto& sz : sizes) dpc_info.maxSets += sz.descriptorCount;
-
-		VK_CHECK(vkCreateDescriptorPool, mDevice, &dpc_info, nullptr, &mGframeDescPool);
-	}
-
-
 	void Engine::RpassInitializer::initRenderers(State& state) {
 		if(! state.reinit) {
 			{ // 3D material dset layout, currently hardcodedly redundant with world_renderer.cpp:world_renderer_subpass_info
@@ -505,7 +467,11 @@ namespace SKENGINE_NAME_NS {
 
 			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
 				std::make_shared<spdlog::logger>(logger()),
-				mObjectStorage ));
+				mObjectStorage,
+				WorldRenderer::ProjectionInfo {
+					.verticalFov = mPrefs.fov_y,
+					.zNear       = mPrefs.z_near,
+					.zFar        = mPrefs.z_far } ));
 			mWorldRenderer_TMP_UGLY_NAME = wrUptr.get();
 			mRenderers.emplace_back(std::move(wrUptr));
 
@@ -526,11 +492,6 @@ namespace SKENGINE_NAME_NS {
 		assert(! mGframes.empty());
 		auto frame_n = mGframes.size();
 
-		vkutil::BufferCreateInfo ubo_bc_info = {
-			.size  = sizeof(dev::FrameUniform),
-			.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			.qfamSharing = { } };
-
 		mGframeLast = -1;
 
 		VkCommandPoolCreateInfo cpc_info = { };
@@ -541,20 +502,6 @@ namespace SKENGINE_NAME_NS {
 		cba_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		VkCommandBuffer cmd[3];
 		cba_info.commandBufferCount = std::size(cmd);
-		VkDescriptorSetAllocateInfo dsa_info = { };
-		dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		dsa_info.descriptorPool     = mGframeDescPool;
-		dsa_info.descriptorSetCount = 1;
-		dsa_info.pSetLayouts        = &mGframeDsetLayout;
-		VkDescriptorBufferInfo frame_db_info = { };
-		frame_db_info.range = VK_WHOLE_SIZE;
-		VkWriteDescriptorSet frame_dset_wr;
-		frame_dset_wr = { };
-		frame_dset_wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		frame_dset_wr.dstBinding = FRAME_UBO_BINDING;
-		frame_dset_wr.descriptorCount = 1;
-		frame_dset_wr.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		frame_dset_wr.pBufferInfo     = &frame_db_info;
 		vkutil::ImageCreateInfo ic_info = { };
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
 		ic_info.type   = VK_IMAGE_TYPE_2D;
@@ -579,13 +526,6 @@ namespace SKENGINE_NAME_NS {
 			VK_CHECK(vkAllocateCommandBuffers, mDevice, &cba_info, cmd);
 			gf.cmd_prepare = cmd[0];
 			memcpy(gf.cmd_draw, cmd+1, sizeof(gf.cmd_draw));
-
-			gf.frame_ubo = vkutil::BufferDuplex::createUniformBuffer(mVma, ubo_bc_info);
-
-			VK_CHECK(vkAllocateDescriptorSets, mDevice, &dsa_info, &gf.frame_dset);
-			frame_dset_wr.dstSet = gf.frame_dset;
-			frame_db_info.buffer = gf.frame_ubo;
-			vkUpdateDescriptorSets(mDevice, 1, &frame_dset_wr, 0, nullptr);
 
 			ic_info.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 			ic_info.format = mSurfaceFormat.format;
@@ -833,7 +773,7 @@ namespace SKENGINE_NAME_NS {
 				fences.push_back(gf.fence_prepare);
 				fences.push_back(mGframeSelectionFences[i]);
 			}
-			VK_CHECK(vkWaitForFences, mDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
+			vkWaitForFences(mDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
 		}
 	}
 
@@ -862,15 +802,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::destroyGframeDescPool(State& state) {
-		// Descriptor pool destruction only required if gframes have been created or deleted
-		bool ood = state.createGframes || state.destroyGframes;
-		if(state.reinit && ! ood) return;
-
-		vkDestroyDescriptorPool(mDevice, mGframeDescPool, nullptr);
-	}
-
-
 	void Engine::RpassInitializer::destroySwapchain(State& state) {
 		if(mSwapchain == nullptr) return;
 
@@ -896,9 +827,6 @@ namespace SKENGINE_NAME_NS {
 
 			vkutil::ManagedImage::destroy(mVma, gf.atch_color);
 			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
-
-			VK_CHECK(vkFreeDescriptorSets, mDevice, mGframeDescPool, 1, &gf.frame_dset);
-			vkutil::BufferDuplex::destroy(mVma, gf.frame_ubo);
 
 			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
 		};

@@ -337,7 +337,7 @@ void main() {
 	out_col.a = frg_col.a;
 
 	// Handle colors > 1 in a LDR-friendly way
-	if((frame_ubo.flags & flag_hdr_enabled) != 0) {
+	if((frame_ubo.flags & flag_hdr_enabled) == 0) {
 		out_col.rgb = color_excess_filter(out_col.rgb);
 	}
 }

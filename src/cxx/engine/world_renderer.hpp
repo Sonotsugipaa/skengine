@@ -29,6 +29,12 @@ namespace SKENGINE_NAME_NS {
 	///
 	class WorldRenderer : public Renderer {
 	public:
+		struct ProjectionInfo {
+			float verticalFov = ((90.0 /* degrees */) * (std::numbers::pi_v<double> / 180.0));
+			float zNear       = 0.1f;
+			float zFar        = 10.0f;
+		};
+
 		struct LightStorage {
 			vkutil::ManagedBuffer buffer;
 			dev::Light*           mappedPtr;
@@ -51,6 +57,17 @@ namespace SKENGINE_NAME_NS {
 			float     falloffExponent;
 		};
 
+		struct GframeData {
+			vkutil::ManagedBuffer lightStorage;
+			vkutil::BufferDuplex frameUbo;
+			VkDescriptorSet frameDset;
+			uint32_t lightStorageCapacity;
+			VkExtent2D lastRenderExtent;
+		};
+
+		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
+		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
+
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		using RayLights   = Umap<ObjectId, RayLight>;
 		using PointLights = Umap<ObjectId, PointLight>;
@@ -61,7 +78,8 @@ namespace SKENGINE_NAME_NS {
 
 		static WorldRenderer create(
 			std::shared_ptr<spdlog::logger>,
-			std::shared_ptr<ObjectStorage> );
+			std::shared_ptr<ObjectStorage>,
+			const ProjectionInfo& );
 
 		static void destroy(WorldRenderer&);
 
@@ -75,6 +93,10 @@ namespace SKENGINE_NAME_NS {
 		const glm::vec3& getViewPosition () const noexcept { return mState.viewPosXyz; }
 		const glm::vec3& getViewRotation () const noexcept { return mState.viewDirYpr; }
 		const glm::vec3& getAmbientLight () const noexcept { return mState.ambientLight; }
+
+		/// \brief Sets the 3D projection parameters.
+		///
+		void setProjection(ProjectionInfo pi) noexcept { mState.projInfo = std::move(pi); mState.projTransfOod = true; }
 
 		/// \brief Sets the view position of the camera.
 		/// \param lazy Whether the view is to be considered out of date afterwards.
@@ -110,14 +132,9 @@ namespace SKENGINE_NAME_NS {
 		VmaAllocator vma() const noexcept { return mState.objectStorage->vma(); }
 		VkDevice vkDevice() const noexcept { VmaAllocatorInfo ai; vmaGetAllocatorInfo(vma(), &ai); return ai.device; }
 
-		const LightStorage& lightStorage() const noexcept { return mState.lightStorage; };
+		const auto& lightStorage() const noexcept { return mState.lightStorage; }
 
 	private:
-		struct GframeData {
-			vkutil::ManagedBuffer lightStorage;
-			uint32_t lightStorageCapacity;
-		};
-
 		struct {
 			std::shared_ptr<spdlog::logger> logger;
 			std::shared_ptr<ObjectStorage> objectStorage;
@@ -125,10 +142,14 @@ namespace SKENGINE_NAME_NS {
 			RayLights    rayLights;
 			PointLights  pointLights;
 			LightStorage lightStorage;
+			ProjectionInfo projInfo;
+			glm::mat4 projTransfCache;
 			glm::mat4 viewTransfCache;
 			glm::vec3 viewPosXyz;
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
+			VkDescriptorPool gframeDpool;
+			bool      projTransfOod       : 1;
 			bool      viewTransfCacheOod  : 1;
 			bool      lightStorageOod     : 1;
 			bool      lightStorageDsetOod : 1;

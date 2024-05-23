@@ -314,7 +314,7 @@ inline namespace geom {
 		void forgetFence(VkFence fence) noexcept { if(txtcache_lock == fence) txtcache_lock = nullptr; }
 		void forgetFence() noexcept { forgetFence(txtcache_lock); }
 
-		bool updateImage(VkCommandBuffer) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
+		void updateImage(VkCommandBuffer) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
 		const CharMap& getChars() const noexcept { return txtcache_charMap; }
 
 		void trimChars(codepoint_t maxCharCount);

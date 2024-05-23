@@ -151,7 +151,7 @@ inline namespace geom {
 	}
 
 
-	bool TextCache::updateImage(VkCommandBuffer cmd) noexcept {
+	void TextCache::updateImage(VkCommandBuffer cmd) noexcept {
 		using InsMap = std::unordered_map<codepoint_t, GlyphBitmap>;
 		using InsPair = InsMap::value_type;
 		using Layout = std::unordered_map<codepoint_t, std::vector<codepoint_t>>;
@@ -168,7 +168,7 @@ inline namespace geom {
 				// This is why the function should not return immediately when no character
 				// is cached.
 				txtcache_lock = nullptr;
-				return false;
+				return;
 			}
 		}
 

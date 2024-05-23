@@ -21,6 +21,9 @@ namespace {
 	using namespace SKENGINE_NAME_NS;
 
 
+	enum class LightType : unsigned { eNone = 0, ePoint = 1, eRay = 2 };
+
+
 	const EnginePreferences engine_preferences = []() {
 		auto prefs = EnginePreferences::default_prefs;
 		prefs.init_present_extent   = { 300, 300 };
@@ -115,14 +118,15 @@ namespace {
 		ObjectId  world;
 		ObjectId  camLight;
 		ObjectId  lightGuide;
+		LightType lightType;
 		glm::vec3 cameraSpeed;
 		glm::vec3 camLightCenter;
 		float     camLightAngle;
 		float     camLightRadius;
 		bool doRotateObjects   : 1;
 		bool lightGuideVisible : 1;
-		bool active            : 1;
 		bool lightCreated      : 1;
+		bool active            : 1;
 
 
 		void setView(skengine::WorldRenderer& wr) {
@@ -269,11 +273,12 @@ namespace {
 
 		explicit Loop(Engine& e):
 			engine(&e),
+			lightType(LightType::eNone),
 			cameraSpeed { },
 			doRotateObjects(true),
 			lightGuideVisible(false),
-			active(true),
-			lightCreated(false)
+			lightCreated(false),
+			active(true)
 		{
 			auto  ca = engine->getConcurrentAccess();
 			auto& os = ca->getObjectStorage();
@@ -303,7 +308,6 @@ namespace {
 			bool request_ca      = false;
 			bool do_create_light = false;
 			bool destroy_light   = false;
-			bool light_is_ray    = false;
 
 			struct ResizeEvent {
 				uint32_t width;
@@ -370,19 +374,21 @@ namespace {
 			}
 
 			{ // Handle light creation / reset within ticks, not frames
-				auto found = pressedKeys.find(SDLK_f);
-				if(found != pressedKeys.end()) [[unlikely]] {
+				auto isPressed = [&](SDL_KeyCode k) { return pressedKeys.end() != pressedKeys.find(k); };
+				if(isPressed(SDLK_f)) [[unlikely]] {
+					if(lightType != LightType::ePoint) lightCreated = false;
 					do_create_light = true;
+					lightType       = LightType::ePoint;
 					request_ca      = true;
 				} else
-				if((found = pressedKeys.find(SDLK_l)) != pressedKeys.end()) [[unlikely]] {
+				if(isPressed(SDLK_l)) [[unlikely]] {
+					if(lightType != LightType::eRay) lightCreated = false;
 					do_create_light = true;
-					light_is_ray    = true;
+					lightType       = LightType::eRay;
 					request_ca      = true;
 				} else {
 					lightCreated = false;
-					found = pressedKeys.find(SDLK_c);
-					if(found != pressedKeys.end()) [[unlikely]] {
+					if(isPressed(SDLK_c)) [[unlikely]] {
 						destroy_light = true;
 						request_ca    = true;
 					}
@@ -410,38 +416,50 @@ namespace {
 				}
 
 				if(do_create_light) [[unlikely]] {
+					#define LOG_LIGHT_NONE_ engine->logger().error("Creating light of type \"none\"?")
+					#define LOG_LIGHT_INV_(T_) engine->logger().error("Attempting to create light of invalid type {}", unsigned(T_))
 					glm::mat3 iview = glm::inverse(wr.getViewTransf());
 					auto      dir   = iview * cursor_offset;
 					auto      pos   = wr.getViewPosition() + dir;
 					if(lightCreated) [[likely]] {
 						assert(! createdLights.empty());
 						auto& lightId = createdLights.back();
-						if(light_is_ray) {
-							auto& light = wr.modifyRayLight(lightId);
-							light.direction = dir;
-						} else {
-							auto& light = wr.modifyPointLight(lightId);
-							light.position = pos;
+						switch(lightType) {
+							case LightType::ePoint: wr.modifyPointLight(lightId).position = pos; break;
+							case LightType::eRay:   wr.modifyRayLight(lightId).direction = dir; break;
+							case LightType::eNone: LOG_LIGHT_NONE_; break;
+							default: LOG_LIGHT_INV_(lightType); break;
 						}
 					} else {
-						if(light_is_ray) {
-							WorldRenderer::NewRayLight rl = { };
-							rl.intensity    = 0.1f;
-							rl.aoaThreshold = 2.0f;
-							rl.direction    = dir;
-							rl.color        = { 0.52f, 0.80f, 0.92f };
-							createdLights.push_back(wr.createRayLight(rl));
-						} else {
-							WorldRenderer::NewPointLight pl = { };
-							pl.intensity = 0.5f;
-							pl.falloffExponent = 1.0f;
-							pl.position = pos;
-							pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
-							createdLights.push_back(wr.createPointLight(pl));
+						union {
+							WorldRenderer::NewRayLight rl;
+							WorldRenderer::NewPointLight pl;
+						};
+						switch(lightType) {
+							default: LOG_LIGHT_INV_(lightType); break;
+							case LightType::eNone: LOG_LIGHT_NONE_; break;
+							case LightType::eRay:
+								rl = { };
+								rl.intensity    = 0.1f;
+								rl.aoaThreshold = 2.0f;
+								rl.direction    = dir;
+								rl.color        = { 0.52f, 0.80f, 0.92f };
+								createdLights.push_back(wr.createRayLight(rl));
+								break;
+							case LightType::ePoint:
+								pl = { };
+								pl.intensity = 0.5f;
+								pl.falloffExponent = 1.0f;
+								pl.position = pos;
+								pl.color    = glm::vec3 { 0.1f, 0.1f, 1.0f };
+								createdLights.push_back(wr.createPointLight(pl));
+								break;
 						}
 						lightCounter.lock()->setText(fmt::format("Lights: {}", createdLights.size()));
 						engine->logger().info("Creating light {}", object_id_e(createdLights.back()));
 						lightCreated = true;
+						#undef LOG_LIGHT_NONE_
+						#undef LOG_LIGHT_INV_
 					}
 				}
 

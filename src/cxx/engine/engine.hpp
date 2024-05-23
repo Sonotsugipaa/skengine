@@ -146,8 +146,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct GframeData {
-		VkDescriptorSet       frame_dset;
-		vkutil::BufferDuplex  frame_ubo;
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
 		VkImage     swapchain_image;
@@ -164,6 +162,7 @@ namespace SKENGINE_NAME_NS {
 		VkSemaphore sem_drawGui;
 		VkFence     fence_prepare;
 		VkFence     fence_draw;
+		tickreg::delta_t frame_delta;
 	};
 
 
@@ -226,8 +225,6 @@ namespace SKENGINE_NAME_NS {
 		using GenericPipelineSet = std::unordered_map<ShaderRequirement, VkPipeline, ShaderRequirementHash, ShaderRequirementCompare>;
 
 		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
-		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
-		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
 		static constexpr uint32_t MATERIAL_DSET_LOC     = 1;
 		static constexpr uint32_t DIFFUSE_TEX_BINDING   = 0;
 		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
@@ -283,6 +280,7 @@ namespace SKENGINE_NAME_NS {
 		auto getVmaAllocator       () noexcept { return mVma; }
 		auto getDevice             () noexcept { return mDevice; }
 		auto getPhysDevice         () noexcept { return mPhysDevice; }
+		auto getGframeDsetLayout   () noexcept { return mGframeDsetLayout; }
 		auto getMaterialDsetLayout () noexcept { return m3dPipelineMaterialDsetLayout; }
 		auto getImageDsetLayout    () noexcept { return mImagePipelineDsetLayout; }
 		auto getQueues             () noexcept { return mQueues; }
@@ -359,7 +357,6 @@ namespace SKENGINE_NAME_NS {
 		std::shared_ptr<ObjectStorage> mObjectStorage;
 		std::shared_ptr<UiStorage>     mUiStorage;
 
-		VkDescriptorPool      mGframeDescPool;
 		VkDescriptorSetLayout mGframeDsetLayout;
 
 		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
@@ -371,7 +368,6 @@ namespace SKENGINE_NAME_NS {
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		std::vector<std::unique_ptr<Renderer>> mRenderers;
 		AssetSupplier mAssetSupplier;
-		glm::mat4     mProjTransf;
 
 		std::shared_ptr<spdlog::logger> mLogger;
 
