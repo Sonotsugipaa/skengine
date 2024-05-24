@@ -149,11 +149,11 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
-			bool      projTransfOod       : 1;
-			bool      viewTransfCacheOod  : 1;
-			bool      lightStorageOod     : 1;
-			bool      lightStorageDsetOod : 1;
-			bool      initialized         : 1;
+			bool projTransfOod       : 1;
+			bool viewTransfCacheOod  : 1;
+			bool lightStorageOod     : 1;
+			bool lightStorageDsetOod : 1;
+			bool initialized         : 1;
 		} mState;
 	};
 

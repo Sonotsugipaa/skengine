@@ -46,6 +46,10 @@ namespace SKENGINE_NAME_NS {
 	///
 	class UiRenderer : public Renderer {
 	public:
+		struct GframeData {
+			std::unordered_map<FontRequirement, vkutil::ManagedImage, FontRequirement::Hash> fontImages;
+		};
+
 		UiRenderer();
 		UiRenderer(UiRenderer&&);
 		~UiRenderer();
@@ -62,10 +66,6 @@ namespace SKENGINE_NAME_NS {
 		void duringDrawStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
 
 	private:
-		struct GframeData {
-			std::unordered_map<FontRequirement, vkutil::ManagedImage, FontRequirement::Hash> fontImages;
-		};
-
 		struct {
 			std::shared_ptr<spdlog::logger> logger;
 			std::shared_ptr<UiStorage> uiStorage;

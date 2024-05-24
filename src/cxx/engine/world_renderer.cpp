@@ -31,7 +31,7 @@
 
 namespace SKENGINE_NAME_NS {
 
-	namespace {
+	namespace world { namespace {
 
 		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
 		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
@@ -121,14 +121,14 @@ namespace SKENGINE_NAME_NS {
 			return r;
 		}
 
-	}
+	}}
 
 
 
-	WorldRenderer::WorldRenderer(): Renderer(world_renderer_subpass_info) { mState.initialized = false; }
+	WorldRenderer::WorldRenderer(): Renderer(world::world_renderer_subpass_info) { mState.initialized = false; }
 
 	WorldRenderer::WorldRenderer(WorldRenderer&& mv):
-		Renderer(world_renderer_subpass_info),
+		Renderer(world::world_renderer_subpass_info),
 		mState(std::move(mv.mState))
 	{
 		mv.mState.initialized = false;
@@ -161,7 +161,7 @@ namespace SKENGINE_NAME_NS {
 
 		r.setProjection(projInfo);
 
-		set_light_buffer_capacity(r.vma(), &r.mState.lightStorage, 0);
+		world::set_light_buffer_capacity(r.vma(), &r.mState.lightStorage, 0);
 		return r;
 	}
 
@@ -260,7 +260,7 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			if(gframeCount > 0) { // Create the gframe dpool, then allocate and write dsets
-				mState.gframeDpool = create_gframe_dpool(dev, mState.gframes);
+				mState.gframeDpool = world::create_gframe_dpool(dev, mState.gframes);
 				mState.projTransfOod = true;
 
 				VkDescriptorSetAllocateInfo dsa_info = { };
@@ -302,7 +302,7 @@ namespace SKENGINE_NAME_NS {
 
 		if(mState.lightStorageOod) {
 			uint32_t new_ls_size = mState.rayLights.size() + mState.pointLights.size();
-			set_light_buffer_capacity(vma, &mState.lightStorage, new_ls_size);
+			world::set_light_buffer_capacity(vma, &mState.lightStorage, new_ls_size);
 
 			mState.lightStorage.rayCount   = mState.rayLights.size();
 			mState.lightStorage.pointCount = mState.pointLights.size();
@@ -373,7 +373,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		if(mState.lightStorageDsetOod) {
-			update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, wgf.frameDset);
+			world::update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, wgf.frameDset);
 			mState.lightStorageDsetOod = false;
 		}
 

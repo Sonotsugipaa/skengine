@@ -460,8 +460,6 @@ inline namespace geom {
 		}
 
 		txtcache_imageUpToDate = true;
-
-		return true;
 	}
 
 

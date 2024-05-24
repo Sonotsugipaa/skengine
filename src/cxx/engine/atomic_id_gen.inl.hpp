@@ -1,5 +1,7 @@
 #pragma once
 
+#include <skengine_fwd.hpp>
+
 #include <cassert>
 #include <idgen.hpp>
 

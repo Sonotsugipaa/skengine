@@ -3,13 +3,15 @@
 #include "engine.hpp"
 #include "debug.inl.hpp"
 
+#include <vk-util/error.hpp>
+
 #include <set>
 
 
 
 namespace SKENGINE_NAME_NS {
 
-	namespace {
+	namespace ui { namespace {
 
 		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
 		constexpr VkDescriptorSetLayoutBinding ui_dset_layout_bindings[] = {
@@ -48,7 +50,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-	}
+	}}
 
 
 
@@ -133,7 +135,7 @@ namespace SKENGINE_NAME_NS {
 		std::deque<std::tuple<LotId, Lot*, Element*>> repeatListSwap;
 		unsigned repeatCount = 1;
 
-		visitUi(*mState.uiStorage->canvas, [&](LotId lotId, Lot& lot) {
+		ui::visitUi(*mState.uiStorage->canvas, [&](LotId lotId, Lot& lot) {
 			for(auto& elem : lot.elements()) {
 				auto ps = elem.second->ui_elem_prepareForDraw(lotId, lot, 0, uiCtx);
 				if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back({ lotId, &lot, elem.second.get() });
@@ -162,7 +164,7 @@ namespace SKENGINE_NAME_NS {
 			.drawJobs = { } };
 		ui::DrawContext uiCtx = { &guiCtx };
 
-		visitUi(*uiStorage.canvas, [&](LotId lotId, Lot& lot) {
+		ui::visitUi(*uiStorage.canvas, [&](LotId lotId, Lot& lot) {
 			for(auto& elem : lot.elements()) elem.second->ui_elem_draw(lotId, lot, uiCtx);
 		});
 

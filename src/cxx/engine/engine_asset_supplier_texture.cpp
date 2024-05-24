@@ -206,7 +206,7 @@ namespace SKENGINE_NAME_NS {
 				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 				vkCmdPipelineBarrier2(cmd, &bar_dep);
 
@@ -216,7 +216,7 @@ namespace SKENGINE_NAME_NS {
 				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 				vkCmdPipelineBarrier2(cmd, &bar_dep);
 			} else {
@@ -226,7 +226,7 @@ namespace SKENGINE_NAME_NS {
 				bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 				bar.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 				bar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+				bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 				bar.dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 				vkCmdPipelineBarrier2(cmd, &bar_dep);
 			}

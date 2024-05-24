@@ -208,8 +208,11 @@ namespace SKENGINE_NAME_NS::gui {
 			txtCache.fetchChars(txt_str);
 		};
 
-		auto commit = [&]() {
+		auto updateTxtImage = [&]() {
 			txtCache.updateImage(guiCtx.prepareCmdBuffer);
+		};
+
+		auto commit = [&]() {
 			if(txt_lastCacheUpdate != txtCache.getUpdateCounter()) txt_upToDate = false;
 			if(! txt_upToDate) { // Update the shape set
 				auto& chars = txtCache.getChars();
@@ -231,8 +234,9 @@ namespace SKENGINE_NAME_NS::gui {
 		};
 
 		switch(repeat) {
-			case 0: fetch();  return PrepareState::eDefer;
-			case 1: commit(); return PrepareState::eReady;
+			case 0: fetch();          return PrepareState::eDefer;
+			case 1: updateTxtImage(); return PrepareState::eDefer;
+			case 2: commit();         return PrepareState::eReady;
 			default: std::unreachable(); abort();
 		}
 	}
