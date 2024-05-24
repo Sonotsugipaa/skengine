@@ -436,37 +436,18 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::initRenderers(State& state) {
 		if(! state.reinit) {
-			{ // 3D material dset layout, currently hardcodedly redundant with world_renderer.cpp:world_renderer_subpass_info
-				VkDescriptorSetLayoutBinding dslb[5] = { };
-				dslb[0].binding = DIFFUSE_TEX_BINDING;
-				dslb[0].descriptorCount = 1;
-				dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-				dslb[1] = dslb[0];
-				dslb[1].binding = NORMAL_TEX_BINDING;
-				dslb[2] = dslb[0];
-				dslb[2].binding = SPECULAR_TEX_BINDING;
-				dslb[3] = dslb[0];
-				dslb[3].binding = EMISSIVE_TEX_BINDING;
-				dslb[4] = dslb[0];
-				dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				dslb[4].binding = MATERIAL_UBO_BINDING;
-
-				VkDescriptorSetLayoutCreateInfo dslc_info = { };
-				dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-				dslc_info.bindingCount = std::size(dslb);
-				dslc_info.pBindings = dslb;
-				VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &m3dPipelineMaterialDsetLayout);
-			}
+			mWorldRendererSharedState_TMP_UGLY_NAME = std::make_shared_for_overwrite<WorldRendererSharedState>();
+			WorldRenderer::initSharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
 
 			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
 				std::make_shared<spdlog::logger>(logger()),
+				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mVma,
-				m3dPipelineMaterialDsetLayout,
 				mAssetSupplier ));
 
 			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
 				std::make_shared<spdlog::logger>(logger()),
+				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
 				WorldRenderer::ProjectionInfo {
 					.verticalFov = mPrefs.fov_y,
@@ -666,7 +647,7 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		if(! state.reinit) { // Create the dset layouts, pipeline layouts, pipeline cache and pipelines
-			VkDescriptorSetLayout layouts[] = { mGframeDsetLayout, m3dPipelineMaterialDsetLayout };
+			VkDescriptorSetLayout layouts[] = { mWorldRendererSharedState_TMP_UGLY_NAME->gframeUboDsetLayout, mWorldRendererSharedState_TMP_UGLY_NAME->materialDsetLayout };
 			VkPipelineLayoutCreateInfo plc_info = { };
 			plc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 			plc_info.setLayoutCount = std::size(layouts);
@@ -844,7 +825,7 @@ namespace SKENGINE_NAME_NS {
 		if(! state.reinit) {
 			WorldRenderer::destroy(*mWorldRenderer_TMP_UGLY_NAME);
 			ObjectStorage::destroy(*mObjectStorage);
-			vkDestroyDescriptorSetLayout(mDevice, m3dPipelineMaterialDsetLayout, nullptr);
+			WorldRenderer::destroySharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
 			mRenderers.clear();
 		}
 	}

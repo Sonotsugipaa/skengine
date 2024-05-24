@@ -38,7 +38,7 @@ namespace {
 		prefs.shade_step_exponent   = 4.0f;
 		prefs.dithering_steps       = 256.0f;
 		prefs.font_location         = "assets/font.otf";
-		prefs.wait_for_gframe       = true;
+		prefs.wait_for_gframe       = false;
 		prefs.framerate_samples     = 4;
 		return prefs;
 	} ();

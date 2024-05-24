@@ -22,6 +22,7 @@
 namespace SKENGINE_NAME_NS {
 
 	class Engine;
+	struct WorldRendererSharedState;
 
 
 	struct DevModel {
@@ -202,8 +203,8 @@ namespace SKENGINE_NAME_NS {
 
 		static ObjectStorage create(
 			std::shared_ptr<spdlog::logger>,
+			std::shared_ptr<WorldRendererSharedState>,
 			VmaAllocator,
-			DsetLayout material_dset_layout,
 			AssetSupplier& );
 
 		static void destroy(ObjectStorage&);
@@ -243,6 +244,7 @@ namespace SKENGINE_NAME_NS {
 	private:
 		VmaAllocator mVma = nullptr;
 		std::shared_ptr<spdlog::logger> mLogger;
+		std::shared_ptr<WorldRendererSharedState> mWrSharedState;
 		AssetSupplier* mAssetSupplier;
 
 		ModelLookup      mModelLocators;
@@ -254,7 +256,6 @@ namespace SKENGINE_NAME_NS {
 		UnboundBatchMap  mUnboundDrawBatches;
 		BatchList        mDrawBatchList;
 		ModelDepCounters mModelDepCounters;
-		DsetLayout       mMaterialDsetLayout;
 		VkDescriptorPool mDpool;
 		size_t           mDpoolSize;
 		size_t           mDpoolCapacity;

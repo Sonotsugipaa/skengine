@@ -35,11 +35,11 @@ namespace SKENGINE_NAME_NS {
 
 		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
 		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
-		B_(Engine::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(Engine::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(Engine::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(Engine::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(Engine::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
+		B_(WorldRenderer::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
 		#undef B_
 
 		constexpr ShaderRequirement world_pipelines[] = {
@@ -144,12 +144,14 @@ namespace SKENGINE_NAME_NS {
 
 	WorldRenderer WorldRenderer::create(
 			std::shared_ptr<spdlog::logger> logger,
+			std::shared_ptr<WorldRendererSharedState> sharedState,
 			std::shared_ptr<ObjectStorage> objectStorage,
 			const ProjectionInfo& projInfo
 	) {
 		WorldRenderer r;
 		r.mState.logger = std::move(logger);
 		r.mState.objectStorage = std::move(objectStorage);
+		r.mState.sharedState = std::move(sharedState);
 		r.mState.viewPosXyz = { };
 		r.mState.viewDirYpr = { };
 		r.mState.ambientLight = { };
@@ -197,6 +199,48 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		r.mState.initialized = false;
+	}
+
+
+	void WorldRenderer::initSharedState(VkDevice dev, WorldRendererSharedState& wrss) {
+		VkDescriptorSetLayoutBinding dslb[5] = { };
+		dslb[0].binding = DIFFUSE_TEX_BINDING;
+		dslb[0].descriptorCount = 1;
+		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		dslb[1] = dslb[0];
+		dslb[1].binding = NORMAL_TEX_BINDING;
+		dslb[2] = dslb[0];
+		dslb[2].binding = SPECULAR_TEX_BINDING;
+		dslb[3] = dslb[0];
+		dslb[3].binding = EMISSIVE_TEX_BINDING;
+		dslb[4] = dslb[0];
+		dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		dslb[4].binding = MATERIAL_UBO_BINDING;
+
+		VkDescriptorSetLayoutCreateInfo dslc_info = { };
+		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		dslc_info.bindingCount = std::size(dslb);
+		dslc_info.pBindings = dslb;
+		VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.materialDsetLayout);
+
+		dslb[0] = { };
+		dslb[0].binding = FRAME_UBO_BINDING;
+		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		dslb[0].descriptorCount = 1;
+		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		dslb[1] = dslb[0];
+		dslb[1].binding = LIGHT_STORAGE_BINDING;
+		dslb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+		dslc_info.bindingCount = 2;
+		VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.gframeUboDsetLayout);
+	}
+
+
+	void WorldRenderer::destroySharedState(VkDevice dev, WorldRendererSharedState& wrss) {
+		vkDestroyDescriptorSetLayout(dev, wrss.gframeUboDsetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(dev, wrss.materialDsetLayout, nullptr);
 	}
 
 
@@ -264,7 +308,7 @@ namespace SKENGINE_NAME_NS {
 				mState.projTransfOod = true;
 
 				VkDescriptorSetAllocateInfo dsa_info = { };
-				VkDescriptorSetLayout dsetLayouts[] = { e.getGframeDsetLayout() };
+				VkDescriptorSetLayout dsetLayouts[] = { mState.sharedState->gframeUboDsetLayout };
 				dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 				dsa_info.descriptorPool     = mState.gframeDpool;
 				dsa_info.descriptorSetCount = std::size(dsetLayouts);
@@ -430,7 +474,7 @@ namespace SKENGINE_NAME_NS {
 			if(batch.material_id != last_mat) {
 				auto mat = objStorage.getMaterial(batch.material_id);
 				assert(mat != nullptr);
-				dsets[Engine::MATERIAL_DSET_LOC] = mat->dset;
+				dsets[MATERIAL_DSET_LOC] = mat->dset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.getPipelineLayout3d(), 0, std::size(dsets), dsets, 0, nullptr);
 			}
 			vkCmdDrawIndexedIndirect(

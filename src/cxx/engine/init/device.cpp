@@ -206,26 +206,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initDsetLayouts() {
-		{ // Gframe dset layout
-			VkDescriptorSetLayoutBinding dslb[2] = { { }, { } };
-			dslb[0].binding = WorldRenderer::FRAME_UBO_BINDING;
-			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			dslb[0].descriptorCount = 1;
-			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-			dslb[1] = dslb[0];
-			dslb[1].binding = WorldRenderer::LIGHT_STORAGE_BINDING;
-			dslb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-
-			VkDescriptorSetLayoutCreateInfo dslc_info = { };
-			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			dslc_info.bindingCount = std::size(dslb);
-			dslc_info.pBindings = dslb;
-			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mGframeDsetLayout);
-		}
-
 		{ // GUI dset layouts
 			VkDescriptorSetLayoutBinding dslb[1] = { };
-			dslb[0].binding = DIFFUSE_TEX_BINDING;
+			dslb[0].binding = WorldRenderer::DIFFUSE_TEX_BINDING; // ??
 			dslb[0].descriptorCount = 1;
 			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			dslb[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -289,7 +272,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::DeviceInitializer::destroyDsetLayouts() {
 		vkDestroyDescriptorSetLayout(mDevice, mImagePipelineDsetLayout, nullptr);
-		vkDestroyDescriptorSetLayout(mDevice, mGframeDsetLayout, nullptr);
+		assert(mGeometryPipelineDsetLayout == nullptr);
 	}
 
 

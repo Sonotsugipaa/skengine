@@ -24,6 +24,15 @@
 
 namespace SKENGINE_NAME_NS {
 
+	/// \brief Data that is shared between all WorldRenderers, and allows
+	///        them to share ObjectStorage instances and viceversa.
+	///
+	struct WorldRendererSharedState {
+		VkDescriptorSetLayout materialDsetLayout;
+		VkDescriptorSetLayout gframeUboDsetLayout;
+	};
+
+
 	/// \brief A Renderer that manages light sources, their device storage and
 	///        the view/camera logistics.
 	///
@@ -67,6 +76,13 @@ namespace SKENGINE_NAME_NS {
 
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
 		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
+		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
+		static constexpr uint32_t MATERIAL_DSET_LOC     = 1;
+		static constexpr uint32_t DIFFUSE_TEX_BINDING   = 0;
+		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
+		static constexpr uint32_t SPECULAR_TEX_BINDING  = 2;
+		static constexpr uint32_t EMISSIVE_TEX_BINDING  = 3;
+		static constexpr uint32_t MATERIAL_UBO_BINDING  = 4;
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		using RayLights   = Umap<ObjectId, RayLight>;
@@ -78,10 +94,14 @@ namespace SKENGINE_NAME_NS {
 
 		static WorldRenderer create(
 			std::shared_ptr<spdlog::logger>,
+			std::shared_ptr<WorldRendererSharedState>,
 			std::shared_ptr<ObjectStorage>,
 			const ProjectionInfo& );
 
 		static void destroy(WorldRenderer&);
+
+		static void initSharedState(VkDevice, WorldRendererSharedState&);
+		static void destroySharedState(VkDevice, WorldRendererSharedState&);
 
 		std::string_view name() const noexcept override { return "world-surface"; }
 		void afterSwapchainCreation(ConcurrentAccess&, unsigned) override;
@@ -138,6 +158,7 @@ namespace SKENGINE_NAME_NS {
 		struct {
 			std::shared_ptr<spdlog::logger> logger;
 			std::shared_ptr<ObjectStorage> objectStorage;
+			std::shared_ptr<WorldRendererSharedState> sharedState;
 			std::vector<GframeData> gframes;
 			RayLights    rayLights;
 			PointLights  pointLights;

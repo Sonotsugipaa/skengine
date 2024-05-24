@@ -1,6 +1,7 @@
 #include "object_storage.hpp"
 
 #include "engine.hpp"
+#include "world_renderer.hpp"
 #include "debug.inl.hpp"
 
 #include <random>
@@ -93,11 +94,11 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // Update it
-				constexpr auto& DFS = Engine::DIFFUSE_TEX_BINDING;
-				constexpr auto& NRM = Engine::NORMAL_TEX_BINDING;
-				constexpr auto& SPC = Engine::SPECULAR_TEX_BINDING;
-				constexpr auto& EMI = Engine::EMISSIVE_TEX_BINDING;
-				constexpr auto& UBO = Engine::MATERIAL_UBO_BINDING;
+				constexpr auto& DFS = WorldRenderer::DIFFUSE_TEX_BINDING;
+				constexpr auto& NRM = WorldRenderer::NORMAL_TEX_BINDING;
+				constexpr auto& SPC = WorldRenderer::SPECULAR_TEX_BINDING;
+				constexpr auto& EMI = WorldRenderer::EMISSIVE_TEX_BINDING;
+				constexpr auto& UBO = WorldRenderer::MATERIAL_UBO_BINDING;
 				VkDescriptorImageInfo di_info[4] = { };
 				di_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				di_info[0].sampler   = mat->texture_diffuse.sampler;
@@ -296,8 +297,8 @@ namespace SKENGINE_NAME_NS {
 
 	ObjectStorage ObjectStorage::create(
 			std::shared_ptr<spdlog::logger> logger,
+			std::shared_ptr<WorldRendererSharedState> wrSharedState,
 			VmaAllocator vma,
-			DsetLayout dset_layout,
 			AssetSupplier& asset_supplier
 	) {
 		VmaAllocatorInfo vma_info;
@@ -305,6 +306,7 @@ namespace SKENGINE_NAME_NS {
 		ObjectStorage r;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
+		r.mWrSharedState = std::move(wrSharedState);
 		r.mAssetSupplier = &asset_supplier;
 		r.mObjects             = decltype(mObjects)            (1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(decltype(mObjects)::value_type));
 		r.mModelLocators       = decltype(mModelLocators)      (1024 * MODEL_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mModelLocators)::value_type));
@@ -312,7 +314,6 @@ namespace SKENGINE_NAME_NS {
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mModelLocators.     max_load_factor(MODEL_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
-		r.mMaterialDsetLayout = dset_layout;
 		r.mDpoolCapacity = 0;
 		r.mDpoolSize     = 0;
 		r.mBatchesNeedUpdate  = true;
@@ -661,7 +662,7 @@ namespace SKENGINE_NAME_NS {
 
 		// Insert the material data (with the backing string) first
 		auto& locator_r = material_ins->second.locator;
-		create_mat_dset(vkDevice(), &mDpool, mMaterialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
+		create_mat_dset(vkDevice(), &mDpool, mWrSharedState->materialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
 
 		mMaterialLocators.insert(MaterialLookup::value_type(locator_r, id));
 

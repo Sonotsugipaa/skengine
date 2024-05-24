@@ -132,19 +132,6 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class EngineTransferContext {
-	public:
-		EngineTransferContext() = default;
-		EngineTransferContext(const TransferContext& m): etc_tc(m) { }
-
-
-		const auto& members() const noexcept { return etc_tc; }
-
-	private:
-		TransferContext etc_tc;
-	};
-
-
 	struct GframeData {
 		vkutil::ManagedImage atch_color;
 		vkutil::ManagedImage atch_depthstencil;
@@ -224,14 +211,6 @@ namespace SKENGINE_NAME_NS {
 
 		using GenericPipelineSet = std::unordered_map<ShaderRequirement, VkPipeline, ShaderRequirementHash, ShaderRequirementCompare>;
 
-		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
-		static constexpr uint32_t MATERIAL_DSET_LOC     = 1;
-		static constexpr uint32_t DIFFUSE_TEX_BINDING   = 0;
-		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
-		static constexpr uint32_t SPECULAR_TEX_BINDING  = 2;
-		static constexpr uint32_t EMISSIVE_TEX_BINDING  = 3;
-		static constexpr uint32_t MATERIAL_UBO_BINDING  = 4;
-
 		Engine() = default;
 		~Engine();
 
@@ -277,14 +256,12 @@ namespace SKENGINE_NAME_NS {
 		static void pushBuffer(const TransferContext&, vkutil::BufferDuplex&);
 		static void pullBuffer(const TransferContext&, vkutil::BufferDuplex&);
 
-		auto getVmaAllocator       () noexcept { return mVma; }
-		auto getDevice             () noexcept { return mDevice; }
-		auto getPhysDevice         () noexcept { return mPhysDevice; }
-		auto getGframeDsetLayout   () noexcept { return mGframeDsetLayout; }
-		auto getMaterialDsetLayout () noexcept { return m3dPipelineMaterialDsetLayout; }
-		auto getImageDsetLayout    () noexcept { return mImagePipelineDsetLayout; }
-		auto getQueues             () noexcept { return mQueues; }
-		auto getPipelineLayout3d   () noexcept { return m3dPipelineLayout; }
+		auto getImageDsetLayout  () noexcept { return mImagePipelineDsetLayout; }
+		auto getVmaAllocator     () noexcept { return mVma; }
+		auto getDevice           () noexcept { return mDevice; }
+		auto getPhysDevice       () noexcept { return mPhysDevice; }
+		auto getQueues           () noexcept { return mQueues; }
+		auto getPipelineLayout3d () noexcept { return m3dPipelineLayout; }
 
 		auto getTransferContext() const noexcept { return mTransferContext; }
 
@@ -348,16 +325,15 @@ namespace SKENGINE_NAME_NS {
 		VkRenderPass          mUiRpass;
 		VkPipelineCache       mPipelineCache;
 		VkPipelineLayout      m3dPipelineLayout;
-		VkDescriptorSetLayout m3dPipelineMaterialDsetLayout;
 		VkDescriptorSetLayout mGeometryPipelineDsetLayout;
 		VkDescriptorSetLayout mImagePipelineDsetLayout;
 		GenericPipelineSet    mPipelines;
-		WorldRenderer*        mWorldRenderer_TMP_UGLY_NAME; // This is currently needed to reference one specific renderer of the many, but it should be managed by the Engine user in the future
-		UiRenderer*           mUiRenderer_TMP_UGLY_NAME;    // Ditto
+
+		std::shared_ptr<WorldRendererSharedState> mWorldRendererSharedState_TMP_UGLY_NAME;
 		std::shared_ptr<ObjectStorage> mObjectStorage;
 		std::shared_ptr<UiStorage>     mUiStorage;
-
-		VkDescriptorSetLayout mGframeDsetLayout;
+		WorldRenderer* mWorldRenderer_TMP_UGLY_NAME; // This is currently needed to reference one specific renderer of the many, but it should be managed by the Engine user in the future
+		UiRenderer*    mUiRenderer_TMP_UGLY_NAME;    // Ditto
 
 		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
 		Signal              mSignalGthread;
