@@ -3,6 +3,7 @@ find_package(glm)
 
 add_library(config-parser config/config.cpp)
 target_link_libraries(config-parser ctpg)
+target_compile_options(config-parser PUBLIC -Wno-abi)
 
 add_executable(sketch-sim
 	main.cpp )

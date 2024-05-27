@@ -733,6 +733,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void Engine::setWaitForGframe(bool wait_for_gframe) {
+		mPrefs.wait_for_gframe = wait_for_gframe;
+	}
+
+
 	MutexAccess<ConcurrentAccess> Engine::getConcurrentAccess() noexcept {
 		assert(mGraphicsThread.get_id() != std::this_thread::get_id() && "This *will* cause a deadlock");
 		auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock);

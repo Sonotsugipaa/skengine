@@ -21,37 +21,40 @@ namespace number_parser {
 
 	#define SV_TO_C_(SRC_, DST_) assert(SRC_.size() == 1); char DST_ = SRC_[0];
 
+	using int_t  = intmax_t;
+	using real_t = long double;
+
 
 	struct IntPart {
 		std::string rep;
-		int32_t value;
+		int_t value;
 	};
 
 	struct FracPart {
 		std::string rep;
-		float value;
-		float leastValue;
+		real_t value;
+		real_t leastValue;
 	};
 
 	struct NumberTerm {
 		std::string rep;
-		int32_t intValue;
-		float value;
+		int_t intValue;
+		real_t value;
 		bool isInteger;
 	};
 
 	struct Frac {
 		std::string rep;
-		int32_t intValue;
-		float num;
-		float den;
+		int_t intValue;
+		real_t num;
+		real_t den;
 		bool isInteger;
 	};
 
 	struct Number {
 		union {
-			int32_t intValue;
-			float   realValue;
+			int_t intValue;
+			real_t realValue;
 		};
 		bool isInteger;
 
@@ -67,15 +70,15 @@ namespace number_parser {
 	};
 
 
-	void pushFracDigit(FracPart& fp, char d) {
+	constexpr void pushFracDigit(FracPart& fp, char d) {
 		fp.rep.push_back(d);
 		fp.value += (float(d - '0') * float(fp.leastValue));
 		fp.leastValue /= float(10);
 	}
 
-	void pushIntDigit(IntPart& n, char d) {
+	constexpr void pushIntDigit(IntPart& n, char d) {
 		n.rep.push_back(d);
-		n.value = (n.value * 10) + int32_t(d - '0');
+		n.value = (n.value * 10) + int_t(d - '0');
 	}
 
 
@@ -117,7 +120,7 @@ namespace number_parser {
 				static_assert('5' - '0' == 5);
 				SV_TO_C_(digit, d)
 				assert(d != '\'');
-				return IntPart { .rep = std::string(digit), .value = int32_t(d - '0') };
+				return IntPart { .rep = std::string(digit), .value = int_t(d - '0') };
 			},
 			number_ip(number_ip, number_d)
 			>= [](IntPart&& n, std::string_view digit) {
@@ -190,7 +193,7 @@ namespace number_parser {
 			} ));
 
 
-	std::pair<Number, ParseResult> parseNumber(std::string_view rep) {
+	constexpr std::pair<Number, ParseResult> parseNumber(std::string_view rep) {
 		using R = std::pair<Number, ParseResult>;
 		static constexpr auto opt = ctpg::parse_options { .verbose = NDEBUGV, .skip_whitespace = false, .skip_newline = false };
 		auto buf = ctpg::buffers::string_view_buffer(rep);

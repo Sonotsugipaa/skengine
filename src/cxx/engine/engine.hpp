@@ -252,6 +252,7 @@ namespace SKENGINE_NAME_NS {
 		void setRenderExtent     (VkExtent2D);
 		void setUpscaleFactor    (float pixels_per_fragment);
 		void setFullscreen       (bool should_be_fullscreen);
+		void setWaitForGframe    (bool wait_for_gframe);
 
 		static void pushBuffer(const TransferContext&, vkutil::BufferDuplex&);
 		static void pullBuffer(const TransferContext&, vkutil::BufferDuplex&);

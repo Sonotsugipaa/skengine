@@ -1,5 +1,6 @@
 #include <numbers>
 #include <random>
+#include <cinttypes>
 
 #include <engine-util/basic_asset_source.hpp>
 
@@ -12,6 +13,7 @@
 
 #include "util.inl.hpp"
 #include "config/config.hpp"
+#include "config/number_parser.inl.hpp"
 
 
 
@@ -42,6 +44,20 @@ namespace {
 		prefs.framerate_samples     = 4;
 		return prefs;
 	} ();
+
+	constexpr ssize_t obj_count_sqrt_def = 20;
+	constexpr float   object_space_sqrt  = 50.0f;
+	constexpr float   mouse_sensitivity  = 0.25f;
+	constexpr float   movement_speed     = 1.1f;
+	constexpr float   movement_accel     = 2.0f;
+	constexpr float   movement_drag      = 8.0f * movement_accel;
+	constexpr float   movement_drag_mod  = 0.2f * movement_accel;
+	constexpr float   movement_pulse     = movement_speed * movement_drag;
+	constexpr auto    cursor_offset      = glm::vec3 { 0.0f, 0.0f, -0.2f };
+	constexpr float   crosshair_size_px  = 40.0f;
+	constexpr float   crosshair_width_px = 3.0f;
+	static_assert(obj_count_sqrt_def % 2 == 0);
+	static_assert(obj_count_sqrt_def > 0);
 
 
 	void readConfigFile(EnginePreferences* dst, spdlog::level::level_enum* dstLogLevel, const char* filename, spdlog::logger* logger) {
@@ -87,22 +103,30 @@ namespace {
 	}
 
 
+	size_t objectCountFromEnv(spdlog::logger& logger) {
+		#define ENVVAR_ SKENGINE_NAME_UC_CSTR "_OBJECTS"
+		auto* str = std::getenv(ENVVAR_);
+		if(! str) return obj_count_sqrt_def;
+		auto res = number_parser::parseNumber(str);
+		if(res.second.success) {
+			auto requested = res.first.get<size_t>();
+			auto r = requested;
+			if(r < 1) r += 1;
+			if(r % 2 != 0) r += 1;
+			assert(r % 2 == 0);
+			assert(r > 0);
+			if(r != requested) logger.warn(ENVVAR_ " = {}; using {} instead", requested, r);
+			return r;
+		} else {
+			logger.error(ENVVAR_ " is not a valid number, using {}", obj_count_sqrt_def);
+			return obj_count_sqrt_def;
+		}
+		#undef ENVVAR_
+	}
+
+
 	class Loop : public LoopInterface {
 	public:
-		static constexpr ssize_t obj_count_sqrt     = 20;
-		static constexpr float   object_spacing     = 50.0f / float(obj_count_sqrt + 2);
-		static constexpr float   mouse_sensitivity  = 0.25f;
-		static constexpr float   movement_speed     = 1.1f;
-		static constexpr float   movement_accel     = 2.0f;
-		static constexpr float   movement_drag      = 8.0f * movement_accel;
-		static constexpr float   movement_drag_mod  = 0.2f * movement_accel;
-		static constexpr float   movement_pulse     = movement_speed * movement_drag;
-		static constexpr auto    cursor_offset      = glm::vec3 { 0.0f, 0.0f, -0.2f };
-		static constexpr float   crosshair_size_px  = 40.0f;
-		static constexpr float   crosshair_width_px = 3.0f;
-		static_assert(obj_count_sqrt % 2 == 0);
-		static_assert(obj_count_sqrt > 0);
-
 		Engine* engine;
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
@@ -113,7 +137,9 @@ namespace {
 		std::weak_ptr<gui::TextLine> speedGauge;
 		std::weak_ptr<gui::TextLine> lightCounter;
 		std::weak_ptr<gui::TextLine> fpsGauge;
-		ObjectId  objects[obj_count_sqrt+1][obj_count_sqrt+1];
+		std::unique_ptr<ObjectId[]> objects; // ObjectId osbjects[obj_count_sqrt+1][obj_count_sqrt+1];
+		size_t    objectCountSqrt;
+		float     objectSpacing;
 		ObjectId  spaceship;
 		ObjectId  world;
 		ObjectId  camLight;
@@ -131,7 +157,7 @@ namespace {
 
 		void setView(skengine::WorldRenderer& wr) {
 			glm::vec3 dir  = { 0.0f, glm::radians(20.0f), 0.0f };
-			float     dist = object_spacing / 2.0f;
+			float     dist = objectSpacing / 2.0f;
 			wr.setViewRotation(dir);
 			wr.setViewPosition({ dist * std::sin(dir.x), 0.45f, dist * std::cos(dir.x) });
 			wr.setAmbientLight({ 0.03f, 0.03f, 0.03f });
@@ -142,6 +168,18 @@ namespace {
 			auto dist = std::uniform_real_distribution(-0.9f, +0.9f * std::numbers::pi_v<float>);
 			auto obj = os.modifyObject(id).value();
 			obj.direction_ypr.r += mul * dist(rng);
+		}
+
+
+		ObjectId& objectIdFromIndex(size_t i) {
+			auto n = objectCountSqrt+1;
+			auto d = std::imaxdiv(i, n);
+			return objects[(d.quot * n) + d.rem];
+		}
+
+		ObjectId& objectIdFromXz(size_t x, size_t z) {
+			auto n = objectCountSqrt+1;
+			return objects[(z * n) + x];
 		}
 
 
@@ -182,7 +220,7 @@ namespace {
 		void createTestObjects(skengine::ObjectStorage& os) {
 			using s_object_id_e = std::make_signed_t<object_id_e>;
 
-			constexpr ssize_t obj_count_sqrt_half = obj_count_sqrt / 2;
+			ssize_t obj_count_sqrt_half = objectCountSqrt / 2;
 
 			auto createListedObjects = [&](const std::vector<std::string>& nameList) {
 				auto rng = std::minstd_rand(size_t(this));
@@ -192,17 +230,16 @@ namespace {
 				o.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				o.position_xyz.y = 0.0f;
 				for(s_object_id_e x = -obj_count_sqrt_half; x <= obj_count_sqrt_half; ++x)
-				for(s_object_id_e y = -obj_count_sqrt_half; y <= obj_count_sqrt_half; ++y) {
+				for(s_object_id_e z = -obj_count_sqrt_half; z <= obj_count_sqrt_half; ++z) {
 					o.model_locator = nameList[disti(rng)];
 					o.direction_ypr = { distf(rng), 0.0f, 0.0f };
-					float ox = x * object_spacing;
-					float oz = y * object_spacing;
+					float ox = x * objectSpacing;
+					float oz = z * objectSpacing;
 					o.position_xyz.x = ox;
 					o.position_xyz.z = oz;
 					size_t xi = x + obj_count_sqrt_half;
-					size_t yi = y + obj_count_sqrt_half;
-					assert((void*)(&objects[yi][xi]) < (void*)(objects + std::size(objects)));
-					objects[yi][xi] = os.createObject(o);
+					size_t zi = z + obj_count_sqrt_half;
+					objectIdFromXz(xi, zi) = os.createObject(o);
 				}
 			};
 
@@ -273,6 +310,8 @@ namespace {
 
 		explicit Loop(Engine& e):
 			engine(&e),
+			objectCountSqrt(objectCountFromEnv(e.logger())),
+			objectSpacing(object_space_sqrt / float(objectCountSqrt + 2)),
 			lightType(LightType::eNone),
 			cameraSpeed { },
 			doRotateObjects(true),
@@ -284,6 +323,8 @@ namespace {
 			auto& os = ca->getObjectStorage();
 			auto& wr = ca->getWorldRenderer();
 			auto  gui = ca->gui();
+
+			objects = std::make_unique_for_overwrite<ObjectId[]>((objectCountSqrt+1) * (objectCountSqrt+1));
 
 			setView(wr);
 			createGround(os);
@@ -344,6 +385,12 @@ namespace {
 						case SDLK_g:
 							doRotateObjects = ! doRotateObjects;
 							break;
+						case SDLK_h:
+							{
+								bool w = ! engine->getPreferences().wait_for_gframe;
+								engine->setWaitForGframe(w);
+								engine->logger().debug("Wait for gframe: set to {}", w);
+							} break;
 						case SDLK_ESCAPE:
 							active = false;
 							break;
@@ -509,10 +556,10 @@ namespace {
 
 			// Randomly rotate all the objects
 			if(doRotateObjects) {
-				constexpr size_t actual_obj_count_sqrt = obj_count_sqrt+1;
+				size_t actual_obj_count_sqrt = objectCountSqrt+1;
 				for(size_t x = 0; x < actual_obj_count_sqrt; ++x)
-				for(size_t y = 0; y < actual_obj_count_sqrt; ++y) {
-					rotateObject(os, rng, delta, objects[x][y]);
+				for(size_t z = 0; z < actual_obj_count_sqrt; ++z) {
+					rotateObject(os, rng, delta, objectIdFromXz(x, z));
 				}
 			}
 
