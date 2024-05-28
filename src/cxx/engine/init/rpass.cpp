@@ -457,8 +457,9 @@ namespace SKENGINE_NAME_NS {
 			mRenderers.emplace_back(std::move(wrUptr));
 
 			auto uiUptr = std::make_unique<UiRenderer>(UiRenderer::create(
+				mVma,
 				std::make_shared<spdlog::logger>(logger()),
-				mUiStorage ));
+				mPrefs.font_location ));
 			mUiRenderer_TMP_UGLY_NAME = uiUptr.get();
 			mRenderers.emplace_back(std::move(uiUptr));
 		}
@@ -664,8 +665,7 @@ namespace SKENGINE_NAME_NS {
 			gpsci.pipelineCache  = mPipelineCache;
 			gpsci.polyDsetLayout = mGeometryPipelineDsetLayout;
 			gpsci.textDsetLayout = mImagePipelineDsetLayout;
-			auto& geomPipelines = mUiStorage->geomPipelines;
-			geomPipelines = geom::PipelineSet::create(mDevice, gpsci);
+			mGeomPipelines = geom::PipelineSet::create(mDevice, gpsci);
 
 			uint32_t worldSubpassIndex = 0;
 			uint32_t uiSubpassIndex = 0;
@@ -772,7 +772,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
 		if(! state.reinit) {
-			geom::PipelineSet::destroy(mDevice, mUiStorage->geomPipelines);
+			geom::PipelineSet::destroy(mDevice, mGeomPipelines);
 			for(auto& p : mPipelines) vkDestroyPipeline(mDevice, p.second, nullptr);
 			mPipelines.clear();
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);

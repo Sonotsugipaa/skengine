@@ -309,7 +309,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 		e.mGraphicsReg.endCycle();
 
-		for(auto& ln : e.mUiStorage->textCaches) ln.second.trimChars(e.mPrefs.font_max_cache_size);
+		e.mUiRenderer_TMP_UGLY_NAME->trimTextCaches(e.mPrefs.font_max_cache_size);
 		#undef IF_WORLD_RPASS_
 		#undef IF_UI_RPASS_
 	}
@@ -714,7 +714,7 @@ namespace SKENGINE_NAME_NS {
 			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 
 			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
-			for(auto& ln : mUiStorage->textCaches) ln.second.forgetFence();
+			mUiRenderer_TMP_UGLY_NAME->forgetTextCacheFences();
 		};
 
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();

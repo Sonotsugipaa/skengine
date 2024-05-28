@@ -72,26 +72,52 @@ namespace SKENGINE_NAME_NS {
 
 
 	UiRenderer UiRenderer::create(
-			std::shared_ptr<spdlog::logger> logger,
-			std::shared_ptr<UiStorage> uiStorage
+		VmaAllocator vma,
+		std::shared_ptr<spdlog::logger> logger,
+		std::string fontFilePath
+
 	) {
 		UiRenderer r;
 		r.mState.logger = std::move(logger);
-		r.mState.uiStorage = std::move(uiStorage);
+		r.mState.vma = vma;
+		r.mState.fontFilePath = std::move(fontFilePath);
 		r.mState.initialized = true;
+
+		{ // Init freetype
+			auto error = FT_Init_FreeType(&r.mState.freetype);
+			if(error) throw FontError("failed to initialize FreeType", error);
+		}
+
+		{ // Hardcoded GUI canvas
+			float ratio = 1.0f;
+			float hSize = 0.1f;
+			float wSize = hSize * ratio;
+			float wComp = 0.5f * (hSize - wSize);
+			float chBlank = (1.0 - hSize) / 2.0;
+			auto& canvas = r.mState.canvas;
+			canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.01, 0.01, 0.98, 0.98 });
+			canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
+			canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
+		}
+
 		return r;
 	}
 
 
 	void UiRenderer::destroy(UiRenderer& r) {
 		assert(r.mState.initialized);
-		auto* vma = r.mState.uiStorage->vma;
+		auto* vma = r.mState.vma;
+
 
 		for(auto& gf : r.mState.gframes) {
 			(void) gf; // NOP
 			(void) vma;
 		}
 		r.mState.gframes.clear();
+
+		r.mState.textCaches.clear();
+		r.mState.canvas = { };
+		FT_Done_FreeType(r.mState.freetype);
 
 		r.mState.initialized = false;
 	}
@@ -135,7 +161,7 @@ namespace SKENGINE_NAME_NS {
 		std::deque<std::tuple<LotId, Lot*, Element*>> repeatListSwap;
 		unsigned repeatCount = 1;
 
-		ui::visitUi(*mState.uiStorage->canvas, [&](LotId lotId, Lot& lot) {
+		ui::visitUi(*mState.canvas, [&](LotId lotId, Lot& lot) {
 			for(auto& elem : lot.elements()) {
 				auto ps = elem.second->ui_elem_prepareForDraw(lotId, lot, 0, uiCtx);
 				if(ps == ui::Element::PrepareState::eDefer) repeatList.push_back({ lotId, &lot, elem.second.get() });
@@ -154,8 +180,8 @@ namespace SKENGINE_NAME_NS {
 
 
 	void UiRenderer::duringDrawStage(ConcurrentAccess& ca, unsigned gfIndex, VkCommandBuffer cmd) {
+		auto& e   = ca.engine();
 		auto& egf = ca.getGframeData(gfIndex);
-		auto& uiStorage = * mState.uiStorage.get();
 
 		gui::DrawContext guiCtx = gui::DrawContext {
 			.magicNumber = gui::DrawContext::magicNumberValue,
@@ -164,17 +190,18 @@ namespace SKENGINE_NAME_NS {
 			.drawJobs = { } };
 		ui::DrawContext uiCtx = { &guiCtx };
 
-		ui::visitUi(*uiStorage.canvas, [&](LotId lotId, Lot& lot) {
+		ui::visitUi(*mState.canvas, [&](LotId lotId, Lot& lot) {
 			for(auto& elem : lot.elements()) elem.second->ui_elem_draw(lotId, lot, uiCtx);
 		});
 
 		// The caches will need for this draw op to finish before preparing for the next one
 		// (unless they're up to date, in which case they won't do anything)
-		for(auto& ln : uiStorage.textCaches) ln.second.syncWithFence(egf.fence_draw);
+		for(auto& ln : mState.textCaches) ln.second.syncWithFence(egf.fence_draw);
 
 		VkPipeline             lastPl = nullptr;
 		const ViewportScissor* lastVs = nullptr;
 		VkDescriptorSet        lastImageDset = nullptr;
+		VkPipelineLayout       geomPipelineLayout = e.getGeomPipelines().layout;
 
 		// This lambda ladder turns what follows into something less indented:
 		//
@@ -194,7 +221,7 @@ namespace SKENGINE_NAME_NS {
 			auto& shapeSet = *job.shapeSet;
 			VkBuffer vtx_buffers[] = { shapeSet.vertexBuffer(), shapeSet.vertexBuffer() };
 			VkDeviceSize offsets[] = { shapeSet.instanceCount() * sizeof(geom::Instance), 0 };
-			vkCmdPushConstants(cmd, uiStorage.geomPipelines.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant), &job.transform);
+			vkCmdPushConstants(cmd, geomPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant), &job.transform);
 			vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
 			vkCmdDrawIndirect(cmd, shapeSet.drawIndirectBuffer(), 0, shapeSet.drawCmdCount(), sizeof(VkDrawIndirectCommand));
 		};
@@ -203,7 +230,7 @@ namespace SKENGINE_NAME_NS {
 			if(lastImageDset != jobDs.first) {
 				lastImageDset = jobDs.first;
 				if(lastImageDset != nullptr) {
-					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiStorage.geomPipelines.layout, 0, 1, &lastImageDset, 0, nullptr);
+					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, geomPipelineLayout, 0, 1, &lastImageDset, 0, nullptr);
 				}
 			}
 			for(auto& job : jobDs.second) forEachJob(job);
@@ -227,6 +254,37 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		for(auto& jobPl : guiCtx.drawJobs) forEachPl(jobPl);
+	}
+
+
+	FontFace UiRenderer::createFontFace() {
+		return FontFace::fromFile(mState.freetype, false, mState.fontFilePath.c_str());
+	}
+
+
+	TextCache& UiRenderer::getTextCache(Engine& e, unsigned short size) {
+		using Caches = decltype(mState.textCaches);
+		auto& caches = mState.textCaches;
+		auto dev = vmaGetAllocatorDevice(mState.vma);
+		auto found = caches.find(size);
+		if(found == caches.end()) {
+			found = caches.insert(Caches::value_type(size, TextCache(
+				dev, mState.vma,
+				e.getImageDsetLayout(),
+				std::make_shared<FontFace>(createFontFace()),
+				size ))).first;
+		}
+		return found->second;
+	}
+
+
+	void UiRenderer::trimTextCaches(codepoint_t maxCharCount) {
+		for(auto& ln : mState.textCaches) ln.second.trimChars(maxCharCount);
+	}
+
+
+	void UiRenderer::forgetTextCacheFences() noexcept {
+		for(auto& ln : mState.textCaches) ln.second.forgetFence();
 	}
 
 }

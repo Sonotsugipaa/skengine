@@ -83,7 +83,7 @@ namespace SKENGINE_NAME_NS {
 		auto fmt_map        = format_mapping(fmt);
 
 		auto vma = tc.vma;
-		auto dev = [&]() { VmaAllocatorInfo vai; vmaGetAllocatorInfo(vma, &vai); return vai.device; } ();
+		auto dev = vmaGetAllocatorDevice(vma);
 
 		auto mip_levels = mip_level_count(width, height);
 

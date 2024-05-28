@@ -171,7 +171,7 @@ namespace SKENGINE_NAME_NS {
 	void WorldRenderer::destroy(WorldRenderer& r) {
 		assert(r.mState.initialized);
 		auto vma = r.vma();
-		auto dev = [&]() { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; } ();
+		auto dev = vmaGetAllocatorDevice(vma);
 
 		for(auto& gf : r.mState.gframes) {
 			debug::destroyedBuffer(gf.frameUbo, "gframe UBO");

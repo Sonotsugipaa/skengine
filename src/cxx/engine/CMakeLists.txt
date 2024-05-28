@@ -17,7 +17,6 @@ add_library(engine
 	world_renderer.cpp
 	ui_renderer.cpp
 	object_storage.cpp
-	ui_storage.cpp
 	gui.cpp
 	engine.cpp
 	engine_buffer.cpp

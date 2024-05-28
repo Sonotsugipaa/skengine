@@ -21,8 +21,6 @@ namespace SKENGINE_NAME_NS {
 		void initTransferContext();
 		void initDsetLayouts();
 		void initAssets();
-		void initGui();
-		void destroyGui();
 		void destroyAssets();
 		void destroyDsetLayouts();
 		void destroyTransferContext();

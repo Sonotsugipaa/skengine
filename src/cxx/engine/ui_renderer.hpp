@@ -13,6 +13,9 @@
 
 namespace SKENGINE_NAME_NS {
 
+	class GuiManager;
+
+
 	struct FontRequirement {
 		unsigned short size;
 
@@ -27,25 +30,12 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	/// \brief Data shared between all the UI renderers.
-	///
-	struct UiStorage {
-		std::unique_ptr<ui::Canvas> canvas;
-		std::unordered_map<unsigned short, TextCache> textCaches;
-		geom::PipelineSet geomPipelines;
-		VmaAllocator vma;
-		FT_Library freetype;
-		const char* fontFilePath;
-
-		FontFace createFontFace();
-		TextCache& getTextCache(Engine&, unsigned short size);
-	};
-
-
 	/// \brief A Renderer for basic UI elements.
 	///
 	class UiRenderer : public Renderer {
 	public:
+		friend GuiManager;
+
 		struct GframeData {
 			std::unordered_map<FontRequirement, vkutil::ManagedImage, FontRequirement::Hash> fontImages;
 		};
@@ -54,10 +44,7 @@ namespace SKENGINE_NAME_NS {
 		UiRenderer(UiRenderer&&);
 		~UiRenderer();
 
-		static UiRenderer create(
-			std::shared_ptr<spdlog::logger>,
-			std::shared_ptr<UiStorage> );
-
+		static UiRenderer create(VmaAllocator, std::shared_ptr<spdlog::logger>, std::string fontFilePath);
 		static void destroy(UiRenderer&);
 
 		std::string_view name() const noexcept override { return "ui"; }
@@ -65,11 +52,21 @@ namespace SKENGINE_NAME_NS {
 		void duringPrepareStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
 		void duringDrawStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
 
+		FontFace createFontFace();
+		TextCache& getTextCache(Engine&, unsigned short size);
+
+		void trimTextCaches(codepoint_t maxCharCount);
+		void forgetTextCacheFences() noexcept;
+
 	private:
 		struct {
 			std::shared_ptr<spdlog::logger> logger;
-			std::shared_ptr<UiStorage> uiStorage;
 			std::vector<GframeData> gframes;
+			std::unique_ptr<ui::Canvas> canvas;
+			std::unordered_map<unsigned short, TextCache> textCaches;
+			VmaAllocator vma;
+			FT_Library freetype;
+			std::string fontFilePath;
 			bool initialized : 1;
 		} mState;
 	};

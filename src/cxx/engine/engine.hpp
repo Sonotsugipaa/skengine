@@ -202,7 +202,6 @@ namespace SKENGINE_NAME_NS {
 	public:
 		friend ConcurrentAccess;
 		friend gui::DrawContext;
-		friend GuiManager;
 
 		using signal_e = unsigned;
 		enum class Signal : signal_e { eNone = 0, eReinit = 1 };
@@ -264,7 +263,8 @@ namespace SKENGINE_NAME_NS {
 		auto getQueues           () noexcept { return mQueues; }
 		auto getPipelineLayout3d () noexcept { return m3dPipelineLayout; }
 
-		auto getTransferContext() const noexcept { return mTransferContext; }
+		auto getGeomPipelines   () const noexcept { return mGeomPipelines; }
+		auto getTransferContext () const noexcept { return mTransferContext; }
 
 		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
 		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
@@ -325,6 +325,7 @@ namespace SKENGINE_NAME_NS {
 		VkRenderPass          mWorldRpass;
 		VkRenderPass          mUiRpass;
 		VkPipelineCache       mPipelineCache;
+		geom::PipelineSet     mGeomPipelines;
 		VkPipelineLayout      m3dPipelineLayout;
 		VkDescriptorSetLayout mGeometryPipelineDsetLayout;
 		VkDescriptorSetLayout mImagePipelineDsetLayout;
@@ -332,7 +333,6 @@ namespace SKENGINE_NAME_NS {
 
 		std::shared_ptr<WorldRendererSharedState> mWorldRendererSharedState_TMP_UGLY_NAME;
 		std::shared_ptr<ObjectStorage> mObjectStorage;
-		std::shared_ptr<UiStorage>     mUiStorage;
 		WorldRenderer* mWorldRenderer_TMP_UGLY_NAME; // This is currently needed to reference one specific renderer of the many, but it should be managed by the Engine user in the future
 		UiRenderer*    mUiRenderer_TMP_UGLY_NAME;    // Ditto
 
@@ -381,6 +381,9 @@ namespace SKENGINE_NAME_NS {
 	inline GframeData&    ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
 	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
 	inline VkPipeline ConcurrentAccess::getPipeline(const ShaderRequirement& req) { return ca_engine->mPipelines.at(req); }
+
+
+	constexpr VkDevice vmaGetAllocatorDevice(VmaAllocator vma) noexcept { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; }
 
 }
 

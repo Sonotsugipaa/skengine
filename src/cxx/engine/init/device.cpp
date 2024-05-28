@@ -23,12 +23,10 @@ namespace SKENGINE_NAME_NS {
 		initTransferContext();
 		initDsetLayouts();
 		initAssets();
-		initGui();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
-		destroyGui();
 		destroyAssets();
 		destroyDsetLayouts();
 		destroyTransferContext();
@@ -227,41 +225,6 @@ namespace SKENGINE_NAME_NS {
 	void Engine::DeviceInitializer::initAssets() {
 		auto newLogger = std::make_shared<spdlog::logger>(logger());
 		mAssetSupplier = AssetSupplier(*this, std::move(newLogger), mAssetSource, 0.125f, mDevProps.limits.maxSamplerAnisotropy);
-	}
-
-
-	void Engine::DeviceInitializer::initGui() {
-		#warning "TODO: UiStorage is closely tied to UiRenderer, so the former should be initialized and destroyed by code in the files of the latter"
-		mUiStorage = std::make_shared<UiStorage>();
-		auto& uiStorage = *mUiStorage.get();
-
-		uiStorage.vma = mVma;
-		uiStorage.fontFilePath = mPrefs.font_location.c_str();
-
-		{ // Init freetype
-			auto error = FT_Init_FreeType(&uiStorage.freetype);
-			if(error) throw FontError("failed to initialize FreeType", error);
-		}
-
-		{ // Hardcoded GUI canvas
-			float ratio = 1.0f;
-			float hSize = 0.1f;
-			float wSize = hSize * ratio;
-			float wComp = 0.5f * (hSize - wSize);
-			float chBlank = (1.0 - hSize) / 2.0;
-			auto& canvas = uiStorage.canvas;
-			canvas = std::make_unique<ui::Canvas>(ComputedBounds { 0.01, 0.01, 0.98, 0.98 });
-			canvas->setRowSizes    ({ chBlank,       hSize, chBlank });
-			canvas->setColumnSizes ({ chBlank+wComp, wSize, chBlank+wComp });
-		}
-	}
-
-
-	void Engine::DeviceInitializer::destroyGui() {
-		auto& uiStorage = *mUiStorage.get();
-		uiStorage.textCaches.clear();
-		uiStorage.canvas = { };
-		FT_Done_FreeType(uiStorage.freetype);
 	}
 
 

@@ -40,8 +40,8 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 	struct DrawContext::EngineAccess {
-		static auto& pipelineSet(gui::DrawContext& c) { return c.engine->mUiStorage->geomPipelines; };
-		static auto& placeholderTextCache(gui::DrawContext& c, unsigned short size) { return c.engine->mUiStorage->getTextCache(*c.engine, size); }
+		static auto& pipelineSet(gui::DrawContext& c) { return c.engine->mGeomPipelines; };
+		static auto& placeholderTextCache(gui::DrawContext& c, unsigned short size) { return c.engine->mUiRenderer_TMP_UGLY_NAME->getTextCache(*c.engine, size); }
 	};
 
 	using Ea = DrawContext::EngineAccess;
