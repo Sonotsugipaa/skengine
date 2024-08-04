@@ -60,14 +60,6 @@ def write_bytes(dst, width, values, *, sign=False, endian=FMA_BYTE_ORDER_I):
 			else: raise TypeError("argument 'values', index {}".format(i))
 
 
-def write_mesh_bytes(dst, mtl_idx, first_face, face_n, idx_n, center_xyz, radius):
-	if   type(dst) == bytes: dst = bytearray(dst)
-	elif type(dst) != bytearray: raise TypeError("argument 'dst' is neither a 'bytes' or a 'bytearray'")
-	write_bytes(dst, 8, ( mtl_idx, first_face ))
-	write_bytes(dst, 4, ( face_n, idx_n ))
-	for v in (*center_xyz, radius): dst += float32_bytes(center_xyz)
-
-
 def magic_number(version: int):
 	r = bytearray(b'##fma')
 	r.append((version & 0xff0000) >> (8*2))
@@ -233,6 +225,10 @@ def merge_dir_basename(dir, basename):
 	return basename if (len(dir) == 0) else "{}/{}".format(dir, basename)
 
 
+def rotate_xz(xyz):
+	return (xyz[0], xyz[2], -xyz[1])
+
+
 class Material:
 	material:   bpy.types.Material
 	own_offset: int
@@ -319,7 +315,7 @@ class FmaExporter(Operator, ExportHelper):
 					self.invalid_geom_type()
 
 		def populate_string_storage(self):
-			print("Populating string storage...")
+			print("Populating model string storage...")
 			r = StringStorage()
 			r.seek_string_ptr("string_storage_placeholder_garbage")
 			r.seek_string_ptr(FMA_PLACEHOLDER_BONE_PARENT_NAME)
@@ -373,7 +369,7 @@ class FmaExporter(Operator, ExportHelper):
 		def write_bones(self, ss, mesh_allocations, wr_buffer):
 			placeholder_parent_offset = ss.seek_string_ptr(FMA_PLACEHOLDER_BONE_PARENT_NAME)
 			idx_counter = 0
-			placeholder_rel_location = b'[        PLACEHOLDER_VEC3_x3       ]pad4'
+			pad4 = b'pad4'
 			for obj in self.objects:
 				mesh_name_offset = ss.seek_string_ptr(obj.name_full)
 				mesh_offset = mesh_allocations[obj.data.name_full].mesh_offset
@@ -383,14 +379,23 @@ class FmaExporter(Operator, ExportHelper):
 					self.segm_bone[0] + (idx_counter * FMA_BONE_SIZE),
 					mesh_offset,
 					self.segm_mesh[0] + (mesh_offset * FMA_MESH_SIZE) ))
+				obj_pos = obj.location;       obj_pos = (+obj_pos[0], +obj_pos[2], -obj_pos[1])
+				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[0], +obj_rot[2], +obj_rot[1])
+				obj_scl = obj.scale;          obj_scl = (+obj_scl[0], +obj_scl[2], +obj_scl[1])
+				print("     position ({:5.3} {:5.3} {:5.3} : {})".format(*obj_pos, floatn_byte_seq(4, obj_pos).hex()))
+				print("     rotation ({:5.3} {:5.3} {:5.3} : {})".format(*obj_rot, floatn_byte_seq(4, obj_rot).hex()))
+				print("     scale    ({:5.3} {:5.3} {:5.3} : {})".format(*obj_scl, floatn_byte_seq(4, obj_scl).hex()))
 				write_bytes(wr_buffer, 8, (
 					mesh_name_offset,
 					placeholder_parent_offset,
 					mesh_offset ))
-				wr_buffer += placeholder_rel_location
+				write_bytes(wr_buffer, 4, (obj_pos[0], obj_pos[1], obj_pos[2]), sign=True)
+				write_bytes(wr_buffer, 4, (obj_rot[0], obj_rot[1], obj_rot[2]), sign=True)
+				write_bytes(wr_buffer, 4, (obj_scl[0], obj_scl[1], obj_scl[2]), sign=True)
+				wr_buffer += pad4
 				idx_counter += 1
 
-		def write_faces(self, mesh_allocations, meshpoly_idx_allocations, wr_buffer):
+		def write_faces(self, mesh_allocations, meshpoly_indices, wr_buffer):
 			idx_counter = 0
 			for face_alloc_key in mesh_allocations:
 				face_alloc = mesh_allocations[face_alloc_key].face_alloc
@@ -404,9 +409,9 @@ class FmaExporter(Operator, ExportHelper):
 				if len(mesh.polygons) != face_alloc[2]: raise ValueError("Bad face count: \"{}\" should have {} faces but has {}".format(mesh.name_full, face_alloc[2], len(mesh.polygons)))
 				cur_face_n = 0
 				for face in mesh.polygons:
-					idx_offset_rel = (4 * idx_counter)
-					idx_offset = self.segm_idx[0] + idx_offset_rel
-					meshpoly_idx_allocations[idx_offset] = (mesh, face.index)
+					meshpoly_indices.append( (mesh, face.index) )
+					#idx_offset_rel = (4 * idx_counter)
+					#idx_offset = self.segm_idx[0] + idx_offset_rel
 					#print("Mesh \"{}\" face {} @ {:x}: {} indices @ {}:{:x}, material # {}, normal ({:.3}, {:.3}, {:.3})".format(
 					#	mesh.name_full,
 					#	cur_face_n,
@@ -417,7 +422,7 @@ class FmaExporter(Operator, ExportHelper):
 					#	self.materials[mesh_mtl_name].own_offset,
 					#	*face.normal ))
 					write_bytes(wr_buffer, 4, (face.loop_total, idx_counter, self.materials[mesh_mtl_name].own_offset, *face.normal))
-					idx_counter += face.loop_total
+					idx_counter += face.loop_total + 1
 					cur_face_n += 1
 
 		def write_vertex(self, current_idx, uv, loop, vtx, vtx_idx_map, wr_buffer):
@@ -436,7 +441,6 @@ class FmaExporter(Operator, ExportHelper):
 			# F4    | Bi-Tangent (Y)
 			# F4    | Bi-Tangent (Z)
 			loop_bytes = bytes(floatn_byte_seq(4, (*vtx.co, *uv, *loop.normal, *loop.tangent)))
-			def rotate_xz(xyz): return (xyz[0], xyz[2], -xyz[1])
 			if not loop_bytes in vtx_idx_map:
 				vtx_idx_map[loop_bytes] = current_idx
 				write_bytes(wr_buffer, 4, (
@@ -446,11 +450,12 @@ class FmaExporter(Operator, ExportHelper):
 					*rotate_xz(loop.tangent),
 					*rotate_xz(loop.bitangent) ))
 
-		def write_indices(self, meshpoly_idx_allocations, vtx_idx_map, wr_buffer):
+		def write_indices(self, meshpoly_indices, vtx_idx_map, wr_buffer):
 			print("Writing indices...")
-			primitive_restart_bytes = bytes(FMA_PRIMITIVE_RESTART.to_bytes(4, FMA_BYTE_ORDER_I))
-			for leading_idx in meshpoly_idx_allocations:
-				(mesh, poly_idx) = meshpoly_idx_allocations[leading_idx]
+			primitive_restart_bytes = FMA_PRIMITIVE_RESTART.to_bytes(4, FMA_BYTE_ORDER_I)
+			indices_written = 0
+			for idx_alloc in meshpoly_indices:
+				(mesh, poly_idx) = idx_alloc
 				poly = mesh.polygons[poly_idx]
 				for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
 					loop = mesh.loops[loop_idx]
@@ -460,6 +465,7 @@ class FmaExporter(Operator, ExportHelper):
 					idx = vtx_idx_map[loop_bytes]
 					write_bytes(wr_buffer, 4, idx)
 				wr_buffer += primitive_restart_bytes
+				indices_written += poly.loop_total + 1
 
 		def write_model(self, file):
 			# https://docs.blender.org/api/current/bpy.types.Mesh.html
@@ -530,13 +536,13 @@ class FmaExporter(Operator, ExportHelper):
 
 			self.write_bones(string_storage, mesh_allocations, wr_buffer)
 
-			meshpoly_idx_allocations = dict()
-			self.write_faces(mesh_allocations, meshpoly_idx_allocations, wr_buffer)
+			meshpoly_indices = list()
+			self.write_faces(mesh_allocations, meshpoly_indices, wr_buffer)
 
 			file.write(wr_buffer) ; wr_buffer.clear()
 			file.write(vertex_bytes) ; vertex_bytes.clear()
 
-			self.write_indices(meshpoly_idx_allocations, vtx_idx_map, wr_buffer)
+			self.write_indices(meshpoly_indices, vtx_idx_map, wr_buffer)
 
 			file.write(wr_buffer) ; wr_buffer.clear()
 
@@ -560,7 +566,7 @@ class FmaExporter(Operator, ExportHelper):
 				self.materials[FMA_MATERIAL_NULL_NAME] = bpy.data.materials.new(name=mtl_name)
 
 		def populate_string_storage(self):
-			print("Populating string storage...")
+			print("Populating material string storage...")
 			r = StringStorage()
 			r.pad(8)
 			return r
@@ -592,7 +598,7 @@ class FmaExporter(Operator, ExportHelper):
 
 			def color_bytes(col): return (col << 32).to_bytes(8, "big")
 			wr_buffer = magic_number(4) # Hardcoded version number
-			write_bytes(wr_buffer, 8, mtl_flags, endian="little") # game-engine-sketch mistakenly expects little endian material flags, while it correctly expects big endian flags for model files
+			write_bytes(wr_buffer, 8, mtl_flags, endian="big")
 			write_bytes(wr_buffer, 8, (0xCC2222FF << 32, 0x8080FFFF << 32, 0x222222FF << 32, 0x000000FF << 32), endian="big") # Hardcoded texture colors
 			write_bytes(wr_buffer, 4, (4.0)) # Hardcoded specular exponent
 			wr_buffer += b'pad4'

@@ -240,10 +240,11 @@ namespace fmamdl {
 	struct Bone {
 		StringOffset name;
 		StringOffset parent;
-		u4_t meshIndex;
+		u8_t meshIndex;
 		f4_t relPosition[3];
 		f4_t relRotation[3];
 		f4_t relScale[3];
+		f4_t pad4;
 	};
 
 	struct Face {

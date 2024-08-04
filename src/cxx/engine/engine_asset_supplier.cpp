@@ -92,6 +92,7 @@ namespace SKENGINE_NAME_NS {
 			auto src = as_srcInterface->asi_requestModelData(locator);
 			auto materials = src.fmaHeader.materials();
 			auto meshes    = src.fmaHeader.meshes();
+			auto bones     = src.fmaHeader.bones();
 			auto faces     = src.fmaHeader.faces();
 			auto indices   = src.fmaHeader.indices();
 			auto vertices  = src.fmaHeader.vertices();
@@ -120,17 +121,17 @@ namespace SKENGINE_NAME_NS {
 				Engine::pushBuffer(as_transferContext, r.vertices);
 			}
 
-			for(auto& mesh : meshes) {
-				auto& first_face   = faces[mesh.firstFace];
-				auto  material_str = src.fmaHeader.getStringView(materials[mesh.materialIndex].name);
+			for(auto& bone : bones) {
+				auto& mesh       = meshes[bone.meshIndex];
+				auto& first_face = faces[mesh.firstFace];
 				auto  ins = Bone {
 					.mesh = Mesh {
 						.index_count = uint32_t(mesh.indexCount),
 						.first_index = uint32_t(first_face.firstIndex) },
-					.material      = std::string(material_str),
-					.position_xyz  = { },
-					.direction_ypr = { },
-					.scale_xyz     = { 1.0f, 1.0f, 1.0f } };
+					.material = std::string(src.fmaHeader.getStringView(materials[mesh.materialIndex].name)),
+					.position_xyz  = { bone.relPosition[0], bone.relPosition[1], bone.relPosition[2] },
+					.direction_ypr = { bone.relRotation[0], bone.relRotation[1], bone.relRotation[2] },
+					.scale_xyz     = { bone.relScale   [0], bone.relScale   [1], bone.relScale   [2] } };
 				r.bones.push_back(std::move(ins));
 			}
 
