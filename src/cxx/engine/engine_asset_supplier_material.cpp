@@ -93,7 +93,7 @@ namespace SKENGINE_NAME_NS {
 			Material r;
 
 			auto src   = as_srcInterface->asi_requestMaterialData(locator);
-			auto flags = mf_e(src.fmaHeader.flags());
+			auto flags = std::byteswap(mf_e(src.fmaHeader.flags()));
 
 			auto load_texture = [&](
 					Material::Texture& dst,

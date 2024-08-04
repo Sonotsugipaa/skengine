@@ -180,6 +180,7 @@ class StringStorage:
 # ExportHelper is a helper class, defines filename and
 # invoke() function which calls the file selector.
 import math
+import os
 import bpy
 from bpy_extras.io_utils import ExportHelper
 from bpy.props import StringProperty, BoolProperty, EnumProperty
@@ -205,12 +206,31 @@ def compute_mesh_soi(mesh: bpy.types.Mesh):
 
 
 def uv_of_mesh_loop(mesh, loop_index):
-	print("Mesh {} has {} UV layers".format(mesh.name_full, len(mesh.uv_layers)))
 	match len(mesh.uv_layers):
 		case 0: return (0.0, 0.0)
 		case 1: return mesh.uv_layers[0].uv[loop_index].vector
 		case _: raise ValueError("Multiple UV layers are not supported by FMA")
 
+
+def material_from_mesh(obj_data):
+	match len(obj_data.materials):
+		case 0: return None
+		case 1: return obj_data.materials[0]
+		case _: raise ValueError("Mesh \"{}\" has {} materials, but FMA only allows one material per mesh".format(
+			obj_data.name_full,
+			len(obj_data.materials) ))
+
+
+def mk_material_filename(*, name):
+	return name + ".mtl.fma"
+
+
+def merge_dir_basename(dir, basename):
+	dir_end = len(dir)
+	while (dir_end > 0) and ((dir[dir_end-1] == '/') or (dir[dir_end-1] == '\\')):
+		dir_end -= 1
+	if dir_end != len(dir): dir = dir[:dir_end]
+	return basename if (len(dir) == 0) else "{}/{}".format(dir, basename)
 
 
 class Material:
@@ -237,40 +257,23 @@ class FmaExporter(Operator, ExportHelper):
 		maxlen=255,  # Max internal buffer length, longer would be clamped.
 	)
 
-	# List of operator properties, the attributes will be assigned
-	# to the class instance from the operator settings before calling.
-	use_setting: BoolProperty(
-		name="Example Boolean",
-		description="Example Tooltip",
+	opt_gen_model: BoolProperty(
+		name="Export model file",
+		description="Enable to generate the \"*.fma\" file",
 		default=True,
 	)
 
-	type: EnumProperty(
-		name="Example Enum",
-		description="Choose between two items",
-		items=(
-			('OPT_A', "First Option", "Description one"),
-			('OPT_B', "Second Option", "Description two"),
-		),
-		default='OPT_A',
+	opt_gen_materials: BoolProperty(
+		name="Export material files",
+		description="Enable to generate the \"*.mtl.fma\" files",
+		default=True,
 	)
 
 
-	class Execution:
+	class ModelExecution:
 		def invalid_geom_type(self): raise ValueError("Invalid geometry type: '{}'".format(self.geometry_type))
 
-		def material_name(*, mesh_name):
-			return mesh + ".mtl.fma"
-
-		def material_from_mesh(self, obj_data):
-			match len(obj_data.materials):
-				case 0: return None
-				case 1: return obj_data.materials[0]
-				case _: raise ValueError("Mesh \"{}\" has {} materials, but FMA only allows one material per mesh".format(
-					obj_data.name_full,
-					len(obj_data.materials) ))
-
-		def select_objects(self, ctx: bpy.context):
+		def select_objects(self, ctx):
 			self.objects = [ ]
 			for obj in ctx.selected_objects:
 				if obj.type == "MESH": self.objects.append(obj)
@@ -279,7 +282,7 @@ class FmaExporter(Operator, ExportHelper):
 			materials = dict()
 			own_offset = 0
 			for obj in self.objects:
-				mtl = self.material_from_mesh(obj.data)
+				mtl = material_from_mesh(obj.data)
 				mtl_name = mtl.name_full if (mtl != None) else FMA_MATERIAL_NULL_NAME
 				if not mtl_name in materials:
 					materials[mtl_name] = Material(mtl, own_offset)
@@ -318,25 +321,24 @@ class FmaExporter(Operator, ExportHelper):
 		def populate_string_storage(self):
 			print("Populating string storage...")
 			r = StringStorage()
-			i = 0
 			r.seek_string_ptr("string_storage_placeholder_garbage")
 			r.seek_string_ptr(FMA_PLACEHOLDER_BONE_PARENT_NAME)
 			for obj in self.objects:
 				r.seek_string_ptr(obj.name)
 				r.seek_string_ptr(obj.data.name)
-				material = self.material_from_mesh(obj.data)
-				if material != None: r.seek_string_ptr(material.name_full)
-				else:                r.seek_string_ptr(FMA_MATERIAL_NULL_NAME)
-				i += 1
+				material = material_from_mesh(obj.data)
+				if material != None: r.seek_string_ptr(mk_material_filename(name=material.name_full))
+				else:                r.seek_string_ptr(mk_material_filename(name=FMA_MATERIAL_NULL_NAME))
 			r.pad(8)
 			return r
 
 		def write_materials(self, ss, wr_buffer):
 			mtl_array = [ None for i in range(len(self.materials)) ]
 			for mtl_name in self.materials:
+				mtl_filename = mk_material_filename(name=mtl_name)
 				offset = self.materials[mtl_name].own_offset
-				mtl_array[offset] = ss.seek_string_ptr(mtl_name)
-				print("Material [{}] \"{}\" = {}".format(offset, mtl_name, mtl_array[offset]))
+				mtl_array[offset] = ss.seek_string_ptr(mtl_filename)
+				print("Material [{}] \"{}\" = {}".format(offset, mtl_filename, mtl_array[offset]))
 			write_bytes(wr_buffer, 8, mtl_array)
 
 		def write_meshes(self, mesh_allocations, wr_buffer):
@@ -354,7 +356,7 @@ class FmaExporter(Operator, ExportHelper):
 					len(mesh.polygons) )
 				face_counter += face_alloc[2]
 				mesh_allocations[mesh_name] = MeshAlloc(idx_counter, face_alloc)
-				mtl = self.material_from_mesh(mesh)
+				mtl = material_from_mesh(mesh)
 				if mtl == None: mtl = self.materials[FMA_MATERIAL_NULL_NAME]
 				else:           mtl = self.materials[mtl.name_full]
 				soi = compute_mesh_soi(mesh)
@@ -393,7 +395,7 @@ class FmaExporter(Operator, ExportHelper):
 			for face_alloc_key in mesh_allocations:
 				face_alloc = mesh_allocations[face_alloc_key].face_alloc
 				mesh = face_alloc[0]
-				mesh_mtl = self.material_from_mesh(mesh)
+				mesh_mtl = material_from_mesh(mesh)
 				mesh_mtl_name = mesh_mtl.name_full if (mesh_mtl != None) else FMA_MATERIAL_NULL_NAME
 				print("Mesh \"{}\": {} faces @ {:x}".format(
 					mesh.name_full,
@@ -405,15 +407,15 @@ class FmaExporter(Operator, ExportHelper):
 					idx_offset_rel = (4 * idx_counter)
 					idx_offset = self.segm_idx[0] + idx_offset_rel
 					meshpoly_idx_allocations[idx_offset] = (mesh, face.index)
-					print("Mesh \"{}\" face {} @ {:x}: {} indices @ {}:{:x}, material # {}, normal ({:.3}, {:.3}, {:.3})".format(
-						mesh.name_full,
-						cur_face_n,
-						self.segm_face[0] + (FMA_FACE_SIZE * (face_alloc[1] + cur_face_n)),
-						face.loop_total,
-						idx_offset_rel,
-						idx_offset,
-						self.materials[mesh_mtl_name].own_offset,
-						*face.normal ))
+					#print("Mesh \"{}\" face {} @ {:x}: {} indices @ {}:{:x}, material # {}, normal ({:.3}, {:.3}, {:.3})".format(
+					#	mesh.name_full,
+					#	cur_face_n,
+					#	self.segm_face[0] + (FMA_FACE_SIZE * (face_alloc[1] + cur_face_n)),
+					#	face.loop_total,
+					#	idx_offset_rel,
+					#	idx_offset,
+					#	self.materials[mesh_mtl_name].own_offset,
+					#	*face.normal ))
 					write_bytes(wr_buffer, 4, (face.loop_total, idx_counter, self.materials[mesh_mtl_name].own_offset, *face.normal))
 					idx_counter += face.loop_total
 					cur_face_n += 1
@@ -538,18 +540,84 @@ class FmaExporter(Operator, ExportHelper):
 
 			file.write(wr_buffer) ; wr_buffer.clear()
 
-		def __init__(self, file, ctx: bpy.context, *, geometry_type="triangle-fan"):
+		def __init__(self, file, ctx, *, geometry_type="triangle-fan"):
 			self.geometry_type = geometry_type
 			self.select_objects(ctx)
 			self.write_model(file)
-			self.result = { "FINISHED" }
-			print("Done.")
+
+
+	class MaterialExecution:
+		def select_materials(self, ctx):
+			self.materials = dict()
+			for obj in ctx.selected_objects:
+				if obj.type == "MESH":
+					mtl = material_from_mesh(obj.data)
+					mtl_name = mtl.name_full if (mtl != None) else FMA_MATERIAL_NULL_NAME
+					if not mtl_name in self.materials:
+						mtl_name = mk_material_filename(name=mtl_name)
+						self.materials[mtl_name] = mtl
+			if None in self.materials:
+				self.materials[FMA_MATERIAL_NULL_NAME] = bpy.data.materials.new(name=mtl_name)
+
+		def populate_string_storage(self):
+			print("Populating string storage...")
+			r = StringStorage()
+			r.pad(8)
+			return r
+
+		def write_material(self, file, material):
+			# https://docs.blender.org/api/current/bpy.types.Mesh.html
+
+			def wr_str(*values):
+				for value in values: file.write(value.encode(FMA_STR_ENCODING))
+
+			# Hardcoded flags
+			mtl_flags = 0
+			if False: mtl_flags |= (1 << 0) # Transparency
+			if True : mtl_flags |= (1 << 1) # Diffuse texture is inline
+			if True : mtl_flags |= (1 << 2) # Normal texture is inline
+			if True : mtl_flags |= (1 << 3) # Specular texture is inline
+			if True : mtl_flags |= (1 << 4) # Emissive texture is inline
+
+			# 8 bytes for each: Magic number, flags, diffuse ptr, normal ptr, specular ptr, emissive ptr
+			# 4 bytes for each: specular exponent, padding
+			# 8 bytes for each: string storage ptr, SS p+n+l
+			header_offset = (8*6) + (4*2) + (8*3)
+
+			string_storage = self.populate_string_storage()
+			comment = "[[[        This material file was generated on Blender by the `fma_export.py` script.        ]]]".encode(FMA_STR_ENCODING)
+			self.segm_ss = (header_offset + len(comment), len(string_storage.strings), len(string_storage.content))
+			print("Comment: {:06x} to {:06x}".format(header_offset, header_offset + len(comment)))
+			print("Strings: {:3} @ {:010x}".format(self.segm_ss[1], self.segm_ss[0]))
+
+			def color_bytes(col): return (col << 32).to_bytes(8, "big")
+			wr_buffer = magic_number(4) # Hardcoded version number
+			write_bytes(wr_buffer, 8, mtl_flags, endian="little") # game-engine-sketch mistakenly expects little endian material flags, while it correctly expects big endian flags for model files
+			write_bytes(wr_buffer, 8, (0xCC2222FF << 32, 0x8080FFFF << 32, 0x222222FF << 32, 0x000000FF << 32), endian="big") # Hardcoded texture colors
+			write_bytes(wr_buffer, 4, (4.0)) # Hardcoded specular exponent
+			wr_buffer += b'pad4'
+			write_bytes(wr_buffer, 8, self.segm_ss)
+			wr_buffer += comment ## Comment (arbitrary data)
+			file.write(wr_buffer) ; wr_buffer.clear()
+
+			file.write(string_storage.content)
+
+		def __init__(self, ctx, dst_dir):
+			self.select_materials(ctx)
+			for material_name in self.materials:
+				with open(merge_dir_basename(dst_dir, material_name), 'wb') as file:
+					self.write_material(file, self.materials[material_name])
 
 
 	def execute(self, ctx: bpy.context):
-		with open(self.filepath, 'wb') as file:
-			x = FmaExporter.Execution(file, ctx)
-		return x.result
+		if not ctx.mode == "OBJECT": raise RuntimeError("Workspace must be in OBJECT mode, but is in {} mode".format(ctx.mode))
+		if self.opt_gen_model:
+			with open(self.filepath, 'wb') as file:
+				FmaExporter.ModelExecution(file, ctx)
+		if self.opt_gen_materials:
+			FmaExporter.MaterialExecution(ctx, os.path.dirname(self.filepath))
+		print("Done.")
+		return { "FINISHED" }
 
 
 
@@ -563,16 +631,11 @@ def register():
 	bpy.utils.register_class(FmaExporter)
 	bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
-
 def unregister():
 	bpy.utils.unregister_class(FmaExporter)
 	bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
 
 
 if __name__ == "__main__":
-	#try:
-	#	unregister()
-	#except RuntimeError as e:
-	#	pass
 	register()
 	bpy.ops.fma.export('INVOKE_DEFAULT')

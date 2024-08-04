@@ -17,10 +17,10 @@
 // Material:
 // U8    | Magic Number + ("##fma" + big-endian version number)
 // MTFL  | Flags
-//	U8    | Diffuse texture name or inline pixel (U1111, RGBA, least significant bytes)
-//	U8    | Normal texture name or inline pixel (U1111, RGBA, least significant bytes)
-//	U8    | Specular texture name or inline pixel (U1111, RGBA, least significant bytes)
-//	U8    | Emissive texture name or inline pixel (U1111, RGBA, least significant bytes)
+// U8    | Diffuse texture name or inline pixel (U1111, RGBA, least significant bytes)
+// U8    | Normal texture name or inline pixel (U1111, RGBA, least significant bytes)
+// U8    | Specular texture name or inline pixel (U1111, RGBA, least significant bytes)
+// U8    | Emissive texture name or inline pixel (U1111, RGBA, least significant bytes)
 // F4    | Specular exponent
 // Pad4  |
 // U8    | Pointer to string storage
