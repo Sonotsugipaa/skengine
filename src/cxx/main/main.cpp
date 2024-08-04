@@ -243,20 +243,22 @@ namespace {
 				}
 			};
 
+			std::vector<std::string> nameList;
 			try {
-				auto nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", O_RDONLY));
-				if(nameList.empty()) {
-					engine->logger().info("\"assets/object-list.txt\" is empty");
-					throw std::runtime_error("empty object list");
-				} else {
-					std::unordered_map<std::string_view, size_t> names;
-					for(auto& nm : nameList) ++ names[nm];
-					engine->logger().info("Objects:");
-					for(auto& nm : names) engine->logger().info("- {}x {}", nm.second, nm.first);
-					createListedObjects(nameList);
-				}
+				nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", O_RDONLY));
 			} catch(posixfio::FileError& err) {
 				engine->logger().error("File \"assets/object-list.txt\" not found");
+				std::rethrow_exception(std::current_exception());
+			}
+			if(nameList.empty()) {
+				engine->logger().info("\"assets/object-list.txt\" is empty");
+				throw std::runtime_error("empty object list");
+			} else {
+				std::unordered_map<std::string_view, size_t> names;
+				for(auto& nm : nameList) ++ names[nm];
+				engine->logger().info("Objects:");
+				for(auto& nm : names) engine->logger().info("- {}x {}", nm.second, nm.first);
+				createListedObjects(nameList);
 			}
 		}
 

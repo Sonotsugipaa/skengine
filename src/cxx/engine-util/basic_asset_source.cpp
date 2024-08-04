@@ -83,7 +83,8 @@ namespace SKENGINE_NAME_NS {
 		try {
 			file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
 		} catch(posixfio::FileError& ex) {
-			throw MaterialLoadError(ex);
+			bas_logger->error("Material file not found: {}", locator_s);
+			std::rethrow_exception(std::current_exception());
 		}
 
 		auto len  = file.lseek(0, SEEK_END);

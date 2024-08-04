@@ -1,0 +1,26 @@
+schema_version = "1.0.0"
+id = "fma_export"
+name = "FMA Model Exporter"
+tagline = "Export selected objects as a FMA model file"
+version = "0.1.2"
+type = "add-on"
+maintainer = "Parola Marco <mark.prl.97@gmail.com>"
+blender_version_min = "4.2.0"
+
+# License conforming to https://spdx.org/licenses/
+# https://spdx.org/licenses/Unlicense.html
+# https://docs.blender.org/manual/en/dev/extensions/licenses.html
+license = [
+  "SPDX:Unlicense",
+]
+
+
+# Optional lines
+#permissions = ["files"]
+
+# https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
+#tags = ["Import-Export"]
+
+# Optional list of supported platforms. If omitted, the extension will be available in all operating systems.
+# The available options are [“windows-x64”, “windows-arm64”, “macos-x64”, “macos-arm64”, “linux-x64”]
+#platforms = ["windows-x64", "macos-x64", "linux-x64"]
