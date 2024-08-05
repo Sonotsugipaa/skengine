@@ -228,6 +228,9 @@ def merge_dir_basename(dir, basename):
 def rotate_xz(xyz):
 	return (xyz[0], xyz[2], -xyz[1])
 
+def vertex_identity(pos, uv, normal):
+	return bytes(floatn_byte_seq(4, (*pos, *uv, *normal)))
+
 
 class Material:
 	material:   bpy.types.Material
@@ -392,9 +395,9 @@ class FmaExporter(Operator, ExportHelper):
 				obj_pos = obj.location;       obj_pos = (+obj_pos[0], +obj_pos[2], -obj_pos[1])
 				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[0], +obj_rot[2], +obj_rot[1])
 				obj_scl = obj.scale;          obj_scl = (+obj_scl[0], +obj_scl[2], +obj_scl[1])
-				print("     position ({:5.3} {:5.3} {:5.3} : {})".format(*obj_pos, floatn_byte_seq(4, obj_pos).hex()))
-				print("     rotation ({:5.3} {:5.3} {:5.3} : {})".format(*obj_rot, floatn_byte_seq(4, obj_rot).hex()))
-				print("     scale    ({:5.3} {:5.3} {:5.3} : {})".format(*obj_scl, floatn_byte_seq(4, obj_scl).hex()))
+				print("     position ({:5.3} {:5.3} {:5.3})".format(*obj_pos))
+				print("     rotation ({:5.3} {:5.3} {:5.3})".format(*obj_rot))
+				print("     scale    ({:5.3} {:5.3} {:5.3})".format(*obj_scl))
 				write_bytes(wr_buffer, 8, (
 					bone_name_offset,
 					placeholder_parent_offset,
@@ -424,7 +427,7 @@ class FmaExporter(Operator, ExportHelper):
 					idx_counter += face.loop_total + 1
 					cur_face_n += 1
 
-		def write_vertex(self, current_idx, uv, loop, vtx, vtx_idx_map, wr_buffer):
+		def write_vertex(self, current_idx, uv, loop, vtx, vtx_idx_map, tangents, wr_buffer):
 			# F4    | Position (X)
 			# F4    | Position (Y)
 			# F4    | Position (Z)
@@ -439,15 +442,15 @@ class FmaExporter(Operator, ExportHelper):
 			# F4    | Bi-Tangent (X)
 			# F4    | Bi-Tangent (Y)
 			# F4    | Bi-Tangent (Z)
-			loop_bytes = bytes(floatn_byte_seq(4, (*vtx.co, *uv, *loop.normal, *loop.tangent)))
+			loop_bytes = vertex_identity(vtx.co, uv, loop.normal)
 			if not loop_bytes in vtx_idx_map:
 				vtx_idx_map[loop_bytes] = current_idx
 				write_bytes(wr_buffer, 4, (
 					*rotate_xz(vtx.co),
 					*uv,
 					*rotate_xz(loop.normal),
-					*rotate_xz(loop.tangent),
-					*rotate_xz(loop.bitangent) ))
+					*rotate_xz(tangents[0]),
+					*rotate_xz(tangents[1]) ))
 
 		def write_indices(self, meshpoly_indices, vtx_idx_map, wr_buffer):
 			print("Writing indices...")
@@ -457,7 +460,7 @@ class FmaExporter(Operator, ExportHelper):
 				loop = mesh.data.loops[loop_idx]
 				vtx = mesh.data.vertices[loop.vertex_index]
 				uv = uv_of_mesh_loop(mesh.data, loop.index)
-				loop_bytes = bytes(floatn_byte_seq(4, (*vtx.co, *uv, *loop.normal, *loop.tangent)))
+				loop_bytes = vertex_identity(vtx.co, uv, loop.normal)
 				idx = vtx_idx_map[loop_bytes]
 				write_bytes(wr_buffer, 4, idx)
 			for idx_alloc in meshpoly_indices:
@@ -494,13 +497,42 @@ class FmaExporter(Operator, ExportHelper):
 				#		vtx = obj.data.vertices[loop.vertex_index]
 				#		uv = uv_of_mesh_loop(obj.data, loop.index)
 				#		self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
+				def vnorm3(v): return math.sqrt((v[0]**2) + (v[1]**2) + (v[2]**2))
+				def vsub2m2(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1])
+				def vsub3m3(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1], lho[2]-rho[2])
+				def vmul3x3(lho, rho): return (lho[0]*rho[0], lho[1]*rho[1], lho[2]*rho[2])
+				def vmul1x3(lho, rho): return (   lho*rho[0],    lho*rho[1],    lho*rho[2])
 				for mesh_name in self.meshes:
 					mesh = self.meshes[mesh_name]
-					mesh.data.calc_tangents()
-					for loop in mesh.data.loops:
+					loops = mesh.data.loops
+					loops_range = range(0, len(loops))
+					def compute_tangent_pair(vtx0, vtx1, vtx2, uv0, uv1, uv2):
+						edge_0 = vsub3m3(vtx1.co, vtx0.co)
+						edge_1 = vsub3m3(vtx2.co, vtx0.co)
+						d_uv_0 = vsub2m2(uv1, uv0)
+						d_uv_1 = vsub2m2(uv2, uv0)
+						inv_det = ((d_uv_0[0] * d_uv_1[1]) - (d_uv_0[1] * d_uv_1[0]))
+						inv_det = 1.0 / inv_det if (inv_det != 0.0) else 1.0
+						tanu = vsub3m3(vmul1x3(d_uv_1[1], edge_0), vmul1x3(d_uv_0[1], edge_1))
+						tanu = vmul1x3(inv_det, tanu)
+						norm = vnorm3(tanu)
+						tanu = vmul1x3(1.0 / norm if (norm != 0) else 1.0, tanu)
+						tanv = vsub3m3(vmul1x3(d_uv_0[0], edge_1), vmul1x3(d_uv_1[0], edge_0))
+						tanv = vmul1x3(inv_det, tanv)
+						norm = vnorm3(tanv)
+						tanv = vmul1x3(1.0 / norm if (norm != 0) else 1.0, tanv)
+						return (tanu, tanv)
+					for i in loops_range:
+						loop = loops[i]
+						tri_indices = (i, (i+1)%len(loops), (i+2)%len(loops))
+						uv = [ uv_of_mesh_loop(mesh.data, i) for i in tri_indices ]
+						tangents = compute_tangent_pair(
+							mesh.data.vertices[loop.vertex_index],
+							mesh.data.vertices[loops[tri_indices[1]].vertex_index],
+							mesh.data.vertices[loops[tri_indices[2]].vertex_index],
+							*uv )
 						vtx = mesh.data.vertices[loop.vertex_index]
-						uv = uv_of_mesh_loop(mesh.data, loop.index)
-						self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
+						self.write_vertex(len(vtx_idx_map), uv[0], loop, vtx, vtx_idx_map, tangents, vertex_bytes)
 				return (vertex_bytes, vtx_idx_map)
 
 			print("Assembling header...")
