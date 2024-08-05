@@ -275,31 +275,38 @@ class FmaExporter(Operator, ExportHelper):
 				if obj.type == "MESH": self.objects.append(obj)
 
 		def scan_materials(self):
-			materials = dict()
+			self.materials = dict()
 			own_offset = 0
 			for obj in self.objects:
 				mtl = material_from_mesh(obj.data)
 				mtl_name = mtl.name_full if (mtl != None) else FMA_MATERIAL_NULL_NAME
-				if not mtl_name in materials:
-					materials[mtl_name] = Material(mtl, own_offset)
+				if not mtl_name in self.materials:
+					self.materials[mtl_name] = Material(mtl, own_offset)
 					own_offset += 1
-			return materials
 
 		def scan_meshes(self):
 			# Returns number of meshes
-			meshes = dict()
+			self.object_mesh_name_map = dict()
+			self.meshes = dict()
 			for obj in self.objects:
-				name = obj.data.name_full
-				if not name in meshes:
-					meshes[name] = obj.data
-			return meshes
+				det_ltz = obj.matrix_world.determinant() < 0
+				name    = "{}:det_{}tz".format(obj.data.name_full, "l" if det_ltz else "g")
+				class MeshInfo:
+					data:    bpy.types.Mesh
+					det_ltz: bool
+				self.object_mesh_name_map[obj.name_full] = name
+				if not name in self.meshes:
+					mi = MeshInfo
+					mi.data    = obj.data
+					mi.det_ltz = det_ltz
+					self.meshes[name] = mi
 
 		def count_bones(self):
 			return len(self.objects)
 
 		def count_faces(self):
 			r = 0
-			for mesh_name in self.meshes: r += len(self.meshes[mesh_name].polygons)
+			for mesh_name in self.meshes: r += len(self.meshes[mesh_name].data.polygons)
 			return r
 
 		def count_indices(self, face_count):
@@ -349,20 +356,23 @@ class FmaExporter(Operator, ExportHelper):
 				face_alloc = (
 					mesh,
 					face_counter,
-					len(mesh.polygons) )
+					len(mesh.data.polygons) )
 				face_counter += face_alloc[2]
 				mesh_allocations[mesh_name] = MeshAlloc(idx_counter, face_alloc)
-				mtl = material_from_mesh(mesh)
+				mtl = material_from_mesh(mesh.data)
 				if mtl == None: mtl = self.materials[FMA_MATERIAL_NULL_NAME]
 				else:           mtl = self.materials[mtl.name_full]
-				soi = compute_mesh_soi(mesh)
-				print("Mesh \"{}\" @ {:x}: center = ({:.3}, {:.3}, {:.3}), radius = {:.3}".format(mesh_name, self.segm_mesh[0] + idx_counter, *soi))
+				soi = compute_mesh_soi(mesh.data)
+				print("Mesh \"{}:det_{}tz\" @ {:x}: center = ({:.3}, {:.3}, {:.3}), radius = {:.3}".format(
+					mesh_name, "l" if mesh.det_ltz else "g",
+					self.segm_mesh[0] + idx_counter,
+					*soi ))
 				write_bytes(wr_buffer, 8, (
 					mtl.own_offset,
 					face_alloc[1] ))
 				write_bytes(wr_buffer, 4, (
 					face_alloc[2],
-					len(mesh.loops) + face_alloc[2], # Index count: one primitive restart for every face
+					len(mesh.data.loops) + face_alloc[2], # Index count: one primitive restart for every face
 					*soi ))
 				idx_counter += 1
 
@@ -371,11 +381,11 @@ class FmaExporter(Operator, ExportHelper):
 			idx_counter = 0
 			pad4 = b'pad4'
 			for obj in self.objects:
-				mesh_name_offset = ss.seek_string_ptr(obj.name_full)
-				mesh_offset = mesh_allocations[obj.data.name_full].mesh_offset
+				bone_name_offset = ss.seek_string_ptr(obj.name_full)
+				mesh_offset = mesh_allocations[self.object_mesh_name_map[obj.name_full]].mesh_offset
 				print("Bone {:x}\"{}\" -> {:x}\"{}\": @ {:x}, mesh {} @ {:x}".format(
 					self.segm_ss[0] + placeholder_parent_offset,  FMA_PLACEHOLDER_BONE_PARENT_NAME,
-					self.segm_ss[0] + mesh_name_offset,           obj.name_full,
+					self.segm_ss[0] + bone_name_offset,           obj.name_full,
 					self.segm_bone[0] + (idx_counter * FMA_BONE_SIZE),
 					mesh_offset,
 					self.segm_mesh[0] + (mesh_offset * FMA_MESH_SIZE) ))
@@ -386,7 +396,7 @@ class FmaExporter(Operator, ExportHelper):
 				print("     rotation ({:5.3} {:5.3} {:5.3} : {})".format(*obj_rot, floatn_byte_seq(4, obj_rot).hex()))
 				print("     scale    ({:5.3} {:5.3} {:5.3} : {})".format(*obj_scl, floatn_byte_seq(4, obj_scl).hex()))
 				write_bytes(wr_buffer, 8, (
-					mesh_name_offset,
+					bone_name_offset,
 					placeholder_parent_offset,
 					mesh_offset ))
 				write_bytes(wr_buffer, 4, (obj_pos[0], obj_pos[1], obj_pos[2]), sign=True)
@@ -400,27 +410,16 @@ class FmaExporter(Operator, ExportHelper):
 			for face_alloc_key in mesh_allocations:
 				face_alloc = mesh_allocations[face_alloc_key].face_alloc
 				mesh = face_alloc[0]
-				mesh_mtl = material_from_mesh(mesh)
+				mesh_mtl = material_from_mesh(mesh.data)
 				mesh_mtl_name = mesh_mtl.name_full if (mesh_mtl != None) else FMA_MATERIAL_NULL_NAME
 				print("Mesh \"{}\": {} faces @ {:x}".format(
-					mesh.name_full,
+					mesh.data.name_full,
 					face_alloc[2],
 					self.segm_face[0] + (FMA_FACE_SIZE * face_alloc[1]) ))
-				if len(mesh.polygons) != face_alloc[2]: raise ValueError("Bad face count: \"{}\" should have {} faces but has {}".format(mesh.name_full, face_alloc[2], len(mesh.polygons)))
+				if len(mesh.data.polygons) != face_alloc[2]: raise ValueError("Bad face count: \"{}\" should have {} faces but has {}".format(mesh.data.name_full, face_alloc[2], len(mesh.data.polygons)))
 				cur_face_n = 0
-				for face in mesh.polygons:
+				for face in mesh.data.polygons:
 					meshpoly_indices.append( (mesh, face.index) )
-					#idx_offset_rel = (4 * idx_counter)
-					#idx_offset = self.segm_idx[0] + idx_offset_rel
-					#print("Mesh \"{}\" face {} @ {:x}: {} indices @ {}:{:x}, material # {}, normal ({:.3}, {:.3}, {:.3})".format(
-					#	mesh.name_full,
-					#	cur_face_n,
-					#	self.segm_face[0] + (FMA_FACE_SIZE * (face_alloc[1] + cur_face_n)),
-					#	face.loop_total,
-					#	idx_offset_rel,
-					#	idx_offset,
-					#	self.materials[mesh_mtl_name].own_offset,
-					#	*face.normal ))
 					write_bytes(wr_buffer, 4, (face.loop_total, idx_counter, self.materials[mesh_mtl_name].own_offset, *face.normal))
 					idx_counter += face.loop_total + 1
 					cur_face_n += 1
@@ -454,22 +453,26 @@ class FmaExporter(Operator, ExportHelper):
 			print("Writing indices...")
 			primitive_restart_bytes = FMA_PRIMITIVE_RESTART.to_bytes(4, FMA_BYTE_ORDER_I)
 			indices_written = 0
+			def write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer):
+				loop = mesh.data.loops[loop_idx]
+				vtx = mesh.data.vertices[loop.vertex_index]
+				uv = uv_of_mesh_loop(mesh.data, loop.index)
+				loop_bytes = bytes(floatn_byte_seq(4, (*vtx.co, *uv, *loop.normal, *loop.tangent)))
+				idx = vtx_idx_map[loop_bytes]
+				write_bytes(wr_buffer, 4, idx)
 			for idx_alloc in meshpoly_indices:
 				(mesh, poly_idx) = idx_alloc
-				poly = mesh.polygons[poly_idx]
-				for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
-					loop = mesh.loops[loop_idx]
-					vtx = mesh.vertices[loop.vertex_index]
-					uv = uv_of_mesh_loop(mesh, loop.index)
-					loop_bytes = bytes(floatn_byte_seq(4, (*vtx.co, *uv, *loop.normal, *loop.tangent)))
-					idx = vtx_idx_map[loop_bytes]
-					write_bytes(wr_buffer, 4, idx)
+				poly = mesh.data.polygons[poly_idx]
+				if not mesh.det_ltz:
+					for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
+						write_mesh_indices(loop_idx,      mesh, vtx_idx_map, wr_buffer)
+				else:
+					for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
+						write_mesh_indices(-1 - loop_idx, mesh, vtx_idx_map, wr_buffer)
 				wr_buffer += primitive_restart_bytes
 				indices_written += poly.loop_total + 1
 
 		def write_model(self, file):
-			# https://docs.blender.org/api/current/bpy.types.Mesh.html
-
 			def wr_str(*values):
 				for value in values: file.write(value.encode(FMA_STR_ENCODING))
 
@@ -481,20 +484,29 @@ class FmaExporter(Operator, ExportHelper):
 			# 6 8-padding bytes
 			header_offset = (8*17) + (2+15+1) + 6
 
-			# Write vertices early on a separate buffer
-			print("Assembling vertex table...")
-			vertex_bytes = bytearray()
-			vtx_idx_map = dict()
-			for obj in self.objects:
-				obj.data.calc_tangents()
-				for loop in obj.data.loops:
-					vtx = obj.data.vertices[loop.vertex_index]
-					uv = uv_of_mesh_loop(obj.data, loop.index)
-					self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
+			def write_vertices_early(self):
+				print("Assembling vertex table...")
+				vertex_bytes = bytearray()
+				vtx_idx_map = dict()
+				#for obj in self.objects:
+				#	obj.data.calc_tangents()
+				#	for loop in obj.data.loops:
+				#		vtx = obj.data.vertices[loop.vertex_index]
+				#		uv = uv_of_mesh_loop(obj.data, loop.index)
+				#		self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
+				for mesh_name in self.meshes:
+					mesh = self.meshes[mesh_name]
+					mesh.data.calc_tangents()
+					for loop in mesh.data.loops:
+						vtx = mesh.data.vertices[loop.vertex_index]
+						uv = uv_of_mesh_loop(mesh.data, loop.index)
+						self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
+				return (vertex_bytes, vtx_idx_map)
 
 			print("Assembling header...")
-			self.materials = self.scan_materials() ; mtl_n  = len(self.materials)
-			self.meshes    = self.scan_meshes()    ; mesh_n = len(self.meshes)
+			self.scan_materials() ; mtl_n  = len(self.materials)
+			self.scan_meshes()    ; mesh_n = len(self.meshes)
+			(vertex_bytes, vtx_idx_map) = write_vertices_early(self) # Needs to happen after scan_meshes but before vtx_idx_map is needed
 			self.bone_n = self.count_bones()
 			self.face_n = self.count_faces()
 			self.vtx_n  = len(vtx_idx_map)

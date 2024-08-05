@@ -1,15 +1,27 @@
+#### For your convenience, tweak and use the following snippet
+#### to quickly stitch together material files.
+#
+#
+#import fma_material_creator as fma
+#mi = fma.MaterialInfo()
+#mit = mi.textures
+#mit.diffuse .set(False, "ground.0.fmat.rgba8u")
+#mit.normal  .set(False, "ground.1.fmat.rgba8u")
+#mit.specular.set(True , 0xFF)
+#mit.emissive.set(True , 0xFF)
+#mi.comment = "[Comment]"
+#with open("/tmp/AAAA.mtl.fma", "wb") as file: fma.write_material(file, mi)
+#
+#
+
+
+
 import struct
 
 
-FMA_BYTE_ORDER_I       = 'little'
-FMA_BYTE_ORDER_F       = 'little'
-FMA_STR_ENCODING       = 'utf-8'
-
-class FmaFlags:
-	TRIANGLE_FAN     = 1 << 0
-	TRIANGLE_LIST    = 1 << 1
-	EXTERNAL_MODEL   = 1 << 2
-	EXTERNAL_STRINGS = 1 << 3
+FMA_BYTE_ORDER_I = 'little'
+FMA_BYTE_ORDER_F = 'little'
+FMA_STR_ENCODING = 'utf-8'
 
 
 def float32_bytes(f): return struct.unpack('I', struct.pack('f', f))[0].to_bytes(4, FMA_BYTE_ORDER_F)
