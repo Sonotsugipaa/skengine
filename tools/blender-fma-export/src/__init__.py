@@ -199,9 +199,11 @@ def compute_mesh_soi(mesh: bpy.types.Mesh):
 
 def uv_of_mesh_loop(mesh, loop_index):
 	match len(mesh.uv_layers):
-		case 0: return (0.0, 0.0)
-		case 1: return mesh.uv_layers[0].uv[loop_index].vector
-		case _: raise ValueError("Multiple UV layers are not supported by FMA")
+		case 0:
+			return (0.0, 0.0)
+		case _:
+			r = mesh.uv_layers.active.uv[loop_index].vector
+			return (r[0], 1.0 - r[1])
 
 
 def material_from_mesh(obj_data):
@@ -468,12 +470,13 @@ class FmaExporter(Operator, ExportHelper):
 				poly = mesh.data.polygons[poly_idx]
 				if not mesh.det_ltz:
 					for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
-						write_mesh_indices(loop_idx,      mesh, vtx_idx_map, wr_buffer)
+						write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer)
 				else:
-					for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
-						write_mesh_indices(-1 - loop_idx, mesh, vtx_idx_map, wr_buffer)
+					for loop_idx in range(poly.loop_start + poly.loop_total - 1, poly.loop_start - 1, -1):
+						write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer)
 				wr_buffer += primitive_restart_bytes
 				indices_written += poly.loop_total + 1
+			assert indices_written == self.segm_idx[1]
 
 		def write_model(self, file):
 			def wr_str(*values):
@@ -516,23 +519,19 @@ class FmaExporter(Operator, ExportHelper):
 						tanu = vsub3m3(vmul1x3(d_uv_1[1], edge_0), vmul1x3(d_uv_0[1], edge_1))
 						tanu = vmul1x3(inv_det, tanu)
 						norm = vnorm3(tanu)
-						tanu = vmul1x3(1.0 / norm if (norm != 0) else 1.0, tanu)
+						tanu = vmul1x3(1.0 / norm if (norm != 0.0) else 1.0, tanu)
 						tanv = vsub3m3(vmul1x3(d_uv_0[0], edge_1), vmul1x3(d_uv_1[0], edge_0))
 						tanv = vmul1x3(inv_det, tanv)
 						norm = vnorm3(tanv)
-						tanv = vmul1x3(1.0 / norm if (norm != 0) else 1.0, tanv)
+						tanv = vmul1x3(1.0 / norm if (norm != 0.0) else 1.0, tanv)
 						return (tanu, tanv)
 					for i in loops_range:
 						loop = loops[i]
 						tri_indices = (i, (i+1)%len(loops), (i+2)%len(loops))
-						uv = [ uv_of_mesh_loop(mesh.data, i) for i in tri_indices ]
-						tangents = compute_tangent_pair(
-							mesh.data.vertices[loop.vertex_index],
-							mesh.data.vertices[loops[tri_indices[1]].vertex_index],
-							mesh.data.vertices[loops[tri_indices[2]].vertex_index],
-							*uv )
-						vtx = mesh.data.vertices[loop.vertex_index]
-						self.write_vertex(len(vtx_idx_map), uv[0], loop, vtx, vtx_idx_map, tangents, vertex_bytes)
+						uv =       [ uv_of_mesh_loop(mesh.data, i)             for i in tri_indices ]
+						vertices = [ mesh.data.vertices[loops[i].vertex_index] for i in tri_indices ]
+						tangents = compute_tangent_pair(*vertices, *uv)
+						self.write_vertex(len(vtx_idx_map), uv[0], loop, vertices[0], vtx_idx_map, tangents, vertex_bytes)
 				return (vertex_bytes, vtx_idx_map)
 
 			print("Assembling header...")
