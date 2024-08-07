@@ -215,10 +215,6 @@ def material_from_mesh(obj_data):
 			len(obj_data.materials) ))
 
 
-def mk_material_filename(*, name):
-	return name + ".mtl.fma"
-
-
 def merge_dir_basename(dir, basename):
 	dir_end = len(dir)
 	while (dir_end > 0) and ((dir[dir_end-1] == '/') or (dir[dir_end-1] == '\\')):
@@ -227,11 +223,96 @@ def merge_dir_basename(dir, basename):
 	return basename if (len(dir) == 0) else "{}/{}".format(dir, basename)
 
 
-def rotate_xz(xyz):
-	return (xyz[0], xyz[2], -xyz[1])
+def compute_tangent_pair(vtx0, vtx1, vtx2, uv0, uv1, uv2):
+	edge_0 = vsub3m3(vtx1.co, vtx0.co)
+	edge_1 = vsub3m3(vtx2.co, vtx0.co)
+	d_uv_0 = vsub2m2(uv1, uv0)
+	d_uv_1 = vsub2m2(uv2, uv0)
+	inv_det = (d_uv_0[0] * d_uv_1[1]) - (d_uv_0[1] * d_uv_1[0])
+	inv_det = 1.0 / inv_det if (inv_det != 0.0) else 1.0
+	acc0 = vmul1x3(d_uv_1[1], edge_0)
+	acc1 = vmul1x3(d_uv_0[1], edge_1)
+	tanu = vsub3m3(acc0, acc1)
+	tanu = vmul1x3(inv_det, tanu)
+	acc0 = vmul1x3(d_uv_0[0], edge_1)
+	acc1 = vmul1x3(d_uv_1[0], edge_0)
+	tanv = vsub3m3(acc0, acc1)
+	tanv = vmul1x3(inv_det, tanv)
+	return (tanu, tanv)
 
-def vertex_identity(pos, uv, normal):
-	return bytes(floatn_byte_seq(4, (*pos, *uv, *normal)))
+
+def compute_vertices(meshes):
+	class VertexMapEntry:
+		pass
+	vtx_list = list()
+	vtx_map = dict()
+	def add_vertex(vtx_list, vtx_map, uv, loop, vtx, tangents):
+		# Same-identity vertices need to have their tangents averaged out
+		vtx_entry = (
+			rotate_xz(vtx.co),
+			uv,
+			rotate_xz(loop.normal),
+			rotate_xz(tangents[0]),
+			rotate_xz(tangents[1]) )
+		vtx_id = vertex_identity(vtx.co, uv, loop.normal)
+		if not vtx_id in vtx_map:
+			ins = VertexMapEntry()
+			ins.index = len(vtx_list)
+			ins.ref_count = 1
+			vtx_map[vtx_id] = ins
+			vtx_list.append(vtx_entry)
+		else:
+			# Average the vertex normals
+			edit_map_entry = vtx_map[vtx_id]
+			edit_vtx = vtx_list[edit_map_entry.index]
+			ref_counts = (edit_map_entry.ref_count, edit_map_entry.ref_count + 1)
+			edit_map_entry.ref_count = ref_counts[1]
+			inv_ref_count_1 = 1.0 / ref_counts[1]
+			new_tanu = vmul1x3(ref_counts[0], edit_vtx[3])
+			new_tanu = vadd3p3(new_tanu, tangents[0])
+			new_tanu = vmul1x3(inv_ref_count_1, new_tanu)
+			new_tanv = vmul1x3(ref_counts[0], edit_vtx[4])
+			new_tanv = vadd3p3(new_tanv, tangents[1])
+			new_tanv = vmul1x3(inv_ref_count_1, new_tanv)
+			vtx_list[edit_map_entry.index] = (*edit_vtx[:3], vnormalize3(new_tanu), vnormalize3(new_tanv))
+	for i in range(0, len(vtx_list)):
+		vtx = vtx_list[i]
+		vtx_list[i] = (vtx[0], vtx[1], vtx[2], vnormalize3(vtx[3]), vnormalize3(vtx[4]))
+	for mesh_name in meshes:
+		mesh = meshes[mesh_name]
+		mesh_loops = mesh.data.loops
+		for poly in mesh.data.polygons:
+			loops_range = range(0, poly.loop_total)
+			for i in loops_range:
+				tri_indices = (
+					poly.loop_start + i,
+					poly.loop_start + (i+1) % poly.loop_total,
+					poly.loop_start + (i+2) % poly.loop_total)
+				loop = mesh_loops[tri_indices[0]]
+				uv =       [ uv_of_mesh_loop(mesh.data, i)             for i in tri_indices ]
+				vertices = [ mesh.data.vertices[mesh_loops[i].vertex_index] for i in tri_indices ]
+				tangents = compute_tangent_pair(*vertices, *uv)
+				add_vertex(vtx_list, vtx_map, uv[0], loop, vertices[0], tangents)
+	vtx_bytes = bytearray()
+	for vtx in vtx_list:
+		vtx_bytes += floatn_byte_seq(4, (*vtx[0], *vtx[1], *vtx[2], *vtx[3], *vtx[4]))
+	return (vtx_bytes, vtx_map)
+
+
+def mk_material_filename(*, name): return name + ".mtl.fma"
+
+def rotate_xz(xyz): return (xyz[0], xyz[2], -xyz[1])
+
+def vertex_identity(pos, uv, normal): return bytes(floatn_byte_seq(4, (*pos, *uv, *normal)))
+
+def vnorm3(v): return math.sqrt((v[0]**2) + (v[1]**2) + (v[2]**2))
+def vnormalize3(v): n = vnorm3(v); return (v[0] / n, v[1] / n, v[2] / n) if (n != 0.0) else (1.0, 0.0, 0.0)
+def vdot3(lho, rho): return (lho[0]*rho[0]) + (lho[1]*rho[1]) + (lho[2]*rho[2])
+def vadd3p3(lho, rho): return (lho[0]+rho[0], lho[1]+rho[1], lho[2]+rho[2])
+def vsub2m2(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1])
+def vsub3m3(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1], lho[2]-rho[2])
+def vmul3x3(lho, rho): return (lho[0]*rho[0], lho[1]*rho[1], lho[2]*rho[2])
+def vmul1x3(lho, rho): return (   lho*rho[0],    lho*rho[1],    lho*rho[2])
 
 
 class Material:
@@ -368,8 +449,8 @@ class FmaExporter(Operator, ExportHelper):
 				if mtl == None: mtl = self.materials[FMA_MATERIAL_NULL_NAME]
 				else:           mtl = self.materials[mtl.name_full]
 				soi = compute_mesh_soi(mesh.data)
-				print("Mesh \"{}:det_{}tz\" @ {:x}: center = ({:.3}, {:.3}, {:.3}), radius = {:.3}".format(
-					mesh_name, "l" if mesh.det_ltz else "g",
+				print("Mesh \"{}\" @ {:x}: center = ({:.3}, {:.3}, {:.3}), radius = {:.3}".format(
+					mesh_name,
 					self.segm_mesh[0] + idx_counter,
 					*soi ))
 				write_bytes(wr_buffer, 8, (
@@ -429,59 +510,31 @@ class FmaExporter(Operator, ExportHelper):
 					idx_counter += face.loop_total + 1
 					cur_face_n += 1
 
-		def write_vertex(self, current_idx, uv, loop, vtx, vtx_idx_map, tangents, wr_buffer):
-			# F4    | Position (X)
-			# F4    | Position (Y)
-			# F4    | Position (Z)
-			# F4    | Texture Coordinate (U)
-			# F4    | Texture Coordinate (V)
-			# F4    | Normal (X)
-			# F4    | Normal (Y)
-			# F4    | Normal (Z)
-			# F4    | Tangent (X)
-			# F4    | Tangent (Y)
-			# F4    | Tangent (Z)
-			# F4    | Bi-Tangent (X)
-			# F4    | Bi-Tangent (Y)
-			# F4    | Bi-Tangent (Z)
-			loop_bytes = vertex_identity(vtx.co, uv, loop.normal)
-			if not loop_bytes in vtx_idx_map:
-				vtx_idx_map[loop_bytes] = current_idx
-				write_bytes(wr_buffer, 4, (
-					*rotate_xz(vtx.co),
-					*uv,
-					*rotate_xz(loop.normal),
-					*rotate_xz(tangents[0]),
-					*rotate_xz(tangents[1]) ))
-
-		def write_indices(self, meshpoly_indices, vtx_idx_map, wr_buffer):
+		def write_indices(self, meshpoly_indices, vtx_map, wr_buffer):
 			print("Writing indices...")
 			primitive_restart_bytes = FMA_PRIMITIVE_RESTART.to_bytes(4, FMA_BYTE_ORDER_I)
 			indices_written = 0
-			def write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer):
+			def write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer):
 				loop = mesh.data.loops[loop_idx]
 				vtx = mesh.data.vertices[loop.vertex_index]
 				uv = uv_of_mesh_loop(mesh.data, loop.index)
 				loop_bytes = vertex_identity(vtx.co, uv, loop.normal)
-				idx = vtx_idx_map[loop_bytes]
+				idx = vtx_map[loop_bytes].index
 				write_bytes(wr_buffer, 4, idx)
 			for idx_alloc in meshpoly_indices:
 				(mesh, poly_idx) = idx_alloc
 				poly = mesh.data.polygons[poly_idx]
 				if not mesh.det_ltz:
 					for loop_idx in range(poly.loop_start, poly.loop_start + poly.loop_total):
-						write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer)
+						write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer)
 				else:
 					for loop_idx in range(poly.loop_start + poly.loop_total - 1, poly.loop_start - 1, -1):
-						write_mesh_indices(loop_idx, mesh, vtx_idx_map, wr_buffer)
+						write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer)
 				wr_buffer += primitive_restart_bytes
 				indices_written += poly.loop_total + 1
 			assert indices_written == self.segm_idx[1]
 
 		def write_model(self, file):
-			def wr_str(*values):
-				for value in values: file.write(value.encode(FMA_STR_ENCODING))
-
 			tri_fan_bit  = (1 << FmaFlags.TRIANGLE_FAN)  if (self.geometry_type == "triangle-fan")  else 0
 			tri_list_bit = (1 << FmaFlags.TRIANGLE_LIST) if (self.geometry_type == "triangle-list") else 0
 
@@ -490,57 +543,13 @@ class FmaExporter(Operator, ExportHelper):
 			# 6 8-padding bytes
 			header_offset = (8*17) + (2+15+1) + 6
 
-			def write_vertices_early(self):
-				print("Assembling vertex table...")
-				vertex_bytes = bytearray()
-				vtx_idx_map = dict()
-				#for obj in self.objects:
-				#	obj.data.calc_tangents()
-				#	for loop in obj.data.loops:
-				#		vtx = obj.data.vertices[loop.vertex_index]
-				#		uv = uv_of_mesh_loop(obj.data, loop.index)
-				#		self.write_vertex(len(vtx_idx_map), uv, loop, vtx, vtx_idx_map, vertex_bytes)
-				def vnorm3(v): return math.sqrt((v[0]**2) + (v[1]**2) + (v[2]**2))
-				def vsub2m2(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1])
-				def vsub3m3(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1], lho[2]-rho[2])
-				def vmul3x3(lho, rho): return (lho[0]*rho[0], lho[1]*rho[1], lho[2]*rho[2])
-				def vmul1x3(lho, rho): return (   lho*rho[0],    lho*rho[1],    lho*rho[2])
-				for mesh_name in self.meshes:
-					mesh = self.meshes[mesh_name]
-					loops = mesh.data.loops
-					loops_range = range(0, len(loops))
-					def compute_tangent_pair(vtx0, vtx1, vtx2, uv0, uv1, uv2):
-						edge_0 = vsub3m3(vtx1.co, vtx0.co)
-						edge_1 = vsub3m3(vtx2.co, vtx0.co)
-						d_uv_0 = vsub2m2(uv1, uv0)
-						d_uv_1 = vsub2m2(uv2, uv0)
-						inv_det = ((d_uv_0[0] * d_uv_1[1]) - (d_uv_0[1] * d_uv_1[0]))
-						inv_det = 1.0 / inv_det if (inv_det != 0.0) else 1.0
-						tanu = vsub3m3(vmul1x3(d_uv_1[1], edge_0), vmul1x3(d_uv_0[1], edge_1))
-						tanu = vmul1x3(inv_det, tanu)
-						norm = vnorm3(tanu)
-						tanu = vmul1x3(1.0 / norm if (norm != 0.0) else 1.0, tanu)
-						tanv = vsub3m3(vmul1x3(d_uv_0[0], edge_1), vmul1x3(d_uv_1[0], edge_0))
-						tanv = vmul1x3(inv_det, tanv)
-						norm = vnorm3(tanv)
-						tanv = vmul1x3(1.0 / norm if (norm != 0.0) else 1.0, tanv)
-						return (tanu, tanv)
-					for i in loops_range:
-						loop = loops[i]
-						tri_indices = (i, (i+1)%len(loops), (i+2)%len(loops))
-						uv =       [ uv_of_mesh_loop(mesh.data, i)             for i in tri_indices ]
-						vertices = [ mesh.data.vertices[loops[i].vertex_index] for i in tri_indices ]
-						tangents = compute_tangent_pair(*vertices, *uv)
-						self.write_vertex(len(vtx_idx_map), uv[0], loop, vertices[0], vtx_idx_map, tangents, vertex_bytes)
-				return (vertex_bytes, vtx_idx_map)
-
 			print("Assembling header...")
 			self.scan_materials() ; mtl_n  = len(self.materials)
 			self.scan_meshes()    ; mesh_n = len(self.meshes)
-			(vertex_bytes, vtx_idx_map) = write_vertices_early(self) # Needs to happen after scan_meshes but before vtx_idx_map is needed
+			(vertex_bytes, vtx_map) = compute_vertices(self.meshes) # Needs to happen after scan_meshes but before vtx_map is needed
 			self.bone_n = self.count_bones()
 			self.face_n = self.count_faces()
-			self.vtx_n  = len(vtx_idx_map)
+			self.vtx_n  = len(vtx_map)
 			self.idx_n  = self.count_indices(self.face_n)
 			string_storage = self.populate_string_storage()
 			comment = "[[[ This model file was generated on Blender by the `fma_export.py` script.  ]]]".encode(FMA_STR_ENCODING)
@@ -585,7 +594,7 @@ class FmaExporter(Operator, ExportHelper):
 			file.write(wr_buffer) ; wr_buffer.clear()
 			file.write(vertex_bytes) ; vertex_bytes.clear()
 
-			self.write_indices(meshpoly_indices, vtx_idx_map, wr_buffer)
+			self.write_indices(meshpoly_indices, vtx_map, wr_buffer)
 
 			file.write(wr_buffer) ; wr_buffer.clear()
 
@@ -616,9 +625,6 @@ class FmaExporter(Operator, ExportHelper):
 
 		def write_material(self, file, material):
 			# https://docs.blender.org/api/current/bpy.types.Mesh.html
-
-			def wr_str(*values):
-				for value in values: file.write(value.encode(FMA_STR_ENCODING))
 
 			# Hardcoded flags
 			mtl_flags = 0

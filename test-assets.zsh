@@ -20,6 +20,13 @@ function convert_images {
 	mv -t /tmp/game-engine-sketch/${cfg}-pack/assets/ /tmp/fmamdl-targets/*.fmat.rgba8u
 }
 
+function link_assets {
+	local targets=(/tmp/fmamdl-targets/*.fma /tmp/fmamdl-targets/*.rgba8u)
+	if [[ ${#targets} -gt 0 ]]; then
+		ln -srf -t /tmp/game-engine-sketch/${cfg}-pack/assets/ $targets
+	fi
+}
+
 function test_assets {
 	local cfg=${1:-Release};
 	echo -ne "\e[H\e[2J\e[3J";
@@ -30,6 +37,7 @@ function test_assets {
 		cfg=$cfg fmamdl_export
 	popd
 	cfg=$cfg convert_images
+	cfg=$cfg link_assets
 	config=$cfg skip_build= ./run.zsh
 }
 
