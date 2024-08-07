@@ -44,6 +44,16 @@ namespace fmamdl::conv::obj {
 	}
 
 
+	template <typename T>
+	constexpr T reorderBit8(T v) {
+		if constexpr (std::endian::native == std::endian::little) {
+			return T(std::byteswap(std::underlying_type_t<T>(v)));
+		} else {
+			return v;
+		}
+	}
+
+
 	struct ParsedMaterial {
 		MaterialFlags flags;
 		std::string name;
@@ -275,7 +285,7 @@ namespace fmamdl::conv::obj {
 		auto& stringStorageOffset = h.stringStorageOffset();
 		h.setVertexLayout(vtxLayout);
 
-		flags = fmamdl::HeaderFlags::eTriangleFan;
+		flags = reorderBit8(HeaderFlags::eTriangleFan);
 
 		ReadObjDst dst;
 		readObj(opt, dst);
@@ -342,7 +352,7 @@ namespace fmamdl::conv::obj {
 
 			size_t endOfHead = align<8>(bytes.size());
 			mat.magicNumber() = currentMagicNumber;
-			mat.flags()       = mf_ec(pmat.second.flags);
+			mat.flags()       = reorderBit8(pmat.second.flags);
 			setTexture(mf_ec::eDiffuseInlinePixel,  mat.diffuseTexture(),  pmat.second.diffuseValue,  pmat.second.diffuseTexture);
 			setTexture(mf_ec::eNormalInlinePixel,   mat.normalTexture(),   pmat.second.normalValue,   pmat.second.normalTexture);
 			setTexture(mf_ec::eSpecularInlinePixel, mat.specularTexture(), pmat.second.specularValue, pmat.second.specularTexture);

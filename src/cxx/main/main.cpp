@@ -552,8 +552,8 @@ namespace {
 				move_lft = pressedKeys.contains(SDLK_a);
 				move_rgt = pressedKeys.contains(SDLK_d);
 				move_drag_mod = pressedKeys.contains(SDLK_LSHIFT);
-				if     (pressedKeys.contains(SDLK_1)) change_radius = 0.5f * -delta;
-				else if(pressedKeys.contains(SDLK_2)) change_radius = 0.5f * +delta;
+				if     (pressedKeys.contains(SDLK_1)) change_radius = -delta;
+				else if(pressedKeys.contains(SDLK_2)) change_radius = +delta;
 			}
 
 			// Randomly rotate all the objects
@@ -638,10 +638,11 @@ namespace {
 				glm::vec3 rotation_offset = { };
 				constexpr auto pi2 = std::numbers::pi_v<float> * 2.0f;
 				auto angle = delta * pi2;
-				camLightRadius += change_radius;
+				auto dist = glm::distance(pos, camLightCenter);
+				camLightRadius += 0.3f * change_radius * dist;
 				camLightRadius = std::max(0.0f, camLightRadius);
 				if(camLightRadius != 0.0f) {
-					camLightAngle += 7.0f * angle;
+					camLightAngle += 5.0f * angle;
 					if(camLightAngle > pi2) camLightAngle = pi2 - (std::floor(camLightAngle / pi2) * pi2);
 				}
 				rotation_offset.x = std::cos(camLightAngle) * camLightRadius;
