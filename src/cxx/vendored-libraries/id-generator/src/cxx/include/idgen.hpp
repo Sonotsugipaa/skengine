@@ -34,11 +34,15 @@ namespace idgen {
 	concept Id = GenericInt<T> || ScopedEnum<T>;
 
 
+	// invalidId < minId  ||  maxId < invalidId
+	// baseid <= generate() <= maxId
+
 	template <SignedInt   T> constexpr T baseId()    noexcept { return 0; }
 	template <UnsignedInt T> constexpr T baseId()    noexcept { return 1; }
 	template <SignedInt   T> constexpr T invalidId() noexcept { return std::numeric_limits<T>::min(); }
 	template <UnsignedInt T> constexpr T invalidId() noexcept { return 0; }
-	template <GenericInt  T> constexpr T minId()     noexcept { return baseId<T>(); }
+	template <SignedInt   T> constexpr T minId()     noexcept { return invalidId<T>() + 1; }
+	template <UnsignedInt T> constexpr T minId()     noexcept { return baseId<T>(); }
 	template <GenericInt  T> constexpr T maxId()     noexcept { return std::numeric_limits<T>::max(); }
 
 	template <ScopedEnum T> constexpr T baseId()    noexcept { return T(baseId<std::underlying_type_t<T>>()); }
@@ -46,12 +50,14 @@ namespace idgen {
 	template <ScopedEnum T> constexpr T minId()     noexcept { return T(minId<std::underlying_type_t<T>>()); }
 	template <ScopedEnum T> constexpr T maxId()     noexcept { return T(maxId<std::underlying_type_t<T>>()); }
 
-	static_assert(invalidId<int8_t>() <  -(1<<6));
-	static_assert(minId<int8_t>()     == 0);
+	static_assert(invalidId<int8_t>() == -128);
+	static_assert(minId<int8_t>()     == -127);
+	static_assert(maxId<int8_t>()     == 127);
 	static_assert(baseId<int8_t>()    == 0);
 
 	static_assert(invalidId<uint8_t>() == 0);
 	static_assert(minId<uint8_t>()     == 1);
+	static_assert(maxId<uint8_t>()     == 255);
 	static_assert(baseId<uint8_t>()    == 1);
 
 
@@ -87,10 +93,8 @@ namespace idgen {
 
 			try_assert_(idv >= minId<Ut>());
 			try_assert_(idv <= maxId<Ut>());
-			#ifndef NDEBUG
-				if(idv < minId<Ut>()) [[unlikely]] return;
-				if(idv > maxId<Ut>()) [[unlikely]] return;
-			#endif
+			if(idv < minId<Ut>()) [[unlikely]] return;
+			if(idv > maxId<Ut>()) [[unlikely]] return;
 
 			if(gen_recycledSegments.empty()) {
 				gen_recycledSegments.push_back({ idv, Ut(idv + Ut(1)) });

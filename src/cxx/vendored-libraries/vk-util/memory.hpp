@@ -143,8 +143,8 @@ namespace vkutil {
 		static ManagedBuffer createUniformBuffer(VmaAllocator, const BufferCreateInfo&);
 		static ManagedBuffer createStorageBuffer(VmaAllocator, const BufferCreateInfo&);
 
-		inline operator VkBuffer()      { return value; }
-		inline operator VmaAllocation() { return alloc; }
+		inline operator VkBuffer()      const { return value; }
+		inline operator VmaAllocation() const { return alloc; }
 
 		inline const auto& info() const noexcept { return mInfo; }
 
@@ -172,8 +172,8 @@ namespace vkutil {
 		///
 		static void destroy(VmaAllocator, ManagedImage&) noexcept;
 
-		inline operator VkImage()       { return value; }
-		inline operator VmaAllocation() { return alloc; }
+		inline operator VkImage()       const { return value; }
+		inline operator VmaAllocation() const { return alloc; }
 
 		inline const auto& info() const noexcept { return mInfo; }
 
