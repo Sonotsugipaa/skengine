@@ -528,15 +528,16 @@ namespace SKENGINE_NAME_NS {
 
 		{ // Temporary RenderProcess test output
 			RenderProcess::DependencyGraph dg;
+			const auto& nullRpass = idgen::invalidId<RenderPassId>();
 			RendererId renderers[] = { dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }) };
-			auto sg1 = dg.addStep({ }, renderers[0]);             // present
-			auto sg2 = dg.addStep({ }, renderers[1]).before(sg1); // render
-			auto sg3 = dg.addStep({ }, renderers[2]).after(sg1);  // post-processing
-			;          dg.addStep({ }, renderers[3]).after(sg2);  // outline
-			;          dg.addStep({ }, renderers[4]).before(sg1); // ui
-			;          dg.addStep({ }, renderers[5]).before(sg3); // depth
+			auto sg1 = dg.addStep(nullRpass, renderers[0]);             // present
+			auto sg2 = dg.addStep(nullRpass, renderers[1]).before(sg1); // render
+			auto sg3 = dg.addStep(nullRpass, renderers[2]).after(sg1);  // post-processing
+			;          dg.addStep(nullRpass, renderers[3]).after(sg2);  // outline
+			;          dg.addStep(nullRpass, renderers[4]).before(sg1); // ui
+			;          dg.addStep(nullRpass, renderers[5]).before(sg3); // depth
 			try {
-				mRenderProcess.setup(mVma, mPhysDevice, dg.assembleSequence());
+				mRenderProcess.setup(mVma, mDepthAtchFmt, dg.assembleSequence());
 			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
 				mLogger->error("{}:", err.what());
 				auto& chain = err.dependencyChain();
