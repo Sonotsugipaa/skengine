@@ -25,8 +25,12 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		auto detectGraphLoop(const std::map<RenderProcess::StepId, std::set<RenderProcess::StepId>>& fwdMap, std::vector<RenderProcess::StepId> origins) {
-			using StepId = RenderProcess::StepId;
+		#define RP_STEP_ID_ RenderProcess::StepId
+		auto detectGraphLoop(
+			const std::map<RP_STEP_ID_, std::set<RP_STEP_ID_>>& fwdMap,
+			const std::unordered_map<RP_STEP_ID_, std::set<RP_STEP_ID_>>& origins
+		) {
+			using StepId = RP_STEP_ID_;
 			std::set<StepId> visited;
 			std::vector<StepId> r; r.reserve(3);
 
@@ -38,14 +42,14 @@ namespace SKENGINE_NAME_NS {
 				q.clear();
 				bwdVisitTree.clear();
 				auto pop = [&]() { auto r = q.front(); q.pop_front(); return r; };
-				q.push_back(origin);
+				q.push_back(origin.first);
 				while(! q.empty()) {
 					auto depender = pop();
 					auto deps = find_assert_(fwdMap, depender);
 					visited.insert(depender);
 					for(auto& dependee : deps) {
 						if(dependee == depender) [[unlikely /* and stupid */]] { r = { depender }; return r; }
-						if(dependee != origin) {
+						if(dependee != origin.first) {
 							if(! visited.contains(dependee)) {
 								q.push_back(dependee);
 								bwdVisitTree[dependee] = depender;
@@ -55,8 +59,8 @@ namespace SKENGINE_NAME_NS {
 							do {
 								r.push_back(depender);
 								depender = find_assert_(bwdVisitTree, depender);
-							} while(depender != origin);
-							r.push_back(origin);
+							} while(depender != origin.first);
+							r.push_back(origin.first);
 							return r;
 						}
 					}
@@ -67,6 +71,7 @@ namespace SKENGINE_NAME_NS {
 			std::unreachable();
 			return r;
 		}
+		#undef RP_STEP_ID_
 
 	}
 
@@ -78,6 +83,7 @@ namespace SKENGINE_NAME_NS {
 			if(r.wi_rp == nullptr) return std::strong_ordering::equal;
 			else return std::strong_ordering::greater;
 		} else {
+			assert(l.wi_validity == l.wi_rp->rp_waveIterValidity);
 			if(r.wi_rp == nullptr) return std::strong_ordering::less;
 			else if(l.wi_seqIdx  < r.wi_seqIdx) return std::strong_ordering::greater;
 			else if(l.wi_seqIdx  > r.wi_seqIdx) return std::strong_ordering::less;
@@ -90,6 +96,8 @@ namespace SKENGINE_NAME_NS {
 		auto curStep = step_id_e(wi_firstStep);
 		auto nxtStep = curStep + wi_stepCount;
 		assert(curStep >= 0);
+		assert(wi_rp != nullptr);
+		assert(wi_validity == wi_rp->rp_waveIterValidity);
 		if(size_t(nxtStep) >= wi_rp->rp_steps.size()) {
 			*this = WaveIterator();
 		} else {
@@ -107,6 +115,7 @@ namespace SKENGINE_NAME_NS {
 
 	std::span<std::pair<RenderProcess::StepId, RenderProcess::Step>> RenderProcess::WaveIterator::operator*() {
 		assert(wi_rp != nullptr);
+		assert(wi_validity == wi_rp->rp_waveIterValidity);
 		auto beg = wi_rp->rp_steps.begin() + size_t(wi_firstStep);
 		auto end = beg + wi_stepCount;
 		return std::span<std::pair<StepId, Step>>(beg, end);
@@ -132,6 +141,7 @@ namespace SKENGINE_NAME_NS {
 		for(size_t i = 0; i < rp_rpasses.size();   ++i) rp_rpasses[i]   = RenderPass { seqDesc.rpasses[i], nullptr };
 		for(size_t i = 0; i < rp_renderers.size(); ++i) rp_renderers[i] = seqDesc.renderers[i].lock();
 
+		++ rp_waveIterValidity;
 		rp_initialized = true;
 	}
 
@@ -141,17 +151,13 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	RenderProcess::WaveIterator RenderProcess::begin() {
-		if(rp_steps.empty()) [[unlikely]] return WaveIterator();
-		WaveIterator r;
-		r.wi_rp = this;
-		r.wi_seqIdx = rp_steps.front().second.seqIndex;
-		r.wi_firstStep = StepId(0);
-		r.wi_stepCount = 1;
-		for(size_t i = 1; i < rp_steps.size(); ++i) {
-			if(rp_steps[i].second.seqIndex != r.wi_seqIdx) break;
-			++ r.wi_stepCount;
-		}
+	RenderProcess::WaveRange RenderProcess::waveRange() & {
+		WaveRange r = WaveRange {
+			.beginIter = WaveIterator(),
+			.endIter = WaveIterator() };
+		r.beginIter.wi_rp = this;
+		r.beginIter.wi_validity = rp_waveIterValidity;
+		++ r.beginIter;
 		return r;
 	}
 
@@ -215,6 +221,11 @@ namespace SKENGINE_NAME_NS {
 		auto mkStepSet = [this]() { std::unordered_set<StepId> r; r.max_load_factor(1.2); r.reserve(dg_steps.size()); return r; };
 		std::unordered_set<StepId> resolvedSteps;
 
+		std::unordered_map<StepId, std::set<StepId>> unresolvedSteps;
+		unresolvedSteps.max_load_factor(1.2);
+		unresolvedSteps.reserve(dg_steps.size());
+		for(auto& dep : dg_dependencies_bwd) unresolvedSteps.insert(dep);
+
 		r.rtargets  = dg_rtargets;
 		r.rpasses   = dg_rpasses;
 		r.renderers = dg_renderers;
@@ -223,10 +234,11 @@ namespace SKENGINE_NAME_NS {
 		size_t resolved;
 		while(resolvedSteps.size() < dg_steps.size()) {
 			auto localResolvedSteps = mkStepSet();
+			auto localUnresolvedSteps = unresolvedSteps;
 			resolved = 0;
-			for(auto& stepDeps : dg_dependencies_bwd) {
+			for(auto& stepDeps : unresolvedSteps) {
+				assert(! resolvedSteps.contains(stepDeps.first));
 				bool skipDep = [&]() {
-					if(resolvedSteps.contains(stepDeps.first)) return true;
 					for(StepId dep : stepDeps.second) {
 						if(! resolvedSteps.contains(dep)) return true;
 					}
@@ -237,15 +249,15 @@ namespace SKENGINE_NAME_NS {
 					auto& step    = dg_steps[stepIdx];
 					r.steps.push_back(Step { SequenceIndex(seq), step.rpass, step.renderer });
 					localResolvedSteps.insert(stepDeps.first);
+					localUnresolvedSteps.erase(stepDeps.first);
 					++ resolved;
 				}
 			}
 			if(resolved == 0) {
-				std::vector<StepId> unresolvedSteps; unresolvedSteps.reserve(dg_dependencies_bwd.size() - resolvedSteps.size());
-				for(auto& deps : dg_dependencies_bwd) if(! resolvedSteps.contains(deps.first)) unresolvedSteps.push_back(deps.first);
 				auto loop = detectGraphLoop(dg_dependencies_fwd, unresolvedSteps);
 				throw RenderProcess::UnsatisfiableDependencyError(std::move(loop));
 			}
+			unresolvedSteps = std::move(localUnresolvedSteps);
 			resolvedSteps.merge(std::move(localResolvedSteps));
 			++ seq;
 		}

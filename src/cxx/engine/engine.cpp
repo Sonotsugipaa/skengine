@@ -507,7 +507,6 @@ namespace SKENGINE_NAME_NS {
 		mGframePriorityOverride(false),
 		mGframeCounter(0),
 		mGframeSelector(0),
-		mRenderProcess(mLogger),
 		mSignalGthread(Signal::eNone),
 		mSignalXthread(Signal::eNone),
 		mLastResizeTime(0),
@@ -547,7 +546,7 @@ namespace SKENGINE_NAME_NS {
 			}
 			mLogger->debug("Renderer list:");
 			size_t waveIdx = 0;
-			for(auto wave : mRenderProcess) {
+			for(auto wave : mRenderProcess.waveRange()) {
 				for(auto step : wave) {
 					mLogger->debug("  Wave {:3}: step {:3} renderer {:3}", waveIdx, RenderProcess::step_id_e(step.first), render_target_id_e(step.second.renderer));
 				}

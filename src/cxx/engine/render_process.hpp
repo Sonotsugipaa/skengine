@@ -88,6 +88,15 @@ namespace SKENGINE_NAME_NS {
 			SequenceIndex  wi_seqIdx;
 			StepId    wi_firstStep;
 			step_id_e wi_stepCount;
+			unsigned wi_validity;
+		};
+
+		class WaveRange {
+		public:
+			WaveIterator& begin() noexcept { return beginIter; }
+			WaveIterator& end()   noexcept { return endIter; }
+			WaveIterator beginIter;
+			WaveIterator endIter;
 		};
 
 		struct SequenceDescription {
@@ -97,7 +106,7 @@ namespace SKENGINE_NAME_NS {
 			std::vector<std::weak_ptr<Renderer>> renderers;
 		};
 
-		RenderProcess(std::shared_ptr<spdlog::logger> logger): rp_initialized(false), rp_logger(std::move(logger)) { }
+		RenderProcess(): rp_waveIterValidity(0), rp_initialized(false) { }
 		RenderProcess(const RenderProcess&) = delete;
 		RenderProcess(RenderProcess&&) = delete;
 		#ifndef NDEBUG
@@ -113,17 +122,16 @@ namespace SKENGINE_NAME_NS {
 
 		VulkanState getVulkanState() const noexcept { return rp_vkState; }
 
-		WaveIterator begin();
-		WaveIterator end() { return WaveIterator(); }
+		WaveRange waveRange() &;
 
 	private:
-		bool rp_initialized;
-		std::shared_ptr<spdlog::logger> rp_logger;
 		VulkanState rp_vkState;
 		std::vector<std::pair<StepId, Step>> rp_steps;
 		std::vector<RenderTarget> rp_rtargets;
 		std::vector<RenderPass> rp_rpasses;
 		std::vector<std::shared_ptr<Renderer>> rp_renderers;
+		unsigned rp_waveIterValidity;
+		bool rp_initialized;
 	};
 
 
