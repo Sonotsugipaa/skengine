@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render_process.hpp"
 #include "world_renderer.hpp"
 #include "ui_renderer.hpp"
 #include "shader_cache.hpp"
@@ -56,11 +57,13 @@
 /// are chosen: for instance, "get queue family indices" would become
 /// "getQfamIndices" rather than "getQFamIndices".
 ///
-/// - qfam  | queue family
-/// - dset  | descriptor set
-/// - dpool | descriptor pool
-/// - cpool | command pool
-/// - rpass | render pass
+/// - qfam    | queue family
+/// - dset    | descriptor set
+/// - dpool   | descriptor pool
+/// - cpool   | command pool
+/// - rstep   | render step
+/// - rpass   | render pass
+/// - rtarget | render target
 ///
 
 
@@ -163,6 +166,7 @@ namespace SKENGINE_NAME_NS {
 		ObjectStorage& getObjectStorage() noexcept;
 		WorldRenderer& getWorldRenderer() noexcept;
 		GframeData& getGframeData(unsigned index) noexcept;
+		RenderProcess& getRenderProcess() noexcept;
 		VkPipeline getPipeline(const ShaderRequirement&);
 
 		void setPresentExtent(VkExtent2D);
@@ -288,6 +292,8 @@ namespace SKENGINE_NAME_NS {
 
 		SDL_Window* mSdlWindow = nullptr;
 
+		std::shared_ptr<spdlog::logger> mLogger;
+
 		VkInstance       mVkInstance = nullptr;
 		VkPhysicalDevice mPhysDevice = nullptr;
 		VkDevice         mDevice     = nullptr;
@@ -330,6 +336,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSetLayout mGeometryPipelineDsetLayout;
 		VkDescriptorSetLayout mImagePipelineDsetLayout;
 		GenericPipelineSet    mPipelines;
+		RenderProcess         mRenderProcess;
 
 		std::shared_ptr<WorldRendererSharedState> mWorldRendererSharedState_TMP_UGLY_NAME;
 		std::shared_ptr<ObjectStorage> mObjectStorage;
@@ -345,8 +352,6 @@ namespace SKENGINE_NAME_NS {
 		std::shared_ptr<AssetSourceInterface> mAssetSource;
 		std::vector<std::unique_ptr<Renderer>> mRenderers;
 		AssetSupplier mAssetSupplier;
-
-		std::shared_ptr<spdlog::logger> mLogger;
 
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;
@@ -379,6 +384,7 @@ namespace SKENGINE_NAME_NS {
 	inline ObjectStorage& ConcurrentAccess::getObjectStorage   ()           noexcept { return * ca_engine->mObjectStorage; }
 	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()           noexcept { return * ca_engine->mWorldRenderer_TMP_UGLY_NAME; }
 	inline GframeData&    ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
+	inline RenderProcess& ConcurrentAccess::getRenderProcess   ()           noexcept { return ca_engine->mRenderProcess; }
 	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
 	inline VkPipeline ConcurrentAccess::getPipeline(const ShaderRequirement& req) { return ca_engine->mPipelines.at(req); }
 

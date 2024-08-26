@@ -51,8 +51,8 @@ namespace SKENGINE_NAME_NS {
 			RenderPass rpass;
 		};
 
-		Renderer(const Info& sInfo): r_pipelineInfo(sInfo) { }
-		Renderer(Info&& sInfo): r_pipelineInfo(std::move(sInfo)) { }
+		Renderer(const Info& sInfo): r_pipelineInfo(sInfo) { r_consolidatePipelineInfo(); }
+		Renderer(Info&& sInfo): r_pipelineInfo(std::move(sInfo)) { r_consolidatePipelineInfo(); }
 		Renderer(const Renderer&) = default; Renderer& operator=(const Renderer&) = default;
 		Renderer(Renderer&&) = default;      Renderer& operator=(Renderer&&) = default;
 		virtual ~Renderer() = default;
@@ -79,6 +79,13 @@ namespace SKENGINE_NAME_NS {
 	private:
 		Info r_pipelineInfo;
 		bool r_buffersOod;
+
+		void r_consolidatePipelineInfo() {
+			#define CONSOLIDATE_(TPR_) if(! r_pipelineInfo.TPR_.ownsMemory()) r_pipelineInfo.TPR_ = r_pipelineInfo.TPR_.copy();
+			CONSOLIDATE_(dsetLayoutBindings)
+			CONSOLIDATE_(shaderRequirements)
+			#undef CONSOLIDATE_
+		}
 	};
 
 }

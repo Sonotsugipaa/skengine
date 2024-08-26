@@ -66,6 +66,8 @@ namespace util {
 			mv.value = uz;
 			return *this;
 		}
+
+		operator bool() const noexcept { return value != default_value; }
 	};
 
 

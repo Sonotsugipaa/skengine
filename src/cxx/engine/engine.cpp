@@ -475,24 +475,6 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<AssetSourceInterface> asi,
 			std::shared_ptr<spdlog::logger>       logger
 	):
-		mShaderCache(std::move(sci)),
-		mGraphicsReg(
-			ep.framerate_samples,
-			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
-			tickreg::WaitStrategyState::eSleepUntil,
-			regulator_params ),
-		mLogicReg(
-			ep.framerate_samples,
-			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
-			tickreg::WaitStrategyState::eSleepUntil,
-			regulator_params ),
-		mGframePriorityOverride(false),
-		mGframeCounter(0),
-		mGframeSelector(0),
-		mSignalGthread(Signal::eNone),
-		mSignalXthread(Signal::eNone),
-		mLastResizeTime(0),
-		mAssetSource(std::move(asi)),
 		mLogger([&]() {
 			decltype(mLogger) r;
 			if(logger) {
@@ -511,6 +493,25 @@ namespace SKENGINE_NAME_NS {
 			debug::setLogger(r);
 			return r;
 		} ()),
+		mShaderCache(std::move(sci)),
+		mGraphicsReg(
+			ep.framerate_samples,
+			decltype(ep.target_framerate)(1.0) / ep.target_framerate,
+			tickreg::WaitStrategyState::eSleepUntil,
+			regulator_params ),
+		mLogicReg(
+			ep.framerate_samples,
+			decltype(ep.target_tickrate)(1.0) / ep.target_tickrate,
+			tickreg::WaitStrategyState::eSleepUntil,
+			regulator_params ),
+		mGframePriorityOverride(false),
+		mGframeCounter(0),
+		mGframeSelector(0),
+		mRenderProcess(mLogger),
+		mSignalGthread(Signal::eNone),
+		mSignalXthread(Signal::eNone),
+		mLastResizeTime(0),
+		mAssetSource(std::move(asi)),
 		mPrefs(ep),
 		mIsRunning(false)
 	{
@@ -524,6 +525,26 @@ namespace SKENGINE_NAME_NS {
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 			auto ca = ConcurrentAccess(this, true);
 			init->init(ca, rpass_cfg);
+		}
+
+		{ // Temporary RenderProcess test output
+			RenderProcess::DependencyGraph dg;
+			RendererId renderers[] = { dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }) };
+			auto sg0 = dg.addStep({ }, renderers[0]);             // present
+			auto sg1 = dg.addStep({ }, renderers[1]).before(sg0); // render
+			;          dg.addStep({ }, renderers[2]).after(sg0);  // post-processing
+			;          dg.addStep({ }, renderers[3]).after(sg1);  // outline
+			;          dg.addStep({ }, renderers[4]).before(sg0); // ui
+			mRenderProcess.setup(mVma, mPhysDevice, dg.assembleSequence());
+			mLogger->debug("Renderer list:");
+			size_t waveIdx = 0;
+			for(auto wave : mRenderProcess) {
+				for(auto step : wave) {
+					mLogger->debug("  Wave {:3}: step {:3} renderer {:3}", waveIdx, RenderProcess::step_id_e(step.first), render_target_id_e(step.second.renderer));
+				}
+				++ waveIdx;
+			}
+			if(waveIdx == 0) mLogger->debug("  (empty)");
 		}
 	}
 

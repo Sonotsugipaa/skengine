@@ -34,7 +34,9 @@ namespace SKENGINE_NAME_NS {
 	DECL_SCOPED_ENUM_(ModelInstanceId, bone_id_e,           uint32_t)
 	DECL_SCOPED_ENUM_(MaterialId,      material_id_e,       uint32_t)
 	DECL_SCOPED_ENUM_(ModelId,         model_id_e,          uint32_t)
-	DECL_SCOPED_ENUM_(RenderTargetId,  render_target_e,     int_fast32_t)
+	DECL_SCOPED_ENUM_(RendererId,      renderer_id_e,       unsigned)
+	DECL_SCOPED_ENUM_(RenderTargetId,  render_target_id_e,  int)
+	DECL_SCOPED_ENUM_(RenderPassId,    render_pass_id_e,    int)
 	#undef DECL_SCOPED_ENUM_
 
 
