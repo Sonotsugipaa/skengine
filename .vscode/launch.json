@@ -17,6 +17,7 @@
 			],
 			"externalConsole": false,
 			"MIMode": "gdb",
+			"preLaunchTask": "pack-debug",
 			"setupCommands": [
 				 {
 					  "description": "Enable pretty-printing for gdb",
@@ -43,6 +44,7 @@
 			],
 			"externalConsole": false,
 			"MIMode": "gdb",
+			"preLaunchTask": "pack-release",
 			"setupCommands": [
 				 {
 					  "description": "Enable pretty-printing for gdb",
@@ -69,6 +71,7 @@
 			],
 			"externalConsole": false,
 			"MIMode": "gdb",
+			"preLaunchTask": "pack-debug",
 			"setupCommands": [
 				 {
 					  "description": "Enable pretty-printing for gdb",
@@ -95,6 +98,7 @@
 			],
 			"externalConsole": false,
 			"MIMode": "gdb",
+			"preLaunchTask": "pack-release",
 			"setupCommands": [
 				 {
 					  "description": "Enable pretty-printing for gdb",
