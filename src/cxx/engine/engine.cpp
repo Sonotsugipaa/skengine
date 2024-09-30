@@ -527,34 +527,82 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{ // Temporary RenderProcess test output
-			RenderProcess::DependencyGraph dg;
+			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
+			using RpDesc = RenderPassDescription;
+			using SpDesc = RpDesc::Subpass;
+			using Atch = SpDesc::Attachment;
+			using RtDesc = RenderTargetDescription;
+			using ImgRef = RtDesc::ImageRef;
+			auto renderExt3d = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
+			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
+			auto uiRtargetRefs = std::make_shared<std::vector<ImgRef>>();
+			uiRtargetRefs->reserve(mGframes.size());
+			for(auto& gframe : mGframes) uiRtargetRefs->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
+			RtDesc rtDesc[2] = {
+				RtDesc { nullptr,       renderExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false },
+				RtDesc { uiRtargetRefs, renderExt3d,                                       VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false } };
+			RpDesc uiRpDesc;
+			Atch uiColAtch = {
+				.rtarget = depGraph.addRtarget(RenderTargetDescription {
+					.externalImages = uiRtargetRefs,
+					.extent = presentExt3d,
+					.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+					.format = mSurfaceFormat.format,
+					.hostReadable = false, .hostWriteable = false, .hostAccessSequential = false }),
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			Atch dummyAtch[5];
+			for(size_t i = 0; i < std::size(dummyAtch); ++i) {
+				dummyAtch[i] = uiColAtch;
+				dummyAtch[i].rtarget = depGraph.addRtarget(RenderTargetDescription {
+					.externalImages = { },
+					.extent = presentExt3d,
+					.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+					.format = mSurfaceFormat.format,
+					.hostReadable = false, .hostWriteable = false, .hostAccessSequential = false });
+			}
+			uiRpDesc.subpasses.push_back(SpDesc {
+				.inputAttachments = { dummyAtch[0], dummyAtch[2] },
+				.colorAttachments = { uiColAtch, dummyAtch[1], dummyAtch[3], dummyAtch[4] },
+				.subpassDependencies = { SpDesc::Dependency {
+					.srcSubpass = VK_SUBPASS_EXTERNAL,
+					.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+					.dependencyFlags = { } }},
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.requiresDepthAttachments = false });
 			const auto& nullRpass = idgen::invalidId<RenderPassId>();
-			RendererId renderers[] = { dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }), dg.addRenderer({ }) };
-			auto sg1 = dg.addStep(nullRpass, renderers[0]);             // present
-			auto sg2 = dg.addStep(nullRpass, renderers[1]).before(sg1); // render
-			auto sg3 = dg.addStep(nullRpass, renderers[2]).after(sg1);  // post-processing
-			;          dg.addStep(nullRpass, renderers[3]).after(sg2);  // outline
-			;          dg.addStep(nullRpass, renderers[4]).before(sg1); // ui
-			;          dg.addStep(nullRpass, renderers[5]).before(sg3); // depth
+			const auto& rpassId = depGraph.addRpass(uiRpDesc);
+			RendererId renderers[] = { depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }) };
+			auto sg1 = depGraph.addStep(nullRpass, renderers[0]);             // present
+			auto sg2 = depGraph.addStep(nullRpass, renderers[1]).before(sg1); // render
+			auto sg3 = depGraph.addStep(nullRpass, renderers[2]).after(sg1);  // post-processing
+			;          depGraph.addStep(nullRpass, renderers[3]).after(sg2);  // outline
+			;          depGraph.addStep(rpassId,   renderers[4]).before(sg1); // ui
+			;          depGraph.addStep(nullRpass, renderers[5]).before(sg3); // depth
 			try {
-				mRenderProcess.setup(mVma, mDepthAtchFmt, dg.assembleSequence());
+				mRenderProcess.setup(mVma, mLogger, mDepthAtchFmt, mGframes.size(), depGraph.assembleSequence());
+				mLogger->debug("Renderer list:");
+				size_t waveIdx = 0;
+				for(auto wave : mRenderProcess.waveRange()) {
+					for(auto step : wave) {
+						mLogger->debug("  Wave {:3}: step {:3} renderer {:3}", waveIdx, RenderProcess::step_id_e(step.first), render_target_id_e(step.second.renderer));
+					}
+					++ waveIdx;
+				}
+				if(waveIdx == 0) mLogger->debug("  (empty)");
+				mRenderProcess.destroy();
 			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
 				mLogger->error("{}:", err.what());
 				auto& chain = err.dependencyChain();
 				for(auto step : chain) mLogger->error("  Renderer {:3}", RenderProcess::step_id_e(step));
 				mLogger->error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
-				std::rethrow_exception(std::current_exception());
 			}
-			mLogger->debug("Renderer list:");
-			size_t waveIdx = 0;
-			for(auto wave : mRenderProcess.waveRange()) {
-				for(auto step : wave) {
-					mLogger->debug("  Wave {:3}: step {:3} renderer {:3}", waveIdx, RenderProcess::step_id_e(step.first), render_target_id_e(step.second.renderer));
-				}
-				++ waveIdx;
-			}
-			if(waveIdx == 0) mLogger->debug("  (empty)");
-			mRenderProcess.destroy();
 		}
 	}
 

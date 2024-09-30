@@ -3,6 +3,7 @@
 #include <utility>
 #include <type_traits>
 #include <cstring>
+#include <ranges>
 
 
 
@@ -84,7 +85,7 @@ namespace util {
 	///
 	/// The user must be careful when managing a long-living `TransientPtrRange`,
 	/// because it cannot account for non-owned underlying data being deleted;
-	/// however, if the user knows the `TransientPtrRange` is non-owing,
+	/// however, if the user knows the `TransientPtrRange` is non-owning,
 	/// it is safe to delete the underlying data *before* the former, as long as
 	/// the range isn't accessed after either deletion/destruction.
 	///
@@ -113,10 +114,37 @@ namespace util {
 	template <TriviallyCopyable T>
 	struct TransientPtrRange {
 	public:
-		static TransientPtrRange copyOf(const T* begin, const T* end) {
+		template <typename Range> requires
+			std::ranges::sized_range<Range> &&
+			std::ranges::input_range<Range> &&
+			(! std::ranges::contiguous_range<Range>)
+		static constexpr TransientPtrRange copyOf(Range range) {
 			TransientPtrRange r;
-			size_t length = end - begin;
-			if(end > begin) [[likely]] {
+			size_t length = std::ranges::size(range);
+			if(length > 0) [[likely]] {
+				size_t bytes = length * sizeof(T);
+				r.tr_begin = reinterpret_cast<T*>(operator new[](bytes));
+				for(size_t offset = 0; auto& cp : range) {
+					memcpy(const_cast<std::remove_const_t<T>*>(r.tr_begin) + offset, &cp, sizeof(T));
+					++ offset;
+				}
+				r.tr_length = size_t(1) | (length << size_t(1));
+			} else {
+				r.tr_begin = nullptr;
+				r.tr_length = 0;
+			}
+			return r;
+		}
+
+		template <typename Range> requires
+			std::ranges::sized_range<Range> &&
+			std::ranges::input_range<Range> &&
+			std::ranges::contiguous_range<Range>
+		static constexpr TransientPtrRange copyOf(Range range) {
+			TransientPtrRange r;
+			auto begin  = std::to_address(std::ranges::begin(range));
+			auto length = std::ranges::size(range);
+			if(length > 0) [[likely]] {
 				size_t bytes = length * sizeof(T);
 				r.tr_begin = reinterpret_cast<T*>(operator new[](bytes));
 				memcpy(const_cast<std::remove_const_t<T>*>(r.tr_begin), begin, bytes);
@@ -128,17 +156,31 @@ namespace util {
 			return r;
 		}
 
-		static constexpr TransientPtrRange referenceTo(T* begin, T* end) noexcept {
+		template <typename Range> requires
+			std::ranges::sized_range<Range> &&
+			std::ranges::input_range<Range> &&
+			std::ranges::contiguous_range<Range>
+		static constexpr TransientPtrRange referenceTo(Range range) noexcept {
 			TransientPtrRange r;
+			auto begin = std::to_address(std::ranges::begin(range));
 			r.tr_begin = begin,
-			r.tr_length = ((end - begin) << size_t(1));
+			r.tr_length = size_t(std::ranges::size(range)) << size_t(1);
 			return r;
 		}
+
+		static constexpr TransientPtrRange copyOf(const T* begin, const T* end) { return copyOf(std::ranges::subrange<const T*>(begin, end)); }
+		static constexpr TransientPtrRange referenceTo(T* begin, T* end) noexcept { return referenceTo(std::ranges::subrange<T*>(begin, end)); }
 
 		template <size_t length_tp> static constexpr TransientPtrRange      copyOf(T (&a)[length_tp])          { return      copyOf(a, a + length_tp); }
 		template <size_t length_tp> static constexpr TransientPtrRange referenceTo(T (&a)[length_tp]) noexcept { return referenceTo(a, a + length_tp); }
 
 		constexpr TransientPtrRange() = default;
+
+		template <typename U>
+		requires std::same_as<T, std::remove_const_t<std::remove_reference_t<U>>>
+		constexpr TransientPtrRange(std::initializer_list<U> initList):
+			TransientPtrRange(copyOf(std::ranges::subrange(initList.begin(), initList.end())))
+		{ }
 
 		explicit
 		constexpr TransientPtrRange(const TransientPtrRange& cp):

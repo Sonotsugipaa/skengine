@@ -10,8 +10,10 @@
 #include <bit>
 #include <set>
 #include <map>
+#include <unordered_map>
 #include <stdexcept>
 #include <memory>
+#include <ranges>
 
 #include <vk-util/memory.hpp>
 
@@ -24,7 +26,9 @@
 namespace SKENGINE_NAME_NS {
 
 	struct RenderTargetDescription {
-		VkExtent2D extent;
+		struct ImageRef { VkImage image; VkImageView imageView; };
+		std::shared_ptr<std::vector<ImageRef>> externalImages;
+		VkExtent3D extent;
 		VkImageUsageFlags usage;
 		VkFormat format;
 		bool hostReadable         : 1;
@@ -34,9 +38,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct RenderTarget {
-		RenderTargetDescription description;
 		vkutil::ManagedImage  devImage;
 		vkutil::ManagedBuffer hostBuffer;
+		VkImageView devImageView;
 		operator bool() const noexcept { return devImage.value != nullptr; }
 	};
 
@@ -73,8 +77,71 @@ namespace SKENGINE_NAME_NS {
 
 	struct RenderPass {
 		RenderPassDescription description;
+		std::vector<VkFramebuffer> framebuffers;
 		VkRenderPass handle;
 		operator bool() const noexcept { return handle != nullptr; }
+	};
+
+
+	template <typename T, typename U>
+	concept InputRangeOf = std::ranges::input_range<T> && requires(T t) {
+		std::vector<U>().insert(std::vector<U>().end(), t.begin(), t.end());
+		requires std::assignable_from<U, decltype(*t.begin())>;
+	};
+
+
+	class RenderTargetStorage {
+	public:
+		union Entry {
+			struct Reference {
+				VkImage     image;
+				VkImageView imageView;
+				VkExtent3D  extent;
+				VkFormat    format;
+			};
+			RenderTarget managed;
+			Reference    external;
+		};
+
+		struct EntrySet {
+			size_t offset     : SIZE_WIDTH-1;
+			size_t isExternal : 1;
+		};
+
+		struct EntryRange {
+			std::ranges::subrange<const Entry*> entries;
+			bool isExternal;
+
+			#define CNE_ const noexcept
+			auto        getImage(size_t gframe)     CNE_ { auto& e = entries[gframe]; return isExternal? e.external.image     : e.managed.devImage.value; }
+			auto        getImageView(size_t gframe) CNE_ { auto& e = entries[gframe]; return isExternal? e.external.imageView : e.managed.devImageView; }
+			const auto& getExtent(size_t gframe)    CNE_ { auto& e = entries[gframe]; return isExternal? e.external.extent    : e.managed.devImage.info().extent; }
+			const auto& getFormat(size_t gframe)    CNE_ { auto& e = entries[gframe]; return isExternal? e.external.format    : e.managed.devImage.info().format; }
+			auto begin () CNE_ { return entries.begin (); }
+			auto end   () CNE_ { return entries.end   (); }
+			#undef CNE_
+		};
+
+		class Factory;
+
+		using Descriptions = std::vector<RenderTargetDescription>;
+		using Entries = std::vector<Entry>;
+		using Map = std::unordered_map<RenderTargetId, EntrySet>;
+
+		RenderTargetStorage(): rts_vma(nullptr) { }
+		RenderTargetStorage(RenderTargetStorage&&);  RenderTargetStorage& operator=(RenderTargetStorage&& mv) { this->~RenderTargetStorage(); return * new (this) RenderTargetStorage(std::move(mv)); }
+		~RenderTargetStorage();
+
+		EntryRange getEntrySet(RenderTargetId) const;
+		const RenderTargetDescription& getDescription(RenderTargetId) const;
+
+	private:
+		RenderTargetStorage(const RenderTargetStorage&);
+		VmaAllocator rts_vma;
+		Descriptions rts_descs;
+		Entries rts_entries;
+		Map rts_map; // Maps IDs to (gframeCount-divisible) indices of rts_entries
+		size_t rts_gframeCount;
 	};
 
 
@@ -98,20 +165,17 @@ namespace SKENGINE_NAME_NS {
 			SequenceIndex seqIndex;
 			RenderPassId rpass;
 			RendererId renderer;
-			uint32_t depthImageCount;
+			uint32_t     depthImageCount;
+			VkExtent2D   depthImageExtent;
 			VkDeviceSize depthImageSize;
-		};
-
-		struct DepthImageSet {
-			std::vector<vkutil::Image> image;
-			VkDeviceSize size;
 		};
 
 		class WaveIterator {
 		public:
 			WaveIterator(): wi_rp(nullptr), wi_seqIdx(SequenceIndex(~ seq_idx_e(0))), wi_firstStep(StepId(0)), wi_stepCount(0) { }
 			std::strong_ordering operator<=>(const WaveIterator&) const noexcept;
-			bool operator!=(const WaveIterator& r) const noexcept { return operator<=>(r) != std::strong_ordering::equal; };
+			bool operator==(const WaveIterator& r) const noexcept { return operator<=>(r) == std::strong_ordering::equal; };
+			bool operator!=(const WaveIterator& r) const noexcept { return ! operator==(r); };
 			WaveIterator& operator++();
 			std::span<std::pair<StepId, Step>> operator*();
 			std::span<std::pair<StepId, Step>> operator->() { return operator*(); }
@@ -134,28 +198,36 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct SequenceDescription {
+			std::shared_ptr<RenderTargetStorage::Factory> rtsFactory;
 			std::vector<Step> steps;
-			std::vector<RenderTargetDescription> rtargets;
 			std::vector<RenderPassDescription> rpasses;
 			std::vector<std::weak_ptr<Renderer>> renderers;
 		};
 
-		RenderProcess(): rp_waveIterValidity(0), rp_initialized(false) { }
+		struct ExternalRtarget {
+			std::vector<VkImage> images;
+			VkExtent3D extent;
+		};
+
+		RenderProcess(): rp_gframeCount(0), rp_waveIterValidity(0), rp_initialized(false) { }
 		RenderProcess(const RenderProcess&) = delete;
 		RenderProcess(RenderProcess&&) = delete;
 		#ifndef NDEBUG
 			~RenderProcess();
 		#endif
 
-		void setup(VmaAllocator vma, VkFormat depthImageFormat, const DependencyGraph&);
-		void setup(VmaAllocator vma, VkFormat depthImageFormat, DependencyGraph&&);
-		void setup(VmaAllocator vma, VkFormat depthImageFormat, const SequenceDescription&);
+		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const DependencyGraph&);
+		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, DependencyGraph&&);
+		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const SequenceDescription&);
 		void destroy();
 
-		const Step&         getStep         (StepId) const;
-		const RenderTarget& getRenderTarget (RenderTargetId) const;
-		const RenderPass&   getRenderPass   (RenderPassId) const;
-		const Renderer&     getRenderer     (RendererId) const;
+		const Step&       getStep       (StepId) const;
+		const RenderPass& getRenderPass (RenderPassId) const;
+		const Renderer&   getRenderer   (RendererId) const;
+
+		const RenderTargetDescription& getRenderTargetDescription(RenderTargetId) const;
+		const RenderTarget& getRenderTarget(RenderTargetId, size_t subIndex) const;
+		void setRenderTargetsPerDescription(size_t);
 
 		std::span<const vkutil::ManagedImage> getStepDepthImages(StepId) const;
 
@@ -166,12 +238,14 @@ namespace SKENGINE_NAME_NS {
 		WaveRange waveRange() &;
 
 	private:
+		std::shared_ptr<spdlog::logger> rp_logger;
 		VulkanState rp_vkState;
 		std::vector<std::pair<StepId, Step>> rp_steps;
-		std::vector<RenderTarget> rp_rtargets;
 		std::vector<RenderPass> rp_rpasses;
 		std::vector<std::shared_ptr<Renderer>> rp_renderers;
-		std::vector<vkutil::ManagedImage> rp_depthImages;
+		std::vector<std::pair<vkutil::ManagedImage, VkImageView>> rp_depthImages;
+		RenderTargetStorage rp_rtargetStorage;
+		unsigned rp_gframeCount;
 		unsigned rp_waveIterValidity;
 		bool rp_initialized;
 	};
@@ -199,9 +273,13 @@ namespace SKENGINE_NAME_NS {
 			StepId sg_step;
 		};
 
-		RenderTargetId addRtarget  (RenderTargetDescription);
-		RenderPassId   addRpass    (RenderPassDescription);
-		RendererId     addRenderer (std::weak_ptr<Renderer>);
+		DependencyGraph(std::shared_ptr<spdlog::logger> logger, size_t gframeCount):
+			dg_rtsFactory(std::make_shared<RenderTargetStorage::Factory>(logger, gframeCount))
+		{ }
+
+		RenderTargetId addRtarget (RenderTargetDescription);
+		RenderPassId   addRpass   (RenderPassDescription);
+		RendererId     addRenderer(std::weak_ptr<Renderer>);
 
 		Subgraph addDummyStep();
 		Subgraph addStep(RenderPassId, RendererId);
@@ -210,12 +288,31 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		friend RenderProcess;
-		Steps     dg_steps;
-		Rtargets  dg_rtargets;
-		Rpasses   dg_rpasses;
-		Renderers dg_renderers;
+		std::shared_ptr<RenderTargetStorage::Factory> dg_rtsFactory;
+		Steps       dg_steps;
+		Rpasses     dg_rpasses;
+		Renderers   dg_renderers;
 		DependencyMap dg_dependencies_fwd; // Key comes before Values
 		DependencyMap dg_dependencies_bwd; // Key depends on Values
+		void dg_addRtargetReferenceImage(const vkutil::Image&, const VkExtent3D&);
+	};
+
+
+	class RenderTargetStorage::Factory {
+	private:
+		friend RenderProcess::DependencyGraph;
+		RenderTargetStorage dst;
+		std::shared_ptr<spdlog::logger> logger;
+
+	public:
+		Factory(std::shared_ptr<spdlog::logger>, size_t gframeCount);
+
+		RenderTargetId setRenderTarget(RenderTargetDescription&&);
+
+		size_t entrySetCount() const noexcept { return dst.rts_descs.size(); };
+
+		RenderTargetStorage finalize(VmaAllocator) &;
+		RenderTargetStorage finalize(VmaAllocator) &&;
 	};
 
 
