@@ -60,15 +60,9 @@ namespace fmamdl {
 	using s4_t = int32_t;
 	using s8_t = int64_t;
 
-	#ifdef __STDCPP_FLOAT16_T__
-		using f2_t = std::float16_t;
-	#endif
-	#ifdef __STDCPP_FLOAT32_T__
-		using f4_t = std::float32_t;
-	#endif
-	#ifdef __STDCPP_FLOAT64_T__
-		using f8_t = std::float64_t;
-	#endif
+	using f2_t = std::float16_t;
+	using f4_t = std::float32_t;
+	using f8_t = std::float64_t;
 
 	template <typename T>
 	concept Numeric = std::integral<T> || std::floating_point<T>;

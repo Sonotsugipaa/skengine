@@ -36,6 +36,7 @@ namespace idgen {
 
 	// invalidId < minId  ||  maxId < invalidId
 	// baseid <= generate() <= maxId
+	// INVALID < minId <= baseId <= generate() <= maxId < INVALID
 
 	template <SignedInt   T> constexpr T baseId()    noexcept { return 0; }
 	template <UnsignedInt T> constexpr T baseId()    noexcept { return 1; }

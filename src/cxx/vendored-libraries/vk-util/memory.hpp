@@ -79,8 +79,8 @@ namespace vkutil {
 
 
 	struct Buffer {
-		VkBuffer          value;
-		VmaAllocation     alloc;
+		VkBuffer      value;
+		VmaAllocation alloc;
 
 		static Buffer create  (VmaAllocator, const BufferCreateInfo&, const AllocationCreateInfo&);
 		static void   destroy (VmaAllocator, Buffer&) noexcept;
@@ -99,8 +99,8 @@ namespace vkutil {
 	};
 
 	struct Image {
-		VkImage           value;
-		VmaAllocation     alloc;
+		VkImage       value;
+		VmaAllocation alloc;
 
 		static Image create  (VmaAllocator, const ImageCreateInfo&, const AllocationCreateInfo&);
 		static void  destroy (VmaAllocator, Image&) noexcept;
