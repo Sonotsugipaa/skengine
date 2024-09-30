@@ -22,6 +22,11 @@ namespace {
 
 	using namespace SKENGINE_NAME_NS;
 
+	using posixfio::OpenFlags;
+	using posixfio::Whence;
+	using posixfio::MemProtFlags;
+	using posixfio::MemMapFlags;
+
 
 	enum class LightType : unsigned { eNone = 0, ePoint = 1, eRay = 2 };
 
@@ -80,8 +85,8 @@ namespace {
 		settings.fieldOfView      = glm::degrees(dst->fov_y);
 		settings.logLevel         = *dstLogLevel;
 
-		auto file = posixfio::File::open(filename, O_RDONLY | O_CREAT);
-		parseSettings(&settings, file.mmap(file.lseek(0, SEEK_END), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0), *logger);
+		auto file = posixfio::File::open(filename, OpenFlags::eRdonly | OpenFlags::eCreat);
+		parseSettings(&settings, file.mmap(file.lseek(0, Whence::eEnd), MemProtFlags::eRead, MemMapFlags::ePrivate, 0), *logger);
 
 		dst->init_present_extent = { settings.initialPresentExtent.width, settings.initialPresentExtent.height };
 		dst->max_render_extent   = { settings.maxRenderExtent.width, settings.maxRenderExtent.height };
@@ -245,7 +250,7 @@ namespace {
 
 			std::vector<std::string> nameList;
 			try {
-				nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", O_RDONLY));
+				nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", OpenFlags::eRdonly));
 			} catch(posixfio::FileError& err) {
 				engine->logger().error("File \"assets/object-list.txt\" not found");
 				std::rethrow_exception(std::current_exception());

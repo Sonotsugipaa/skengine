@@ -593,16 +593,17 @@ namespace SKENGINE_NAME_NS {
 	VkShaderModule Engine::createShaderModuleFromFile(
 			const std::string& file_path
 	) {
+		using namespace posixfio;
 		static_assert(4 == sizeof(uint32_t));
 
 		VkShaderModuleCreateInfo    sm_info = { };
 		std::unique_ptr<uint32_t[]> buffer;
 		try {
-			auto file    = posixfio::File::open(file_path.c_str(), O_RDONLY);
-			size_t lsize = file.lseek(0, SEEK_END);
+			auto file    = posixfio::File::open(file_path.c_str(), OpenFlags::eRdonly);
+			size_t lsize = file.lseek(0, Whence::eEnd);
 			if(lsize > UINT32_MAX) throw ShaderModuleReadError("Shader file is too long");
 			if(lsize % 4 != 0)     throw ShaderModuleReadError("Misaligned shader file size");
-			file.lseek(0, SEEK_SET);
+			file.lseek(0, Whence::eSet);
 			buffer    = std::make_unique_for_overwrite<uint32_t[]>(lsize / 4);
 			size_t rd = posixfio::readAll(file, buffer.get(), lsize);
 			if(rd != lsize) throw ShaderModuleReadError("Shader file partially read");

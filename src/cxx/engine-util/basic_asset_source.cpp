@@ -48,12 +48,12 @@ namespace SKENGINE_NAME_NS {
 		// Insert a new mapping
 		posixfio::File file;
 		try {
-			file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
+			file = posixfio::File::open(locator_s.c_str(), posixfio::OpenFlags::eRdonly);
 		} catch(posixfio::FileError& ex) {
 			throw ModelLoadError(ex);
 		}
 
-		auto len  = file.lseek(0, SEEK_END);
+		auto len  = file.lseek(0, posixfio::Whence::eEnd);
 		auto mmap = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
 		auto h    = fmamdl::HeaderView { mmap.get<std::byte>(), mmap.size() };
 		return
@@ -81,13 +81,13 @@ namespace SKENGINE_NAME_NS {
 
 		posixfio::File file;
 		try {
-			file = posixfio::File::open(locator_s.c_str(), O_RDONLY);
+			file = posixfio::File::open(locator_s.c_str(), posixfio::OpenFlags::eRdonly);
 		} catch(posixfio::FileError& ex) {
 			bas_logger->error("Material file not found: {}", locator_s);
 			std::rethrow_exception(std::current_exception());
 		}
 
-		auto len  = file.lseek(0, SEEK_END);
+		auto len  = file.lseek(0, posixfio::Whence::eEnd);
 		auto mmap = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
 		auto h    = fmamdl::MaterialView { mmap.get<std::byte>(), mmap.size() };
 		auto ins  = bas_mtlMmaps.insert(decltype(bas_mtlMmaps)::value_type(std::move(locator_s), MaterialRef {

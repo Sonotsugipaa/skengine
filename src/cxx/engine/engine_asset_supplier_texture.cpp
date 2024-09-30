@@ -290,6 +290,8 @@ namespace SKENGINE_NAME_NS {
 	) {
 		using posixfio::MemProtFlags;
 		using posixfio::MemMapFlags;
+		using posixfio::OpenFlags;
+		using posixfio::Whence;
 		#define FAILED_PRE_ "Failed to load texture \"{}\": "
 
 		assert(dst_width  != nullptr);
@@ -306,13 +308,13 @@ namespace SKENGINE_NAME_NS {
 
 		posixfio::File file;
 		try {
-			file = posixfio::File::open(locator, O_RDONLY);
+			file = posixfio::File::open(locator, OpenFlags::eRdonly);
 		} catch(posixfio::Errcode& ex) {
 			logger.error(FAILED_PRE_ "errno {}", locator_sv, ex.errcode);
 			return false;
 		}
 
-		auto file_len = std::make_unsigned_t<posixfio::off_t>(file.lseek(0, SEEK_END));
+		auto file_len = std::make_unsigned_t<posixfio::off_t>(file.lseek(0, Whence::eEnd));
 		auto mmap     = file.mmap(file_len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
 		void* ptr     = 2 + mmap.get<size_t>();
 		auto& w       = mmap.get<size_t>()[0];

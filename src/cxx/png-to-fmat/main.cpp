@@ -49,9 +49,9 @@ namespace {
 
 	size_t getFileSize(posixfio::FileView file) {
 		try {
-			auto cur = file.lseek(0, SEEK_CUR);
-			auto end = file.lseek(0, SEEK_END);
-			file.lseek(cur, SEEK_SET);
+			auto cur = file.lseek(0, posixfio::Whence::eCur);
+			auto end = file.lseek(0, posixfio::Whence::eEnd);
+			file.lseek(cur, posixfio::Whence::eSet);
 			return size_t(end);
 		} catch(posixfio::FileError& err) {
 			if(err.errcode == ESPIPE) { /* NOP */ }
@@ -62,7 +62,7 @@ namespace {
 
 
 	void convert(const char* src, String& dst) {
-		auto srcFile = posixfio::File::open(src, O_RDONLY);
+		auto srcFile = posixfio::File::open(src, posixfio::OpenFlags::eRdonly);
 		auto srcMap = srcFile.mmap(getFileSize(srcFile), posixfio::MemProtFlags::eRead, posixfio::MemMapFlags::ePrivate, 0);
 		int w;
 		int h;
@@ -76,7 +76,7 @@ namespace {
 			case 3: dst.append(".rgb8u"); break;
 			case 4: dst.append(".rgba8u"); break;
 		}
-		auto dstFile = posixfio::File::open(dst.c_str(), O_RDWR | O_CREAT);
+		auto dstFile = posixfio::File::open(dst.c_str(), posixfio::OpenFlags::eRdwr | posixfio::OpenFlags::eCreat);
 		auto dstFileBuffer = posixfio::ArrayOutputBuffer<>(dstFile);
 
 		try {
@@ -92,7 +92,7 @@ namespace {
 			dstFileBuffer.writeAll(&h64, sizeof(uint64_t));
 			dstFileBuffer.writeAll(stbImage, size_t(w) * size_t(h) * size_t(d));
 			dstFileBuffer.flush();
-			dstFile.ftruncate(dstFile.lseek(0, SEEK_CUR));
+			dstFile.ftruncate(dstFile.lseek(0, posixfio::Whence::eCur));
 		} catch(...) {
 			stbi_image_free(stbImage);
 			std::rethrow_exception(std::current_exception());

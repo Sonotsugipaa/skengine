@@ -25,8 +25,8 @@ inline namespace shcmp {
 
 	shaderc::SpvCompilationResult ShaderCompiler::fileGlslToSpv(const char* filename, shaderc_shader_kind kind) {
 		using namespace posixfio;
-		auto file    = File::open(filename, O_RDONLY);
-		auto len     = file.lseek(0, SEEK_END); file.lseek(0, SEEK_SET);
+		auto file    = File::open(filename, OpenFlags::eRdonly);
+		auto len     = file.lseek(0, Whence::eEnd); file.lseek(0, Whence::eSet);
 		auto map     = file.mmap(len, MemProtFlags::eRead, MemMapFlags::ePrivate, 0);
 		auto res     = sc_compiler.CompileGlslToSpv(map.get<char>(), len, kind, filename, sc_opt);
 		auto cstatus = res.GetCompilationStatus();

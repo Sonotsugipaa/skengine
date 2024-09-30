@@ -259,6 +259,7 @@ namespace fmamdl::conv::obj {
 
 
 	void convert(const Options& opt) {
+		constexpr auto openFlags = posixfio::OpenFlags::eCreat | posixfio::OpenFlags::eRdwr;
 		auto       headerSpace = allocHeader();
 		HeaderView h = { headerSpace.get(), headerSize };
 		h.magicNumber() = fmamdl::currentMagicNumber;
@@ -314,7 +315,7 @@ namespace fmamdl::conv::obj {
 
 		if(! opt.onlyMaterials) { // Write the model file
 			size_t fileSize = vertexTableOffset + vertexTableSize;
-			auto   output   = posixfio::File::open(opt.dstName.data(), O_CREAT | O_RDWR, 0660);
+			auto   output   = posixfio::File::open(opt.dstName.data(), openFlags, 0660);
 			output.ftruncate(fileSize);
 			posixfio::MemMapping map = output.mmap(
 				fileSize,
@@ -371,7 +372,7 @@ namespace fmamdl::conv::obj {
 				+ std::string("/")
 				+ std::string(pmat.first);
 
-			auto output = posixfio::File::open(nameCstr.c_str(), O_CREAT | O_RDWR, 0660);
+			auto output = posixfio::File::open(nameCstr.c_str(), openFlags, 0660);
 			output.ftruncate(fileSize);
 			posixfio::MemMapping map = output.mmap(
 				fileSize,
