@@ -165,7 +165,9 @@ namespace SKENGINE_NAME_NS {
 		rp_rpasses.resize(seqDesc.rpasses.size());
 		rp_renderers.resize(seqDesc.renderers.size());
 
-		for(size_t i = 0; i < rp_steps.size(); ++i) { rp_steps[i] = { idFromIndex<StepId>(i), seqDesc.steps[i] }; }
+		for(size_t i = 0; i < rp_steps.size(); ++i) {
+			rp_steps[i] = std::pair(idFromIndex<StepId>(i), seqDesc.steps[i]);
+		}
 
 		rp_rtargetStorage = rtsFac.finalize(vma);
 
@@ -298,20 +300,14 @@ namespace SKENGINE_NAME_NS {
 
 
 	RP_DG_::Subgraph RP_DG_::addDummyStep() {
-		Subgraph r;
-		r.sg_graph = this;
-		r.sg_step = idFromIndex<StepId>(dg_steps.size());
-		dg_steps.push_back({ idgen::invalidId<RenderPassId>(), idgen::invalidId<RendererId>() });
-		dg_dependencies_fwd.insert(DependencyMap::value_type { r.sg_step, { } });
-		dg_dependencies_bwd.insert(DependencyMap::value_type { r.sg_step, { } });
-		return r;
+		return addStep({ { }, idgen::invalidId<RenderPassId>(), idgen::invalidId<RendererId>(), { } });
 	}
 
-	RP_DG_::Subgraph RP_DG_::addStep(RenderPassId rpass, RendererId renderer) {
+	RP_DG_::Subgraph RP_DG_::addStep(StepDescription stepDesc) {
 		Subgraph r;
 		r.sg_graph = this;
 		r.sg_step = idFromIndex<StepId>(dg_steps.size());
-		dg_steps.push_back({ rpass, renderer });
+		dg_steps.push_back(stepDesc);
 		dg_dependencies_fwd.insert(DependencyMap::value_type { r.sg_step, { } });
 		dg_dependencies_bwd.insert(DependencyMap::value_type { r.sg_step, { } });
 		return r;
@@ -381,16 +377,14 @@ namespace SKENGINE_NAME_NS {
 					return false;
 				} ();
 				if(! skipDep) {
-					auto  stepIdx = idToIndex<StepId>(stepDeps.first);
-					auto& step    = dg_steps[stepIdx];
-					if(step.rpass != idgen::invalidId<RenderPassId>()) { // Scan required depth images
-						auto& rpass = dg_rpasses[idToIndex<RenderPassId>(step.rpass)];
+					auto  stepIdx  = idToIndex<StepId>(stepDeps.first);
+					auto& stepDesc = dg_steps[stepIdx];
+					if(stepDesc.rpass != idgen::invalidId<RenderPassId>()) { // Scan required depth images
+						auto& rpass = dg_rpasses[idToIndex<RenderPassId>(stepDesc.rpass)];
 						subpassDepthSizes(depthImageExtent, depthImageSize, depthImageCount, rpass.subpasses);
 					}
-					r.steps.push_back(Step {
-						.seqIndex         = SequenceIndex(seq),
-						.rpass            = step.rpass,
-						.renderer         = step.renderer });
+					Step step = { std::move(stepDesc), SequenceIndex(seq) };
+					r.steps.push_back(std::move(step));
 					localResolvedSteps.insert(stepDeps.first);
 					localUnresolvedSteps.erase(stepDeps.first);
 					++ resolved;

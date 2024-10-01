@@ -542,8 +542,8 @@ namespace SKENGINE_NAME_NS {
 			worldRtargetRefs->reserve(mGframes.size());
 			uiRtargetRefs   ->reserve(mGframes.size());
 			for(auto& gframe : mGframes) {
-				worldRtargetRefs->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
-				uiRtargetRefs   ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
+				worldRtargetRefs->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
+				uiRtargetRefs   ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
 			}
 			RtDesc rtDesc[2] = {
 				RtDesc { worldRtargetRefs, renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false, true },
@@ -562,11 +562,11 @@ namespace SKENGINE_NAME_NS {
 				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
 				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
 			Atch dummyInAtch[2]; for(size_t i = 0; i < std::size(dummyInAtch); ++i) dummyInAtch[i] = {
-				.rtarget = depGraph.addRtarget(RtDesc { nullptr, renderExt3d, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
+				.rtarget = depGraph.addRtarget(RtDesc { nullptr, presentExt3d, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
 				.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE };
 			Atch dummyColAtch[2]; for(size_t i = 0; i < std::size(dummyColAtch); ++i) dummyColAtch[i] = {
-				.rtarget = depGraph.addRtarget(RtDesc { nullptr, renderExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
+				.rtarget = depGraph.addRtarget(RtDesc { nullptr, presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
 				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
 			worldRpDesc.subpasses.push_back(SpDesc {
@@ -598,23 +598,30 @@ namespace SKENGINE_NAME_NS {
 				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 				.requiresDepthAttachments = true });
 			uiRpDesc.framebufferSize = presentExt3d;
-			const auto& nullRpass = idgen::invalidId<RenderPassId>();
 			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
 			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
-			RendererId renderers[] = { depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }) };
-			auto sg1 = depGraph.addStep(nullRpass,    renderers[0]);             // present
-			auto sg2 = depGraph.addStep(worldRpassId, renderers[1]).before(sg1); // render
-			auto sg3 = depGraph.addStep(nullRpass,    renderers[2]).after(sg1);  // post-processing
-			;          depGraph.addStep(nullRpass,    renderers[3]).after(sg2);  // outline
-			;          depGraph.addStep(uiRpassId,    renderers[4]).after(sg2);  // ui
-			;          depGraph.addStep(nullRpass,    renderers[5]).before(sg3); // depth
+			auto addStep = [&depGraph](RenderPassId rpass, RendererId renderer, const VkExtent3D& ext) {
+				RenderProcess::StepDescription desc = { };
+				desc.rpass = rpass;
+				desc.renderer = renderer;
+				desc.renderArea.extent = { ext.width, ext.height };
+				return depGraph.addStep(std::move(desc));
+			};
+			RendererId renderers[] = { depGraph.addRenderer({ }), depGraph.addRenderer({ }) };
+			auto sg0 = addStep(worldRpassId, renderers[0], renderExt3d );
+			;          addStep(uiRpassId,    renderers[1], presentExt3d).after(sg0);
 			try {
 				mRenderProcess.setup(mVma, mLogger, mDepthAtchFmt, mGframes.size(), depGraph.assembleSequence());
 				mLogger->debug("Renderer list:");
 				size_t waveIdx = 0;
 				for(auto wave : mRenderProcess.waveRange()) {
-					for(auto step : wave) {
-						mLogger->debug("  Wave {:3}: step {:3} renderer {:3}", waveIdx, RenderProcess::step_id_e(step.first), render_target_id_e(step.second.renderer));
+					for(auto& step : wave) {
+						auto& ra = step.second.renderArea;
+						mLogger->debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
+							waveIdx,
+							RenderProcess::step_id_e(step.first),
+							render_target_id_e(step.second.renderer),
+							ra.offset.x, ra.offset.y, ra.extent.width, ra.extent.height );
 					}
 					++ waveIdx;
 				}

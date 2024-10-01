@@ -178,10 +178,15 @@ namespace SKENGINE_NAME_NS {
 			VkDevice device() noexcept { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; }
 		};
 
-		struct Step {
-			SequenceIndex seqIndex;
+		struct StepDescription {
+			util::TransientPtrRange<VkClearColorValue> clearColors;
 			RenderPassId rpass;
 			RendererId renderer;
+			VkRect2D renderArea;
+		};
+
+		struct Step : StepDescription {
+			SequenceIndex seqIndex;
 		};
 
 		class WaveIterator {
@@ -269,7 +274,6 @@ namespace SKENGINE_NAME_NS {
 
 	class RenderProcess::DependencyGraph {
 	public:
-		struct StepDescription { RenderPassId rpass; RendererId renderer; };
 		using Steps = std::vector<StepDescription>;
 		using Rtargets = std::vector<RenderTargetDescription>;
 		using Rpasses = std::vector<RenderPassDescription>;
@@ -298,7 +302,7 @@ namespace SKENGINE_NAME_NS {
 		RendererId     addRenderer(std::weak_ptr<Renderer>);
 
 		Subgraph addDummyStep();
-		Subgraph addStep(RenderPassId, RendererId);
+		Subgraph addStep(StepDescription);
 
 		SequenceDescription assembleSequence() const;
 

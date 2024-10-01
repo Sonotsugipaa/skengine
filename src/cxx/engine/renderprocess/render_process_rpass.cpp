@@ -248,7 +248,7 @@ namespace SKENGINE_NAME_NS {
 			rpcInfo.pDependencies = subpassDeps.data();
 		}
 
-		try {// Create the rpass, then framebuffers (one for each rpass, for each gframe)
+		try { // Create the rpass, then framebuffers (one for each rpass, for each gframe)
 			VK_CHECK(vkCreateRenderPass, vkDev, &rpcInfo, nullptr, &dst->handle);
 			std::vector<VkImageView> framebufferAttachmentList;
 			VkFramebufferCreateInfo fbcInfo = { };
@@ -268,7 +268,7 @@ namespace SKENGINE_NAME_NS {
 						auto& spAtchViews_a = spAtchViews_sp[atchIdx];
 						assert(gframeIdx < spAtchViews_a.size());
 						auto imgView = spAtchViews_a[gframeIdx];
-						logger.trace("render_process: subpass {} gframe {} attachment {} is {:016x}", spIdx, gframeIdx, framebufferAttachmentList.size(), size_t(imgView));
+						logger.trace("render_process: gframe {} subpass {} attachment {} is {:016x}", gframeIdx, spIdx, framebufferAttachmentList.size(), size_t(imgView));
 						framebufferAttachmentList.push_back(imgView);
 					}
 				}
