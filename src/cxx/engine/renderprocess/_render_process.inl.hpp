@@ -44,8 +44,10 @@ namespace SKENGINE_NAME_NS {
 
 	struct RprocRpassCreateVectorCache {
 		using ImageViewVec3 = std::vector<std::vector<std::vector<VkImageView>>>;
+		using AtchRefIndices = std::tuple<size_t, size_t, size_t>;
 		std::vector<VkAttachmentDescription> atchDescs;
 		std::vector<VkAttachmentReference>   atchRefs;
+		std::vector<AtchRefIndices>          atchRefIndices;
 		std::vector<VkSubpassDescription>    subpassDescs;
 		std::vector<VkSubpassDependency>     subpassDeps;
 		ImageViewVec3                        subpassAtchViews;
@@ -54,6 +56,7 @@ namespace SKENGINE_NAME_NS {
 			if(atchHeuristic > 0) {
 				atchDescs       .reserve(atchHeuristic);
 				atchRefs        .reserve(atchHeuristic);
+				atchRefIndices  .reserve(atchHeuristic);
 				subpassDescs    .reserve(atchHeuristic);
 				subpassDeps     .reserve(atchHeuristic);
 				subpassAtchViews.reserve(atchHeuristic * std::max(size_t(1), gframeCount));
@@ -62,6 +65,7 @@ namespace SKENGINE_NAME_NS {
 		void clear() {
 			atchDescs       .clear();
 			atchRefs        .clear();
+			atchRefIndices  .clear();
 			subpassDescs    .clear();
 			subpassDeps     .clear();
 			subpassAtchViews.clear();

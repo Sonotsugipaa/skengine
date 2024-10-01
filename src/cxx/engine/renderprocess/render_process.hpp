@@ -69,10 +69,10 @@ namespace SKENGINE_NAME_NS {
 			TPR_<Dependency> subpassDependencies;
 			VkAttachmentLoadOp  depthLoadOp;
 			VkAttachmentStoreOp depthStoreOp;
-			VkExtent3D framebufferSize;
 			bool requiresDepthAttachments;
 		};
 		std::vector<Subpass> subpasses;
+		VkExtent3D framebufferSize;
 		#undef TPR_
 	};
 

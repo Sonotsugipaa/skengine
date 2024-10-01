@@ -530,6 +530,7 @@ namespace SKENGINE_NAME_NS {
 			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
 			using RpDesc = RenderPassDescription;
 			using SpDesc = RpDesc::Subpass;
+			using SpDep = SpDesc::Dependency;
 			using Atch = SpDesc::Attachment;
 			using RtDesc = RenderTargetDescription;
 			using ImgRef = RtDesc::ImageRef;
@@ -569,13 +570,20 @@ namespace SKENGINE_NAME_NS {
 				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
 			worldRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { },
-				.colorAttachments = { worldColAtch },
-				.subpassDependencies = { },
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				.framebufferSize = renderExt3d,
-				.requiresDepthAttachments = true });
+					.inputAttachments = { }, .colorAttachments = { worldColAtch },
+					.subpassDependencies = { },
+					.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
+					.requiresDepthAttachments = true });
+			worldRpDesc.subpasses.push_back(SpDesc {
+					.inputAttachments = { }, .colorAttachments = { worldColAtch },
+					.subpassDependencies = { SpDep {
+						.srcSubpass = 0,
+						.srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, .dstStageMask  = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+						.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,            .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+						.dependencyFlags = { } }},
+					.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+					.requiresDepthAttachments = true });
+			worldRpDesc.framebufferSize = renderExt3d;
 			uiRpDesc.subpasses.push_back(SpDesc {
 				.inputAttachments = { dummyInAtch[0], dummyInAtch[1] },
 				.colorAttachments = { uiColAtch, dummyColAtch[0], dummyColAtch[1] },
@@ -588,8 +596,8 @@ namespace SKENGINE_NAME_NS {
 					.dependencyFlags = { } }},
 				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				.framebufferSize = presentExt3d,
 				.requiresDepthAttachments = true });
+			uiRpDesc.framebufferSize = presentExt3d;
 			const auto& nullRpass = idgen::invalidId<RenderPassId>();
 			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
 			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );

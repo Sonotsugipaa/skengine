@@ -25,6 +25,7 @@ namespace SKENGINE_NAME_NS {
 		MK_ALIAS_(rprocRpcInfo, depthImages)
 		MK_ALIAS_(vectorCache, atchDescs)
 		MK_ALIAS_(vectorCache, atchRefs)
+		MK_ALIAS_(vectorCache, atchRefIndices)
 		MK_ALIAS_(vectorCache, subpassDescs)
 		MK_ALIAS_(vectorCache, subpassDeps)
 		MK_ALIAS_(vectorCache, subpassAtchViews)
@@ -35,6 +36,7 @@ namespace SKENGINE_NAME_NS {
 		dst->description = *rpassDesc;
 		logger.trace("render_process: creating rpass {}", rpassIdx);
 		vectorCache.clear();
+		// Populate the attachment vectors.
 		// Layout of subpassAtchViews:
 		//    sp0 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } },
 		//    sp1 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } } ...
@@ -99,19 +101,29 @@ namespace SKENGINE_NAME_NS {
 				atchRef.layout = atchDesc.finalLayout;
 				++ usedDepthImages;
 			}
+			atchRefIndices.push_back(std::tuple(firstInputAtch, firstColorAtch, depthAtch));
+		}
+		// Populate the subpass descriptions.
+		// This needs to happen in a separate loop from the population of attachments,
+		// due to attachment vectors being invalidated.
+		assert(rpassDesc->subpasses.size() == atchRefIndices.size());
+		for(size_t spIdx = 0; spIdx < rpassDesc->subpasses.size(); ++ spIdx) {
+			auto& rpSubpass = rpassDesc->subpasses[spIdx];
 			subpassDescs.push_back({ });
 			auto& subpassDesc = subpassDescs.back(); {
+				auto& indices = atchRefIndices[spIdx];
 				subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 				subpassDesc.inputAttachmentCount = rpSubpass.inputAttachments.size();
-				subpassDesc.pInputAttachments    = atchRefs.data() + firstInputAtch;
+				subpassDesc.pInputAttachments    = atchRefs.data() + std::get<0>(indices);
 				subpassDesc.colorAttachmentCount = rpSubpass.colorAttachments.size();
-				subpassDesc.pColorAttachments    = atchRefs.data() + firstColorAtch;
-				subpassDesc.pDepthStencilAttachment = rpSubpass.requiresDepthAttachments? atchRefs.data() + depthAtch : nullptr;
+				subpassDesc.pColorAttachments    = atchRefs.data() + std::get<1>(indices);
+				subpassDesc.pDepthStencilAttachment = rpSubpass.requiresDepthAttachments? atchRefs.data() + std::get<2>(indices) : nullptr;
 			}
 			for(auto& rpDep : rpSubpass.subpassDependencies) {
 				subpassDeps.push_back({ });
 				auto& dstDep = subpassDeps.back(); {
 					dstDep.srcSubpass      = rpDep.srcSubpass;
+					dstDep.dstSubpass      = spIdx;
 					dstDep.srcStageMask    = rpDep.srcStageMask;
 					dstDep.dstStageMask    = rpDep.dstStageMask;
 					dstDep.srcAccessMask   = rpDep.srcAccessMask;
@@ -136,18 +148,18 @@ namespace SKENGINE_NAME_NS {
 		dst->framebuffers.reserve(gframeCount);
 		try {// Create one framebuffer for each rpass, for each gframe
 			std::vector<VkImageView> framebufferAttachmentList;
-			for(size_t spIdx = 0; spIdx < rpassDesc->subpasses.size(); ++ spIdx) {
-				assert(spIdx < subpassAtchViews.size());
-				auto& spAtchViews_sp = subpassAtchViews[spIdx];
-				VkFramebufferCreateInfo fbcInfo = { };
-				fbcInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-				fbcInfo.renderPass = dst->handle;
-				auto& fbExtent = rpassDesc->subpasses[spIdx].framebufferSize;
-				fbcInfo.width  = fbExtent.width;
-				fbcInfo.height = fbExtent.height;
-				fbcInfo.layers = fbExtent.depth;
-				for(size_t gframeIdx = 0; gframeIdx < gframeCount; ++ gframeIdx) {
-					framebufferAttachmentList.clear();
+			VkFramebufferCreateInfo fbcInfo = { };
+			fbcInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			fbcInfo.renderPass = dst->handle;
+			auto& fbExtent = rpassDesc->framebufferSize;
+			fbcInfo.width  = fbExtent.width;
+			fbcInfo.height = fbExtent.height;
+			fbcInfo.layers = fbExtent.depth;
+			for(size_t gframeIdx = 0; gframeIdx < gframeCount; ++ gframeIdx) {
+				framebufferAttachmentList.clear();
+				for(size_t spIdx = 0; spIdx < rpassDesc->subpasses.size(); ++ spIdx) {
+					assert(spIdx < subpassAtchViews.size());
+					auto& spAtchViews_sp = subpassAtchViews[spIdx];
 					for(size_t atchIdx = 0; atchIdx < spAtchViews_sp.size(); ++ atchIdx) {
 						assert(atchIdx < spAtchViews_sp.size());
 						auto& spAtchViews_a = spAtchViews_sp[atchIdx];
@@ -156,13 +168,12 @@ namespace SKENGINE_NAME_NS {
 						logger.trace("render_process: subpass {} gframe {} attachment {} is {:016x}", spIdx, gframeIdx, framebufferAttachmentList.size(), size_t(imgView));
 						framebufferAttachmentList.push_back(imgView);
 					}
-					assert(subpassAtchViews.size() > spIdx);
-					fbcInfo.attachmentCount = framebufferAttachmentList.size();
-					fbcInfo.pAttachments    = framebufferAttachmentList.data();
-					VkFramebuffer fb;
-					VK_CHECK(vkCreateFramebuffer, vkDev, &fbcInfo, nullptr, &fb);
-					dst->framebuffers.push_back(fb);
 				}
+				fbcInfo.attachmentCount = framebufferAttachmentList.size();
+				fbcInfo.pAttachments    = framebufferAttachmentList.data();
+				VkFramebuffer fb;
+				VK_CHECK(vkCreateFramebuffer, vkDev, &fbcInfo, nullptr, &fb);
+				dst->framebuffers.push_back(fb);
 			}
 		} catch(vkutil::VulkanError&) {
 			for(auto fb : dst->framebuffers) vkDestroyFramebuffer(vkDev, fb, nullptr);
