@@ -78,8 +78,12 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct RenderPass {
+		struct FramebufferData {
+			VkFramebuffer handle;
+			std::vector<std::pair<vkutil::ManagedImage, VkImageView>> depthImages;
+		};
 		RenderPassDescription description;
-		std::vector<VkFramebuffer> framebuffers;
+		std::vector<FramebufferData> framebuffers;
 		VkRenderPass handle;
 		operator bool() const noexcept { return handle != nullptr; }
 	};
@@ -178,9 +182,6 @@ namespace SKENGINE_NAME_NS {
 			SequenceIndex seqIndex;
 			RenderPassId rpass;
 			RendererId renderer;
-			uint32_t     depthImageCount;
-			VkExtent3D   depthImageExtent;
-			VkDeviceSize depthImageSize;
 		};
 
 		class WaveIterator {
@@ -248,8 +249,6 @@ namespace SKENGINE_NAME_NS {
 		const RenderTargetDescription& getRenderTargetDescription(RenderTargetId) const &;
 		const RenderTarget& getRenderTarget(RenderTargetId, size_t subIndex) const &;
 
-		std::span<const vkutil::ManagedImage> getStepDepthImages(StepId) const;
-
 		auto gframeCount() const noexcept { return rp_gframeCount; }
 		VulkanState getVulkanState() const noexcept { return rp_vkState; }
 
@@ -261,10 +260,7 @@ namespace SKENGINE_NAME_NS {
 		std::vector<std::pair<StepId, Step>> rp_steps;
 		std::vector<RenderPass> rp_rpasses;
 		std::vector<std::shared_ptr<Renderer>> rp_renderers;
-		std::vector<std::pair<vkutil::ManagedImage, VkImageView>> rp_depthImages;
 		RenderTargetStorage rp_rtargetStorage;
-		VkExtent3D rp_depthImageExtent;
-		VkFormat rp_depthImageFormat;
 		unsigned rp_gframeCount;
 		unsigned rp_waveIterValidity;
 		bool rp_initialized;

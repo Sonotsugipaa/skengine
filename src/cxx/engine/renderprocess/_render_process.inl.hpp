@@ -74,11 +74,10 @@ namespace SKENGINE_NAME_NS {
 
 	struct RprocRpassCreateInfo {
 		spdlog::logger& logger;
-		VkDevice vkDev;
+		VmaAllocator vma;
 		size_t gframeCount;
 		const RenderTargetStorage& rtargetStorage;
 		VkFormat depthImageFormat;
-		const std::vector<std::pair<vkutil::ManagedImage, VkImageView>>& depthImages;
 	};
 
 	void createRprocRpass(
@@ -89,6 +88,6 @@ namespace SKENGINE_NAME_NS {
 		RprocRpassCreateVectorCache&
 	);
 
-	void destroyRprocRpass(RenderPass*, VkDevice dev);
+	void destroyRprocRpass(RenderPass*, VmaAllocator);
 
 }

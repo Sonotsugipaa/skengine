@@ -8,6 +8,95 @@
 
 namespace SKENGINE_NAME_NS {
 
+	namespace {
+
+		template <typename T>
+		concept ImageContainer = requires(T t) {
+			requires std::ranges::input_range<T>;
+			requires std::is_assignable_v<vkutil::ManagedImage, decltype(t.begin()->first)>;
+		};
+
+		template <typename T>
+		concept NonconstImageContainer = requires(T t) {
+			requires ImageContainer<T>;
+			requires ! std::is_const_v<std::remove_reference_t<decltype(t.begin()->first)>>;
+		};
+
+
+		template <NonconstImageContainer DepthImages>
+		void createDepthImages(
+			VmaAllocator vma,
+			VkDevice dev,
+			DepthImages& dst,
+			const VkExtent3D& depthImageExtent,
+			VkFormat depthImageFormat,
+			size_t firstIndex = 0,
+			size_t lastIndex = SIZE_MAX
+		) {
+			assert((! dst.empty()) && "depth image container must have the desired size");
+			assert((dst.front().second == nullptr) && "depth image container elements must not contain existing images");
+			firstIndex = std::min(firstIndex, dst.size());
+			lastIndex  = std::min(lastIndex,  dst.size());
+			if(firstIndex == lastIndex) [[unlikely]] return;
+			vkutil::ImageCreateInfo depthImgIcInfo = { }; { auto& i = depthImgIcInfo;
+				i.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+				i.extent = depthImageExtent;
+				i.format = depthImageFormat;
+				i.type = VK_IMAGE_TYPE_2D;
+				i.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				i.samples = VK_SAMPLE_COUNT_1_BIT;
+				i.tiling = VK_IMAGE_TILING_OPTIMAL;
+				i.arrayLayers = 1;
+				i.mipLevels = 1;
+			}
+			vkutil::AllocationCreateInfo depthImgAcInfo = { }; { auto& i = depthImgAcInfo;
+				i.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			}
+			VkImageViewCreateInfo depthImgIvcInfo = { }; { auto& i = depthImgIvcInfo;
+				#define SWID_ VK_COMPONENT_SWIZZLE_IDENTITY
+				i.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				i.image = { };
+				i.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				i.format = depthImageFormat;
+				i.components = { SWID_, SWID_, SWID_, SWID_ };
+				i.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+				i.subresourceRange.levelCount = 1;
+				i.subresourceRange.layerCount = 1;
+				#undef SWID_
+			}
+			for(size_t depthImgIdx = firstIndex; depthImgIdx < lastIndex; ++ depthImgIdx) {
+				auto& dstImage = dst[depthImgIdx];
+				dstImage.first = vkutil::ManagedImage::create(vma, depthImgIcInfo, depthImgAcInfo);
+				depthImgIvcInfo.image = dstImage.first;
+				vkCreateImageView(dev, &depthImgIvcInfo, nullptr, &dstImage.second);
+			}
+		}
+
+
+		template <NonconstImageContainer DepthImages>
+		void destroyDepthImages(
+			VmaAllocator vma,
+			VkDevice dev,
+			DepthImages& dst,
+			size_t firstIndex = 0,
+			size_t lastIndex = SIZE_MAX
+		) {
+			firstIndex = std::min(firstIndex, dst.size());
+			lastIndex  = std::min(lastIndex,  dst.size());
+			for(size_t i = firstIndex; i < lastIndex; ++i) {
+				auto& img = dst[i];
+				vkDestroyImageView(dev, img.second, nullptr);
+				vkutil::ManagedImage::destroy(vma, img.first);
+				#ifndef NDEBUG
+					img = { };
+				#endif
+			}
+		}
+
+	}
+
+
+
 	void createRprocRpass(
 		RenderPass* dst,
 		size_t rpassIdx,
@@ -15,14 +104,12 @@ namespace SKENGINE_NAME_NS {
 		const RprocRpassCreateInfo& rprocRpcInfo,
 		RprocRpassCreateVectorCache& vectorCache
 	) {
-		#warning "Depth image allocation is wrong; realistically, each rpass should have its own set of depth images"
 		#define MK_ALIAS_(S_, M_) auto& M_ = S_.M_;
 		MK_ALIAS_(rprocRpcInfo, logger)
-		MK_ALIAS_(rprocRpcInfo, vkDev)
+		MK_ALIAS_(rprocRpcInfo, vma)
 		MK_ALIAS_(rprocRpcInfo, gframeCount)
 		MK_ALIAS_(rprocRpcInfo, rtargetStorage)
 		MK_ALIAS_(rprocRpcInfo, depthImageFormat)
-		MK_ALIAS_(rprocRpcInfo, depthImages)
 		MK_ALIAS_(vectorCache, atchDescs)
 		MK_ALIAS_(vectorCache, atchRefs)
 		MK_ALIAS_(vectorCache, atchRefIndices)
@@ -30,17 +117,31 @@ namespace SKENGINE_NAME_NS {
 		MK_ALIAS_(vectorCache, subpassDeps)
 		MK_ALIAS_(vectorCache, subpassAtchViews)
 		#undef MK_ALIAS_
-		size_t usedDepthImages = 0;
-		uint_fast32_t colorAtchCount = 0;
+		auto vkDev = [&](auto vma) { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; } (vma);
 		*dst = RenderPass { };
 		dst->description = *rpassDesc;
 		logger.trace("render_process: creating rpass {}", rpassIdx);
 		vectorCache.clear();
+		dst->framebuffers.resize(gframeCount, { });
+
+		// Create each framebuffer's set of depth images
+		size_t depthImagesPerGframe = [&]() {
+			size_t r = 0;
+			for(auto& spDesc : rpassDesc->subpasses) if(spDesc.requiresDepthAttachments) ++r;
+			return r;
+		} ();
+		for(size_t gframeIdx = 0; gframeIdx < gframeCount; ++ gframeIdx) {
+			auto& depthImages = dst->framebuffers[gframeIdx].depthImages;
+			depthImages.resize(depthImagesPerGframe, { });
+			createDepthImages(vma, vkDev, depthImages, rpassDesc->framebufferSize, depthImageFormat);
+		}
+
 		// Populate the attachment vectors.
 		// Layout of subpassAtchViews:
 		//    sp0 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } },
 		//    sp1 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } } ...
 		for(size_t spIdx = 0; spIdx < rpassDesc->subpasses.size(); ++ spIdx) {
+			size_t usedDepthImages = 0;
 			auto& rpSubpass = rpassDesc->subpasses[spIdx];
 			logger.trace("render_process: appending subpass {}", spIdx);
 			subpassAtchViews.push_back({ });
@@ -86,9 +187,11 @@ namespace SKENGINE_NAME_NS {
 				subpassAtchViewSet_sp.push_back({ });
 				auto& subpassAtchViewSet_a = subpassAtchViewSet_sp.back();
 				for(size_t i = 0; i < gframeCount; ++i) {
-					++ usedDepthImages;
+					assert(i < dst->framebuffers.size());
+					auto& depthImages = dst->framebuffers[i].depthImages;
 					assert(usedDepthImages < depthImages.size());
-					logger.trace("render_process: appending depth attachment a{},gf{} = [{}] {:016x}", subpassAtchViewSet_sp.size(), subpassAtchViewSet_a.size(), usedDepthImages-1, size_t(depthImages[usedDepthImages].second));
+					auto& depthImage = depthImages[usedDepthImages];
+					logger.trace("render_process: appending depth attachment a{},gf{} = {:016x}", subpassAtchViewSet_sp.size(), subpassAtchViewSet_a.size(), size_t(depthImage.second));
 					subpassAtchViewSet_a.push_back(depthImages[usedDepthImages].second);
 				}
 				depthAtchDesc = { };
@@ -103,6 +206,7 @@ namespace SKENGINE_NAME_NS {
 			}
 			atchRefIndices.push_back(std::tuple(firstInputAtch, firstColorAtch, depthAtch));
 		}
+
 		// Populate the subpass descriptions.
 		// This needs to happen in a separate loop from the population of attachments,
 		// due to attachment vectors being invalidated.
@@ -131,8 +235,8 @@ namespace SKENGINE_NAME_NS {
 					dstDep.dependencyFlags = rpDep.dependencyFlags;
 				}
 			}
-			colorAtchCount += rpSubpass.colorAttachments.size();
 		}
+
 		logger.trace("render_process: finished appending subpasses for rpass {}", rpassIdx);
 		VkRenderPassCreateInfo rpcInfo = { }; {
 			rpcInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -143,10 +247,9 @@ namespace SKENGINE_NAME_NS {
 			rpcInfo.dependencyCount = subpassDeps.size();
 			rpcInfo.pDependencies = subpassDeps.data();
 		}
-		assert(atchDescs.size() == atchRefs.size());
-		VK_CHECK(vkCreateRenderPass, vkDev, &rpcInfo, nullptr, &dst->handle);
-		dst->framebuffers.reserve(gframeCount);
-		try {// Create one framebuffer for each rpass, for each gframe
+
+		try {// Create the rpass, then framebuffers (one for each rpass, for each gframe)
+			VK_CHECK(vkCreateRenderPass, vkDev, &rpcInfo, nullptr, &dst->handle);
 			std::vector<VkImageView> framebufferAttachmentList;
 			VkFramebufferCreateInfo fbcInfo = { };
 			fbcInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -173,10 +276,13 @@ namespace SKENGINE_NAME_NS {
 				fbcInfo.pAttachments    = framebufferAttachmentList.data();
 				VkFramebuffer fb;
 				VK_CHECK(vkCreateFramebuffer, vkDev, &fbcInfo, nullptr, &fb);
-				dst->framebuffers.push_back(fb);
+				dst->framebuffers[gframeIdx].handle = fb;
 			}
 		} catch(vkutil::VulkanError&) {
-			for(auto fb : dst->framebuffers) vkDestroyFramebuffer(vkDev, fb, nullptr);
+			for(auto fb : dst->framebuffers) {
+				if(fb.handle != nullptr) vkDestroyFramebuffer(vkDev, fb.handle, nullptr);
+				destroyDepthImages(vma, vkDev, fb.depthImages);
+			}
 			dst->framebuffers.clear();
 			vkDestroyRenderPass(vkDev, dst->handle, nullptr);
 			std::rethrow_exception(std::current_exception());
@@ -184,10 +290,14 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void destroyRprocRpass(RenderPass* rpass, VkDevice dev) {
-		for(auto fb : rpass->framebuffers) vkDestroyFramebuffer(dev, fb, nullptr);
+	void destroyRprocRpass(RenderPass* rpass, VmaAllocator vma) {
+		auto vkDev = [&](auto vma) { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; } (vma);
+		for(auto fb : rpass->framebuffers) {
+			if(fb.handle != nullptr) vkDestroyFramebuffer(vkDev, fb.handle, nullptr);
+			destroyDepthImages(vma, vkDev, fb.depthImages);
+		}
 		rpass->framebuffers.clear();
-		vkDestroyRenderPass(dev, rpass->handle, nullptr);
+		vkDestroyRenderPass(vkDev, rpass->handle, nullptr);
 		*rpass = { };
 	}
 
