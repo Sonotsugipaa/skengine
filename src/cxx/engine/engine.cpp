@@ -533,39 +533,52 @@ namespace SKENGINE_NAME_NS {
 			using Atch = SpDesc::Attachment;
 			using RtDesc = RenderTargetDescription;
 			using ImgRef = RtDesc::ImageRef;
-			auto renderExt3d = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
+			using RtResize = RenderProcess::RtargetResizeInfo;
+			auto renderExt3d  = VkExtent3D { mRenderExtent .width, mRenderExtent .height, 1 };
 			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
-			auto uiRtargetRefs = std::make_shared<std::vector<ImgRef>>();
-			uiRtargetRefs->reserve(mGframes.size());
-			for(auto& gframe : mGframes) uiRtargetRefs->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
+			auto worldRtargetRefs = std::make_shared<std::vector<ImgRef>>();
+			auto uiRtargetRefs    = std::make_shared<std::vector<ImgRef>>();
+			worldRtargetRefs->reserve(mGframes.size());
+			uiRtargetRefs   ->reserve(mGframes.size());
+			for(auto& gframe : mGframes) {
+				worldRtargetRefs->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
+				uiRtargetRefs   ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
+			}
 			RtDesc rtDesc[2] = {
-				RtDesc { nullptr,       renderExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false },
-				RtDesc { uiRtargetRefs, renderExt3d,                                       VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false } };
-			RpDesc uiRpDesc;
-			Atch uiColAtch = {
-				.rtarget = depGraph.addRtarget(RenderTargetDescription {
-					.externalImages = uiRtargetRefs,
-					.extent = presentExt3d,
-					.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-					.format = mSurfaceFormat.format,
-					.hostReadable = false, .hostWriteable = false, .hostAccessSequential = false }),
+				RtDesc { worldRtargetRefs, renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false, true },
+				RtDesc { uiRtargetRefs,    presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false, true } };
+			RpDesc worldRpDesc, uiRpDesc;
+			Atch worldColAtch = {
+				.rtarget = depGraph.addRtarget(rtDesc[0]),
 				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
 				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			Atch dummyAtch[5];
-			for(size_t i = 0; i < std::size(dummyAtch); ++i) {
-				dummyAtch[i] = uiColAtch;
-				dummyAtch[i].rtarget = depGraph.addRtarget(RenderTargetDescription {
-					.externalImages = { },
-					.extent = presentExt3d,
-					.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-					.format = mSurfaceFormat.format,
-					.hostReadable = false, .hostWriteable = false, .hostAccessSequential = false });
-			}
+			Atch uiColAtch = {
+				.rtarget = depGraph.addRtarget(rtDesc[1]),
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			Atch dummyInAtch[2]; for(size_t i = 0; i < std::size(dummyInAtch); ++i) dummyInAtch[i] = {
+				.rtarget = depGraph.addRtarget(RtDesc { nullptr, renderExt3d, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
+				.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE };
+			Atch dummyColAtch[2]; for(size_t i = 0; i < std::size(dummyColAtch); ++i) dummyColAtch[i] = {
+				.rtarget = depGraph.addRtarget(RtDesc { nullptr, renderExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			worldRpDesc.subpasses.push_back(SpDesc {
+				.inputAttachments = { },
+				.colorAttachments = { worldColAtch },
+				.subpassDependencies = { },
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.framebufferSize = renderExt3d,
+				.requiresDepthAttachments = true });
 			uiRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { dummyAtch[0], dummyAtch[2] },
-				.colorAttachments = { uiColAtch, dummyAtch[1], dummyAtch[3], dummyAtch[4] },
+				.inputAttachments = { dummyInAtch[0], dummyInAtch[1] },
+				.colorAttachments = { uiColAtch, dummyColAtch[0], dummyColAtch[1] },
 				.subpassDependencies = { SpDesc::Dependency {
 					.srcSubpass = VK_SUBPASS_EXTERNAL,
 					.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -575,16 +588,18 @@ namespace SKENGINE_NAME_NS {
 					.dependencyFlags = { } }},
 				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				.requiresDepthAttachments = false });
+				.framebufferSize = presentExt3d,
+				.requiresDepthAttachments = true });
 			const auto& nullRpass = idgen::invalidId<RenderPassId>();
-			const auto& rpassId = depGraph.addRpass(uiRpDesc);
+			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
+			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
 			RendererId renderers[] = { depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }), depGraph.addRenderer({ }) };
-			auto sg1 = depGraph.addStep(nullRpass, renderers[0]);             // present
-			auto sg2 = depGraph.addStep(nullRpass, renderers[1]).before(sg1); // render
-			auto sg3 = depGraph.addStep(nullRpass, renderers[2]).after(sg1);  // post-processing
-			;          depGraph.addStep(nullRpass, renderers[3]).after(sg2);  // outline
-			;          depGraph.addStep(rpassId,   renderers[4]).before(sg1); // ui
-			;          depGraph.addStep(nullRpass, renderers[5]).before(sg3); // depth
+			auto sg1 = depGraph.addStep(nullRpass,    renderers[0]);             // present
+			auto sg2 = depGraph.addStep(worldRpassId, renderers[1]).before(sg1); // render
+			auto sg3 = depGraph.addStep(nullRpass,    renderers[2]).after(sg1);  // post-processing
+			;          depGraph.addStep(nullRpass,    renderers[3]).after(sg2);  // outline
+			;          depGraph.addStep(uiRpassId,    renderers[4]).after(sg2);  // ui
+			;          depGraph.addStep(nullRpass,    renderers[5]).before(sg3); // depth
 			try {
 				mRenderProcess.setup(mVma, mLogger, mDepthAtchFmt, mGframes.size(), depGraph.assembleSequence());
 				mLogger->debug("Renderer list:");
@@ -596,6 +611,9 @@ namespace SKENGINE_NAME_NS {
 					++ waveIdx;
 				}
 				if(waveIdx == 0) mLogger->debug("  (empty)");
+				mRenderProcess.reset(mRenderProcess.gframeCount() - 2, {
+					RtResize { dummyInAtch [1].rtarget, { 2100,2100,1 } },
+					RtResize { dummyColAtch[1].rtarget, { 2000,2000,1 } } });
 				mRenderProcess.destroy();
 			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
 				mLogger->error("{}:", err.what());

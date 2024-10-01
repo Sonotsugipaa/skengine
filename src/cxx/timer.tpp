@@ -16,7 +16,8 @@ namespace util {
 
 		Timer(): t_begin(Clock::now()) { }
 
-		Dur::rep count() const noexcept { return std::chrono::duration_cast<Dur>(Clock::now() - t_begin).count(); }
+		template <typename Rep = Dur::rep>
+		Rep count() const noexcept { return Rep(std::chrono::duration_cast<Dur>(Clock::now() - t_begin).count()); }
 
 	private:
 		Clock::time_point t_begin;

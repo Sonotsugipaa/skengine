@@ -34,6 +34,7 @@ namespace SKENGINE_NAME_NS {
 		bool hostReadable         : 1;
 		bool hostWriteable        : 1;
 		bool hostAccessSequential : 1;
+		bool requiresImageView    : 1;
 	};
 
 
@@ -68,7 +69,8 @@ namespace SKENGINE_NAME_NS {
 			TPR_<Dependency> subpassDependencies;
 			VkAttachmentLoadOp  depthLoadOp;
 			VkAttachmentStoreOp depthStoreOp;
-			bool requiresDepthAttachments : 1;
+			VkExtent3D framebufferSize;
+			bool requiresDepthAttachments;
 		};
 		std::vector<Subpass> subpasses;
 		#undef TPR_
@@ -132,11 +134,22 @@ namespace SKENGINE_NAME_NS {
 		RenderTargetStorage(RenderTargetStorage&&);  RenderTargetStorage& operator=(RenderTargetStorage&& mv) { this->~RenderTargetStorage(); return * new (this) RenderTargetStorage(std::move(mv)); }
 		~RenderTargetStorage();
 
-		EntryRange getEntrySet(RenderTargetId) const;
-		const RenderTargetDescription& getDescription(RenderTargetId) const;
+		void setRtargetExtent(RenderTargetId, const VkExtent3D&);
+		void setGframeCount(size_t);
+		void updateRtargetReferences();
+
+		EntryRange getEntrySet(RenderTargetId) const &;
+		const RenderTargetDescription& getDescription(RenderTargetId) const &;
+
+		auto gframeCount() const noexcept { return rts_gframeCount; }
+
+		auto getDescriptionsRange () const & noexcept { return std::views::all(rts_descs  ); }
+		auto getEntriesRange      () const & noexcept { return std::views::all(rts_entries); }
+		auto getEntryMapRange     () const & noexcept { return std::views::all(rts_map    ); }
 
 	private:
 		RenderTargetStorage(const RenderTargetStorage&);
+		std::shared_ptr<spdlog::logger> rts_logger;
 		VmaAllocator rts_vma;
 		Descriptions rts_descs;
 		Entries rts_entries;
@@ -166,7 +179,7 @@ namespace SKENGINE_NAME_NS {
 			RenderPassId rpass;
 			RendererId renderer;
 			uint32_t     depthImageCount;
-			VkExtent2D   depthImageExtent;
+			VkExtent3D   depthImageExtent;
 			VkDeviceSize depthImageSize;
 		};
 
@@ -209,6 +222,11 @@ namespace SKENGINE_NAME_NS {
 			VkExtent3D extent;
 		};
 
+		struct RtargetResizeInfo {
+			RenderTargetId rtarget;
+			VkExtent3D newExtent;
+		};
+
 		RenderProcess(): rp_gframeCount(0), rp_waveIterValidity(0), rp_initialized(false) { }
 		RenderProcess(const RenderProcess&) = delete;
 		RenderProcess(RenderProcess&&) = delete;
@@ -219,20 +237,20 @@ namespace SKENGINE_NAME_NS {
 		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const DependencyGraph&);
 		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, DependencyGraph&&);
 		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const SequenceDescription&);
+		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes);
+		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
 		void destroy();
 
-		const Step&       getStep       (StepId) const;
-		const RenderPass& getRenderPass (RenderPassId) const;
-		const Renderer&   getRenderer   (RendererId) const;
+		const Step&       getStep       (StepId) const &;
+		const RenderPass& getRenderPass (RenderPassId) const &;
+		const Renderer&   getRenderer   (RendererId) const &;
 
-		const RenderTargetDescription& getRenderTargetDescription(RenderTargetId) const;
-		const RenderTarget& getRenderTarget(RenderTargetId, size_t subIndex) const;
-		void setRenderTargetsPerDescription(size_t);
+		const RenderTargetDescription& getRenderTargetDescription(RenderTargetId) const &;
+		const RenderTarget& getRenderTarget(RenderTargetId, size_t subIndex) const &;
 
 		std::span<const vkutil::ManagedImage> getStepDepthImages(StepId) const;
 
-		void setRtargetExtent(RenderTargetId, VkExtent2D);
-
+		auto gframeCount() const noexcept { return rp_gframeCount; }
 		VulkanState getVulkanState() const noexcept { return rp_vkState; }
 
 		WaveRange waveRange() &;
@@ -245,6 +263,8 @@ namespace SKENGINE_NAME_NS {
 		std::vector<std::shared_ptr<Renderer>> rp_renderers;
 		std::vector<std::pair<vkutil::ManagedImage, VkImageView>> rp_depthImages;
 		RenderTargetStorage rp_rtargetStorage;
+		VkExtent3D rp_depthImageExtent;
+		VkFormat rp_depthImageFormat;
 		unsigned rp_gframeCount;
 		unsigned rp_waveIterValidity;
 		bool rp_initialized;
@@ -262,8 +282,8 @@ namespace SKENGINE_NAME_NS {
 
 		class Subgraph {
 		public:
-			Subgraph& /* *this */ before (const Subgraph&);
-			Subgraph& /* *this */ after  (const Subgraph&);
+			Subgraph& /* *this comes... */ before (const Subgraph&);
+			Subgraph& /* *this comes... */ after  (const Subgraph&);
 
 			StepId stepId() const noexcept { return sg_step; }
 
@@ -302,7 +322,6 @@ namespace SKENGINE_NAME_NS {
 	private:
 		friend RenderProcess::DependencyGraph;
 		RenderTargetStorage dst;
-		std::shared_ptr<spdlog::logger> logger;
 
 	public:
 		Factory(std::shared_ptr<spdlog::logger>, size_t gframeCount);

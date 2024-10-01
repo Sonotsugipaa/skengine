@@ -140,7 +140,7 @@ namespace util {
 			std::ranges::sized_range<Range> &&
 			std::ranges::input_range<Range> &&
 			std::ranges::contiguous_range<Range>
-		static constexpr TransientPtrRange copyOf(Range range) {
+		static constexpr TransientPtrRange copyOf(const Range& range) {
 			TransientPtrRange r;
 			auto begin  = std::to_address(std::ranges::begin(range));
 			auto length = std::ranges::size(range);
@@ -160,7 +160,7 @@ namespace util {
 			std::ranges::sized_range<Range> &&
 			std::ranges::input_range<Range> &&
 			std::ranges::contiguous_range<Range>
-		static constexpr TransientPtrRange referenceTo(Range range) noexcept {
+		static constexpr TransientPtrRange referenceTo(Range& range) noexcept {
 			TransientPtrRange r;
 			auto begin = std::to_address(std::ranges::begin(range));
 			r.tr_begin = begin,
@@ -169,7 +169,7 @@ namespace util {
 		}
 
 		static constexpr TransientPtrRange copyOf(const T* begin, const T* end) { return copyOf(std::ranges::subrange<const T*>(begin, end)); }
-		static constexpr TransientPtrRange referenceTo(T* begin, T* end) noexcept { return referenceTo(std::ranges::subrange<T*>(begin, end)); }
+		static constexpr TransientPtrRange referenceTo(T* begin, T* end) noexcept { auto r = std::ranges::subrange<T*>(begin, end); return referenceTo(r); }
 
 		template <size_t length_tp> static constexpr TransientPtrRange      copyOf(T (&a)[length_tp])          { return      copyOf(a, a + length_tp); }
 		template <size_t length_tp> static constexpr TransientPtrRange referenceTo(T (&a)[length_tp]) noexcept { return referenceTo(a, a + length_tp); }
@@ -177,7 +177,7 @@ namespace util {
 		constexpr TransientPtrRange() = default;
 
 		template <typename U>
-		requires std::same_as<T, std::remove_const_t<std::remove_reference_t<U>>>
+		requires std::same_as<T, std::remove_cvref_t<U>>
 		constexpr TransientPtrRange(std::initializer_list<U> initList):
 			TransientPtrRange(copyOf(std::ranges::subrange(initList.begin(), initList.end())))
 		{ }

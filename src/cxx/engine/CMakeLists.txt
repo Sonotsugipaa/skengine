@@ -14,6 +14,7 @@ add_library(engine
 	init/device_sdl.cpp
 	init/device.cpp
 	init/rpass.cpp
+	renderprocess/render_process_rpass.cpp
 	renderprocess/render_target_storage.cpp
 	renderprocess/render_process.cpp
 	world_renderer.cpp

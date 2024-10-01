@@ -3,8 +3,6 @@
 #include <cassert>
 #include <unordered_set>
 
-#include <vk-util/error.hpp>
-
 #include <vulkan/vulkan_format_traits.hpp>
 
 #include <timer.tpp>
@@ -15,14 +13,22 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
+		template <typename T>
+		concept ImageContainer = requires(T t) {
+			requires std::ranges::input_range<T>;
+			requires std::is_assignable_v<vkutil::ManagedImage, decltype(t.begin()->first)>;
+		};
+
+		template <typename T>
+		concept NonconstImageContainer = requires(T t) {
+			requires ImageContainer<T>;
+			requires ! std::is_const_v<std::remove_reference_t<decltype(t.begin()->first)>>;
+		};
+
+
 		template <typename T = size_t>
 		constexpr auto imageByteSize(const VkExtent3D& ext, VkFormat format) {
 			return T(ext.width) * T(ext.height) * T(ext.depth) * T(vk::blockSize(vk::Format(format)));
-		}
-
-		template <typename T = size_t>
-		constexpr auto imageByteSize(const VkExtent2D& ext, VkFormat format) {
-			return imageByteSize(VkExtent3D { ext.width, ext.height, 1 }, format);
 		}
 
 
@@ -73,6 +79,123 @@ namespace SKENGINE_NAME_NS {
 			return r;
 		}
 		#undef RP_STEP_ID_
+
+
+		// Don't forget to account for the number of gframes, which this function doesn't
+		size_t computeRequiredDepthImageCount(
+			spdlog::logger* logger,
+			const std::vector<std::pair<RenderProcess::StepId, RenderProcess::Step>>& steps
+		) {
+			using seq_idx_e = RenderProcess::seq_idx_e;
+			if(steps.empty()) return 0;
+			size_t curCount = 0, maxCount = 0;
+			auto lastIndex = steps.front().second.seqIndex;
+			auto logStepIntvl = [&]() {
+				bool one = curCount == 1;
+				logger->trace("render_process: step {} require {} depth image{}", seq_idx_e(lastIndex), curCount, one?"":"s");
+			};
+			for(auto& step : steps) {
+				curCount += step.second.depthImageCount;
+				if(lastIndex != step.second.seqIndex) {
+					logStepIntvl();
+					maxCount = std::max(maxCount, curCount);
+					curCount = 0;
+					lastIndex = step.second.seqIndex;
+				}
+			}
+			logStepIntvl();
+			return std::max(curCount, maxCount);
+		};
+
+
+		template <ImageContainer DepthImages>
+		bool areDepthImagesCorrectlySized(const RenderTargetStorage& rtargetStorage, const DepthImages& depthImages) {
+			VkExtent3D maxExt = { 0, 0, 0 };
+			for(auto& desc : rtargetStorage.getDescriptionsRange()) {
+				maxExt.width  = std::max(maxExt.width , desc.extent.width );
+				maxExt.height = std::max(maxExt.height, desc.extent.height);
+				maxExt.depth  = std::max(maxExt.depth , desc.extent.depth );
+			}
+			for(auto& depthImg : depthImages) {
+				bool tooSmall =
+					(depthImg.first.info().extent.width  < maxExt.width ) ||
+					(depthImg.first.info().extent.height < maxExt.height) ||
+					(depthImg.first.info().extent.depth  < maxExt.depth );
+				if(tooSmall) [[unlikely]] return false;
+			}
+			return true;
+		}
+
+
+		template <NonconstImageContainer DepthImages>
+		void createDepthImages(
+			VmaAllocator vma,
+			VkDevice dev,
+			DepthImages& dst,
+			const VkExtent3D& depthImageExtent,
+			VkFormat depthImageFormat,
+			size_t firstIndex = 0,
+			size_t lastIndex = SIZE_MAX
+		) {
+			assert((! dst.empty()) && "depth image container must have the desired size");
+			assert((dst.front().second == nullptr) && "depth image container elements must not contain existing images");
+			firstIndex = std::min(firstIndex, dst.size());
+			lastIndex  = std::min(lastIndex,  dst.size());
+			if(firstIndex == lastIndex) [[unlikely]] return;
+			vkutil::ImageCreateInfo depthImgIcInfo = { }; { auto& i = depthImgIcInfo;
+				i.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+				i.extent = depthImageExtent;
+				i.format = depthImageFormat;
+				i.type = VK_IMAGE_TYPE_2D;
+				i.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				i.samples = VK_SAMPLE_COUNT_1_BIT;
+				i.tiling = VK_IMAGE_TILING_OPTIMAL;
+				i.arrayLayers = 1;
+				i.mipLevels = 1;
+			}
+			vkutil::AllocationCreateInfo depthImgAcInfo = { }; { auto& i = depthImgAcInfo;
+				i.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			}
+			VkImageViewCreateInfo depthImgIvcInfo = { }; { auto& i = depthImgIvcInfo;
+				#define SWID_ VK_COMPONENT_SWIZZLE_IDENTITY
+				i.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				i.image = { };
+				i.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				i.format = depthImageFormat;
+				i.components = { SWID_, SWID_, SWID_, SWID_ };
+				i.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+				i.subresourceRange.levelCount = 1;
+				i.subresourceRange.layerCount = 1;
+				#undef SWID_
+			}
+			for(size_t depthImgIdx = firstIndex; depthImgIdx < lastIndex; ++ depthImgIdx) {
+				auto& dstImage = dst[depthImgIdx];
+				dstImage.first = vkutil::ManagedImage::create(vma, depthImgIcInfo, depthImgAcInfo);
+				depthImgIvcInfo.image = dstImage.first;
+				vkCreateImageView(dev, &depthImgIvcInfo, nullptr, &dstImage.second);
+			}
+		}
+
+
+		template <NonconstImageContainer DepthImages>
+		void destroyDepthImages(
+			VmaAllocator vma,
+			VkDevice dev,
+			DepthImages& dst,
+			size_t firstIndex = 0,
+			size_t lastIndex = SIZE_MAX
+		) {
+			firstIndex = std::min(firstIndex, dst.size());
+			lastIndex  = std::min(lastIndex,  dst.size());
+			for(size_t i = firstIndex; i < lastIndex; ++i) {
+				auto& img = dst[i];
+				vkDestroyImageView(dev, img.second, nullptr);
+				vkutil::ManagedImage::destroy(vma, img.first);
+				#ifndef NDEBUG
+					img = { };
+				#endif
+			}
+		}
 
 	}
 
@@ -173,224 +296,41 @@ namespace SKENGINE_NAME_NS {
 		rp_rpasses.resize(seqDesc.rpasses.size());
 		rp_renderers.resize(seqDesc.renderers.size());
 
-		VkExtent3D depthImageExtent = { 0, 0, 1 };
-		{ // Compute required depth image count and sizes
+		rp_depthImageFormat = depthImageFormat;
+
+		for(size_t i = 0; i < rp_steps.size(); ++i) { rp_steps[i] = { idFromIndex<StepId>(i), seqDesc.steps[i] }; }
+
+		rp_rtargetStorage = rtsFac.finalize(vma);
+
+		rp_depthImageExtent = { 0, 0, 0 };
+		{ // Compute required depth image sizes
 			// Memory optimization tip:
 			// We can find out for any step if the images requirements are met by the
 			// currently "allocated" images, and eventually "allocate" more; then sort
 			// the "allocations" by size and make render steps pick the smallest fit.
-			size_t maxCount = 0;
-			for(auto& step : seqDesc.steps) {
-				depthImageExtent.width  = std::max(depthImageExtent.width,  step.depthImageExtent.width);
-				depthImageExtent.height = std::max(depthImageExtent.height, step.depthImageExtent.height);
-				maxCount = std::max<size_t>(maxCount, step.depthImageCount);
+			auto reqImageCount = computeRequiredDepthImageCount(&logger, rp_steps);
+			rp_depthImages.resize(reqImageCount * rp_gframeCount, { });
+			for(auto& stepPair : rp_steps) {
+				auto& step = stepPair.second;
+				rp_depthImageExtent.width  = std::max(rp_depthImageExtent.width , step.depthImageExtent.width );
+				rp_depthImageExtent.height = std::max(rp_depthImageExtent.height, step.depthImageExtent.height);
+				rp_depthImageExtent.depth  = std::max(rp_depthImageExtent.depth , step.depthImageExtent.depth );
 			}
-			rp_depthImages.resize(maxCount * rp_gframeCount);
 		}
-
-		for(size_t i = 0; i < rp_steps.size(); ++i) rp_steps[i] = { idFromIndex<StepId>(i), seqDesc.steps[i] };
-
-		rp_rtargetStorage = rtsFac.finalize(vma);
 
 		// Create depth images
-		logger.trace("render_process: creating {} depth image{}, each {}x{}", rp_depthImages.size(), (rp_depthImages.size() == 1)? "":"s", depthImageExtent.width, depthImageExtent.height);
-		vkutil::ImageCreateInfo depthImgIcInfo = { }; { auto& i = depthImgIcInfo;
-			i.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-			i.extent = depthImageExtent;
-			i.format = depthImageFormat;
-			i.type = VK_IMAGE_TYPE_2D;
-			i.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			i.samples = VK_SAMPLE_COUNT_1_BIT;
-			i.tiling = VK_IMAGE_TILING_OPTIMAL;
-			i.arrayLayers = 1;
-			i.mipLevels = 1;
-		}
-		vkutil::AllocationCreateInfo depthImgAcInfo = { }; { auto& i = depthImgAcInfo;
-			i.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		}
-		VkImageViewCreateInfo depthImgIvcInfo = { }; { auto& i = depthImgIvcInfo;
-			#define SWID_ VK_COMPONENT_SWIZZLE_IDENTITY
-			i.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			i.image = { };
-			i.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			i.format = depthImageFormat;
-			i.components = { SWID_, SWID_, SWID_, SWID_ };
-			i.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			i.subresourceRange.levelCount = 1;
-			i.subresourceRange.layerCount = 1;
-			#undef SWID_
-		}
-		for(size_t depthImgIdx = 0; depthImgIdx < rp_depthImages.size(); ++ depthImgIdx) {
-			auto& dst = rp_depthImages[depthImgIdx];
-			dst.first = vkutil::ManagedImage::create(rp_vkState.vma, depthImgIcInfo, depthImgAcInfo);
-			vkCreateImageView(vkDev, &depthImgIvcInfo, nullptr, &dst.second);
+		if(! rp_depthImages.empty()) {
+			logger.trace("render_process: creating {} depth image{}, each {}x{}x{}", rp_depthImages.size(), (rp_depthImages.size() == 1)? "":"s", rp_depthImageExtent.width, rp_depthImageExtent.height, rp_depthImageExtent.depth);
+			createDepthImages(vma, vkDev, rp_depthImages, rp_depthImageExtent, rp_depthImageFormat);
 		}
 
-		// Create rpasses
-		for(size_t i = 0; i < rp_rpasses.size(); ++i) {
-			auto& dst  = rp_rpasses[i];
-			auto& desc = seqDesc.rpasses[i];
-			size_t usedDepthImages = 0;
-			uint_fast32_t colorAtchCount = 0;
-			dst = RenderPass { };
-			dst.description = seqDesc.rpasses[i];
-			logger.trace("render_process: creating rpass {}", i);
-			auto atchHeuristic = (desc.subpasses.size() * size_t(3)) / size_t(2);
-			using ImageViewVec3 = std::vector<std::vector<std::vector<VkImageView>>>;
-			std::vector<VkAttachmentDescription>  atchDescs;        atchDescs       .reserve(atchHeuristic);
-			std::vector<VkAttachmentReference>    atchRefs;         atchRefs        .reserve(atchHeuristic);
-			std::vector<VkSubpassDescription>     subpassDescs;     subpassDescs    .reserve(atchHeuristic);
-			std::vector<VkSubpassDependency>      subpassDeps;      subpassDeps     .reserve(atchHeuristic);
-			std::vector<VkExtent3D>               subpassFbSizes;   subpassFbSizes  .reserve(atchHeuristic);
-			ImageViewVec3                         subpassAtchViews; subpassAtchViews.reserve(atchHeuristic * rp_gframeCount);
-			// Initial layout of subpassAtchViews:
-			//    sp0 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } },
-			//    sp1 { a0 { gf0, gf1, gf2 } }, a1 { gf0, gf1, gf2 } } ...
-			for(size_t spIdx = 0; spIdx < desc.subpasses.size(); ++ spIdx) {
-				auto& rpSubpass = desc.subpasses[spIdx];
-				logger.trace("render_process: appending subpass {}", spIdx);
-				subpassFbSizes.push_back({ });
-				subpassAtchViews.push_back({ });
-				auto& subpassAtchViewSet = subpassAtchViews.back();
-				auto appendAttachment = [&](const decltype(rpSubpass.inputAttachments[0])& rpAtchDescs) {
-					auto rtarget = rp_rtargetStorage.getEntrySet(rpAtchDescs.rtarget); assert(rtarget.begin() != rtarget.end());
-					auto atchIdx = atchDescs.size();
-					logger.trace("render_process: attachment {} has rtarget ID {}", atchDescs.size(), render_target_id_e(rpAtchDescs.rtarget));
-					subpassAtchViewSet.push_back({ });
-					for(size_t i = 0; i < rp_gframeCount; ++i) { // Append one image view for each gframe
-						subpassAtchViewSet.back().push_back(rtarget.getImageView(i));
-					}
-					atchDescs.push_back({ });
-					atchRefs.push_back({ });
-					auto& atchDesc = atchDescs.back();
-					atchDesc.format = rtarget.getFormat(0);
-					atchDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-					atchDesc.loadOp = rpAtchDescs.loadOp;
-					atchDesc.storeOp = rpAtchDescs.storeOp;
-					atchDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-					atchDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-					atchDesc.initialLayout = rpAtchDescs.initialLayout;
-					atchDesc.finalLayout = rpAtchDescs.finalLayout;
-					std::tie(atchDesc.loadOp,        atchDesc.storeOp)        = std::pair(rpAtchDescs.loadOp,              rpAtchDescs.storeOp);
-					std::tie(atchDesc.stencilLoadOp, atchDesc.stencilStoreOp) = std::pair(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE);
-					std::tie(atchDesc.initialLayout, atchDesc.finalLayout)    = std::pair(rpAtchDescs.initialLayout,       rpAtchDescs.finalLayout);
-					auto& atchRef = atchRefs.back();
-					atchRef.attachment = atchIdx;
-					atchRef.layout = atchDesc.finalLayout;
-					auto& fbSize = subpassFbSizes.back();
-					auto& rtargetExtent = rtarget.getExtent(0);
-					fbSize.width  = std::max(fbSize.width,  rtargetExtent.width);
-					fbSize.height = std::max(fbSize.height, rtargetExtent.height);
-					fbSize.depth  = std::max(fbSize.depth,  rtargetExtent.depth);
-				};
-				size_t firstInputAtch = atchDescs.size();
-				logger.trace("render_process: appending {} input attachment{} at index {}", rpSubpass.inputAttachments.size(), (rpSubpass.inputAttachments.size()) == 1? "":"s", firstInputAtch);
-				for(auto& atch : rpSubpass.inputAttachments) appendAttachment(atch);
-				size_t firstColorAtch = atchDescs.size();
-				logger.trace("render_process: appending {} color attachment{} at index {}", rpSubpass.colorAttachments.size(), (rpSubpass.colorAttachments.size()) == 1? "":"s", firstColorAtch);
-				for(auto& atch : rpSubpass.colorAttachments) appendAttachment(atch);
-				VkAttachmentDescription depthAtchDesc;
-				VkAttachmentReference depthAtchRef;
-				if(rpSubpass.requiresDepthAttachments) {
-					logger.trace("render_process: appending depth attachment {}", usedDepthImages);
-					atchDescs.push_back({ }); auto& atchDesc = atchDescs.back();
-					atchRefs.push_back({ });  auto& atchRef  = atchRefs.back();
-					subpassAtchViewSet.push_back({ });
-					for(size_t i = 0; i < rp_gframeCount; ++i) subpassAtchViewSet.back().push_back(rp_depthImages[usedDepthImages + i].second);
-					depthAtchDesc = { };
-					atchDesc.format = depthImageFormat;
-					atchDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-					std::tie(atchDesc.loadOp,        atchDesc.storeOp)        = std::pair(VK_ATTACHMENT_LOAD_OP_CLEAR,     VK_ATTACHMENT_STORE_OP_DONT_CARE);
-					std::tie(atchDesc.stencilLoadOp, atchDesc.stencilStoreOp) = std::pair(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE);
-					std::tie(atchDesc.initialLayout, atchDesc.finalLayout)    = std::pair(VK_IMAGE_LAYOUT_UNDEFINED,       VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-					atchRef.attachment = atchDescs.size();
-					atchRef.layout = atchDesc.finalLayout;
-					++ usedDepthImages;
-				}
-				subpassDescs.push_back({ });
-				auto& subpassDesc = subpassDescs.back(); {
-					subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-					subpassDesc.inputAttachmentCount = rpSubpass.inputAttachments.size();
-					subpassDesc.pInputAttachments    = atchRefs.data() + firstInputAtch;
-					subpassDesc.colorAttachmentCount = rpSubpass.colorAttachments.size();
-					subpassDesc.pColorAttachments    = atchRefs.data() + firstColorAtch;
-					subpassDesc.pDepthStencilAttachment = rpSubpass.requiresDepthAttachments? &depthAtchRef : nullptr;
-				}
-				for(auto& rpDep : rpSubpass.subpassDependencies) {
-					subpassDeps.push_back({ });
-					auto& dstDep = subpassDeps.back(); {
-						dstDep.srcSubpass      = rpDep.srcSubpass;
-						dstDep.srcStageMask    = rpDep.srcStageMask;
-						dstDep.dstStageMask    = rpDep.dstStageMask;
-						dstDep.srcAccessMask   = rpDep.srcAccessMask;
-						dstDep.dstAccessMask   = rpDep.dstAccessMask;
-						dstDep.dependencyFlags = rpDep.dependencyFlags;
-					}
-				}
-				colorAtchCount += rpSubpass.colorAttachments.size();
-			}
-			// Reorder image view sets, so that gframe indices (instead of subpass indices) are contiguous
-			if(desc.subpasses.size() * rp_gframeCount > 1) {
-				// Example:     sp0 { a0  { gf0, gf1 }, a1  { gf0, gf1 } }, sp1 { a0  { gf0, gf1 }, a1  { gf0, gf1 } }
-				// ... becomes  gf0 { sp0 { a0,  a1 },  sp1 { a0,  a1  } }, gf1 { sp0 { a0,  a1 },  sp1 { a0,  a1 } }
-				// This is necessary because a rpass' framebuffer expects {sp0,sp1,sp2} image views
-				// and each gframe has its own framebuffer..
-				size_t subpassCount = desc.subpasses.size();
-				auto swapOut = ImageViewVec3(rp_gframeCount);
-				auto appendGframeViews = [&](size_t gframeOffset) {
-					auto& dstSpSlot = swapOut[gframeOffset];
-					dstSpSlot.reserve(dstSpSlot.size() + subpassCount);
-					for(size_t spIdx = 0; spIdx < subpassCount; ++ spIdx) {
-						auto& src0 = subpassAtchViews[spIdx]; assert(spIdx < subpassAtchViews.size());
-						for(size_t atchIdx = 0; atchIdx < src0.size(); ++ atchIdx) {
-							auto& src1 = src0[atchIdx];      assert(atchIdx < src0.size());
-							auto& src2 = src1[gframeOffset]; assert(gframeOffset < src1.size());
-							dstSpSlot.push_back({ });
-							auto& dstAtchSlot = dstSpSlot.back();
-							logger.trace("render_process: attachment image view {:016x} set for gframe {}, subpass {} attachment {}", size_t(src2), gframeOffset, spIdx, atchIdx);
-							dstAtchSlot.push_back(src2);
-						}
-					}
-				};
-				for(size_t i = 0; i < rp_gframeCount; ++i) appendGframeViews(i);
-				subpassAtchViews = std::move(swapOut);
-			}
-			if(desc.subpasses.size() > 1) logger.trace("render_process: finished appending subpasses");
-			VkRenderPassCreateInfo rpcInfo = { }; {
-				rpcInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-				rpcInfo.attachmentCount = atchDescs.size();
-				rpcInfo.pAttachments = atchDescs.data();
-				rpcInfo.subpassCount = subpassDescs.size();
-				rpcInfo.pSubpasses = subpassDescs.data();
-				rpcInfo.dependencyCount = subpassDeps.size();
-				rpcInfo.pDependencies = subpassDeps.data();
-			}
-			assert(atchDescs.size() == atchRefs.size());
-			VK_CHECK(vkCreateRenderPass, vkDev, &rpcInfo, nullptr, &dst.handle);
-			dst.framebuffers.reserve(rp_gframeCount);
-			// Create one framebuffer for each rpass, for each gframe
-			std::vector<VkImageView> framebufferAttachmentList;
-			for(size_t spIdx = 0; spIdx < desc.subpasses.size(); ++ spIdx) {
-				framebufferAttachmentList.clear();
-				for(auto& sp : subpassAtchViews[spIdx]) { for(auto* a : sp) {
-					logger.trace("render_process: subpass {} attachment {} is {:x}", spIdx, framebufferAttachmentList.size(), size_t(a));
-					framebufferAttachmentList.push_back(a);
-				} }
-				VkFramebufferCreateInfo fbcInfo = { };
-				fbcInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-				fbcInfo.renderPass = dst.handle;
-				auto& fbSize = subpassFbSizes[spIdx];
-				fbcInfo.width  = fbSize.width;
-				fbcInfo.height = fbSize.height;
-				fbcInfo.layers = fbSize.depth;
-				for(size_t gframeIdx = 0; gframeIdx < rp_gframeCount; ++ gframeIdx) {
-					assert(subpassAtchViews.size() > spIdx);
-					fbcInfo.attachmentCount = framebufferAttachmentList.size();
-					fbcInfo.pAttachments    = framebufferAttachmentList.data();
-					VkFramebuffer fb;
-					VK_CHECK(vkCreateFramebuffer, vkDev, &fbcInfo, nullptr, &fb);
-					dst.framebuffers.push_back(fb);
-				}
+		{ // Create rpasses
+			size_t maxSubpassCount = 0;
+			for(auto& desc : seqDesc.rpasses) maxSubpassCount = std::max(maxSubpassCount, desc.subpasses.size());
+			auto rprocRpcInfo = RprocRpassCreateInfo { logger, vkDev, gframeCount, rp_rtargetStorage, rp_depthImageFormat, rp_depthImages };
+			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, gframeCount);
+			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
+				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &seqDesc.rpasses[rpassIdx], rprocRpcInfo, vectors);
 			}
 		}
 
@@ -399,7 +339,7 @@ namespace SKENGINE_NAME_NS {
 		++ rp_waveIterValidity;
 		rp_initialized = true;
 
-		logger.debug("render_process: setup took {}ms", (long double)(timer.count()) / 1000.0l);
+		logger.debug("render_process: setup took {}ms", timer.count<float>() / 1000.0f);
 	}
 
 
@@ -416,14 +356,8 @@ namespace SKENGINE_NAME_NS {
 		}
 		rp_rpasses.clear();
 
-		for(auto& img : rp_depthImages) {
-			vkDestroyImageView(vkDev, img.second, nullptr);
-			vkutil::ManagedImage::destroy(rp_vkState.vma, img.first);
-			#ifndef NDEBUG
-				img = { };
-			#endif
-		}
-		rp_depthImages.clear();
+		destroyDepthImages(rp_vkState.vma, vkDev, rp_depthImages);
+		rp_depthImages = { };
 
 		rp_rtargetStorage = { };
 
@@ -432,7 +366,97 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	void RenderProcess::reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> resizes) {
+		util::SteadyTimer<std::chrono::microseconds> timer;
+		VkExtent3D maxResize = { 0, 0, 0 };
+		auto dev = rp_vkState.device();
+		auto& logger = *rp_logger;
+
+		bool doResize = resizes.size() > 0;
+		bool doChangeGframeCount = newGframeCount == rp_gframeCount;
+		bool doRecreateRpasses = doResize || doChangeGframeCount;
+		std::vector<RenderPassDescription> rpassDescs;
+
+		auto destroyRpasses = [&](std::vector<RenderPassDescription>* rpassDescs, VkDevice dev) {
+			rpassDescs->reserve(rp_rpasses.size());
+			for(size_t i = 0; i < rp_rpasses.size(); i++) {
+				rpassDescs->emplace_back(std::move(rp_rpasses[i].description));
+				destroyRprocRpass(rp_rpasses.data() + i, dev);
+			}
+		};
+
+		auto recreateRpasses = [&](const std::vector<RenderPassDescription>* rpassDescs, VkDevice dev) {
+			size_t maxSubpassCount = 0;
+			for(auto& desc : *rpassDescs) maxSubpassCount = std::max(maxSubpassCount, desc.subpasses.size());
+			auto rprocRpcInfo = RprocRpassCreateInfo { logger, dev, newGframeCount, rp_rtargetStorage, rp_depthImageFormat, rp_depthImages };
+			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, newGframeCount);
+			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
+				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &(*rpassDescs)[rpassIdx], rprocRpcInfo, vectors);
+			}
+		};
+
+		if(doRecreateRpasses) rp_rtargetStorage.updateRtargetReferences();
+
+		for(auto& resize : resizes) {
+			maxResize.width  = std::max(maxResize.width , resize.newExtent.width );
+			maxResize.height = std::max(maxResize.height, resize.newExtent.height);
+			maxResize.depth  = std::max(maxResize.depth , resize.newExtent.depth );
+			rp_rtargetStorage.setRtargetExtent(resize.rtarget, resize.newExtent);
+		}
+
+		bool doResizeDepthImages = doChangeGframeCount;
+		if(doResize && ! doResizeDepthImages)
+		for(auto& depthImg : rp_depthImages) {
+			doResizeDepthImages =
+				(depthImg.first.info().extent.width  < maxResize.width ) &&
+				(depthImg.first.info().extent.height < maxResize.height) &&
+				(depthImg.first.info().extent.depth  < maxResize.depth );
+			if(doResizeDepthImages) [[unlikely]] break;
+		}
+
+		if(doResizeDepthImages) [[likely]] {
+			rp_depthImageExtent = maxResize;
+			logger.trace("render_process: resizing depth images to {}x{}x{}", rp_depthImageExtent.width, rp_depthImageExtent.height, rp_depthImageExtent.depth);
+			destroyDepthImages(rp_vkState.vma, dev, rp_depthImages);
+			createDepthImages(rp_vkState.vma, dev, rp_depthImages, rp_depthImageExtent, rp_depthImageFormat);
+		}
+
+		if(doRecreateRpasses) destroyRpasses(&rpassDescs, dev);
+
+		if(doChangeGframeCount) {
+			rp_rtargetStorage.setGframeCount(newGframeCount);
+
+			auto oldRequiredDepthImageCount = rp_depthImages.size();
+			auto newRequiredDepthImageCount = computeRequiredDepthImageCount(rp_logger.get(), rp_steps) * newGframeCount;
+			if(newRequiredDepthImageCount != oldRequiredDepthImageCount) {
+				auto dev = rp_vkState.device();
+				if(newRequiredDepthImageCount < oldRequiredDepthImageCount) {
+					destroyDepthImages(rp_vkState.vma, dev, rp_depthImages, newRequiredDepthImageCount, SIZE_MAX);
+					rp_depthImages.resize(newRequiredDepthImageCount);
+				}
+				else if(newRequiredDepthImageCount > oldRequiredDepthImageCount) {
+					auto& ext = rp_depthImageExtent;
+					auto& fmt = rp_depthImageFormat;
+					rp_depthImages.resize(newRequiredDepthImageCount);
+					createDepthImages(rp_vkState.vma, dev, rp_depthImages, ext, fmt, oldRequiredDepthImageCount, SIZE_MAX);
+				}
+			}
+
+			assert((rp_gframeCount != newGframeCount) && "`rp_gframeCount` must only be updated at the very end");
+			rp_gframeCount = newGframeCount;
+		}
+
+		if(doRecreateRpasses) recreateRpasses(&rpassDescs, dev);
+
+		logger.debug("render_process: reset operation took {}ms", timer.count<float>() / 1000.0f);
+	}
+
+
 	RenderProcess::WaveRange RenderProcess::waveRange() & {
+		assert(rp_rtargetStorage.gframeCount() == rp_gframeCount);
+		#ifndef NDEBUG
+			assert(areDepthImagesCorrectlySized(rp_rtargetStorage, rp_depthImages));
+		#endif
 		WaveRange r = WaveRange {
 			.beginIter = WaveIterator(),
 			.endIter = WaveIterator() };
@@ -514,28 +538,30 @@ namespace SKENGINE_NAME_NS {
 		auto getTargetSizes = [&](RenderTargetId id) {
 			struct R {
 				uint_fast32_t bytes;
-				decltype(VkExtent2D::width)  width;
-				decltype(VkExtent2D::height) height;
+				decltype(VkExtent3D::width ) width ;
+				decltype(VkExtent3D::height) height;
+				decltype(VkExtent3D::depth ) depth ;
 			};
 			auto& target = r.rtsFactory->dst.getDescription(id);
-			return R { imageByteSize<uint_fast32_t>(target.extent, target.format), target.extent.width, target.extent.height };
+			return R { imageByteSize<uint_fast32_t>(target.extent, target.format), target.extent.width, target.extent.height, target.extent.depth };
 		};
 
 		auto subpassDepthSizes = [&](
-			VkExtent2D& dstExt,
+			VkExtent3D& dstExt,
 			uint_fast32_t& dstSize,
 			uint_fast32_t& dstCount,
 			const std::vector<RenderPassDescription::Subpass>& subpasses
 		) {
 			dstSize = 0;
-			dstExt = { 0, 0 };
+			dstExt = { 0, 0, 0 };
 			for(auto& subpass : subpasses) {
 				if(subpass.requiresDepthAttachments) {
 					for(auto& atch : subpass.colorAttachments) {
 						auto sizes = getTargetSizes(atch.rtarget);
 						dstSize = std::max(dstSize, sizes.bytes);
-						dstExt.width  = std::max(dstExt.width,  sizes.width);
+						dstExt.width  = std::max(dstExt.width , sizes.width );
 						dstExt.height = std::max(dstExt.height, sizes.height);
+						dstExt.depth  = std::max(dstExt.depth , sizes.depth );
 					}
 					++ dstCount;
 				}
@@ -547,7 +573,7 @@ namespace SKENGINE_NAME_NS {
 			auto localUnresolvedSteps = unresolvedSteps;
 			uint_fast32_t depthImageSize = 0;
 			uint_fast32_t depthImageCount = 0;
-			VkExtent2D    depthImageExtent = { 0, 0 };
+			VkExtent3D    depthImageExtent = { 0, 0, 0 };
 			size_t resolved = 0;
 			for(auto& stepDeps : unresolvedSteps) {
 				assert(! resolvedSteps.contains(stepDeps.first));

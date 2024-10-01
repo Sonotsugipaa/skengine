@@ -1,3 +1,5 @@
+#pragma once
+
 #include "render_process.hpp"
 
 
@@ -37,5 +39,52 @@ namespace SKENGINE_NAME_NS {
 		}
 
 	}
+
+
+
+	struct RprocRpassCreateVectorCache {
+		using ImageViewVec3 = std::vector<std::vector<std::vector<VkImageView>>>;
+		std::vector<VkAttachmentDescription> atchDescs;
+		std::vector<VkAttachmentReference>   atchRefs;
+		std::vector<VkSubpassDescription>    subpassDescs;
+		std::vector<VkSubpassDependency>     subpassDeps;
+		ImageViewVec3                        subpassAtchViews;
+		RprocRpassCreateVectorCache(size_t subpassCount = 0, size_t gframeCount = 0) {
+			auto atchHeuristic = (subpassCount * size_t(3)) / size_t(2);
+			if(atchHeuristic > 0) {
+				atchDescs       .reserve(atchHeuristic);
+				atchRefs        .reserve(atchHeuristic);
+				subpassDescs    .reserve(atchHeuristic);
+				subpassDeps     .reserve(atchHeuristic);
+				subpassAtchViews.reserve(atchHeuristic * std::max(size_t(1), gframeCount));
+			}
+		}
+		void clear() {
+			atchDescs       .clear();
+			atchRefs        .clear();
+			subpassDescs    .clear();
+			subpassDeps     .clear();
+			subpassAtchViews.clear();
+		}
+	};
+
+	struct RprocRpassCreateInfo {
+		spdlog::logger& logger;
+		VkDevice vkDev;
+		size_t gframeCount;
+		const RenderTargetStorage& rtargetStorage;
+		VkFormat depthImageFormat;
+		const std::vector<std::pair<vkutil::ManagedImage, VkImageView>>& depthImages;
+	};
+
+	void createRprocRpass(
+		RenderPass* dst,
+		size_t rpassIdx,
+		const RenderPassDescription*,
+		const RprocRpassCreateInfo&,
+		RprocRpassCreateVectorCache&
+	);
+
+	void destroyRprocRpass(RenderPass*, VkDevice dev);
 
 }
