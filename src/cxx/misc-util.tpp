@@ -174,7 +174,7 @@ namespace util {
 		template <size_t length_tp> static constexpr TransientPtrRange      copyOf(T (&a)[length_tp])          { return      copyOf(a, a + length_tp); }
 		template <size_t length_tp> static constexpr TransientPtrRange referenceTo(T (&a)[length_tp]) noexcept { return referenceTo(a, a + length_tp); }
 
-		constexpr TransientPtrRange() = default;
+		constexpr TransientPtrRange(): tr_begin(nullptr), tr_length(0) { }
 
 		template <typename U>
 		requires std::same_as<T, std::remove_cvref_t<U>>
@@ -205,9 +205,7 @@ namespace util {
 		auto& operator=(TransientPtrRange&& mv)      { this->~TransientPtrRange(); return * new (this) TransientPtrRange(std::move(mv)); }
 
 		constexpr ~TransientPtrRange() {
-			#define LIKELINESS_ unlikely // "You pay marginally less for what you don't use" - the some-overhead principle
-			if(tr_length & size_t(1)) [[LIKELINESS_]] operator delete[](const_cast<std::remove_const_t<T>*>(tr_begin));
-			#undef LIKELINESS_
+			if(tr_length & size_t(1)) [[unlikely]] operator delete[](const_cast<std::remove_const_t<T>*>(tr_begin));
 		}
 
 		auto copy() const& noexcept { return copyOf(tr_begin, tr_begin + size()); }
