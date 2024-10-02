@@ -143,17 +143,18 @@ namespace {
 		std::weak_ptr<gui::TextLine> lightCounter;
 		std::weak_ptr<gui::TextLine> fpsGauge;
 		std::unique_ptr<ObjectId[]> objects; // ObjectId osbjects[obj_count_sqrt+1][obj_count_sqrt+1];
-		size_t    objectCountSqrt;
-		float     objectSpacing;
-		ObjectId  spaceship;
-		ObjectId  world;
-		ObjectId  camLight;
-		ObjectId  lightGuide;
-		LightType lightType;
-		glm::vec3 cameraSpeed;
-		glm::vec3 camLightCenter;
-		float     camLightAngle;
-		float     camLightRadius;
+		VkExtent2D lastPresentExtent;
+		size_t     objectCountSqrt;
+		float      objectSpacing;
+		ObjectId   spaceship;
+		ObjectId   world;
+		ObjectId   camLight;
+		ObjectId   lightGuide;
+		LightType  lightType;
+		glm::vec3  cameraSpeed;
+		glm::vec3  camLightCenter;
+		float      camLightAngle;
+		float      camLightRadius;
 		bool doRotateObjects   : 1;
 		bool lightGuideVisible : 1;
 		bool lightCreated      : 1;
@@ -201,6 +202,15 @@ namespace {
 		ShapeSet makeCrosshairShapeSet() {
 			constexpr float pixelWidth = crosshair_width_px / crosshair_size_px;
 			return makeCrossShapeSet(pixelWidth, pixelWidth, 0.1f, { 1.0f, 1.0f, 1.0f, 1.0f });
+		}
+
+
+		void pollPresentExtentChange() {
+			auto curExt = engine->getPresentExtent();
+			if(curExt != lastPresentExtent) [[unlikely]] {
+				lastPresentExtent = curExt;
+				setCrosshairGridSize();
+			}
 		}
 
 
@@ -457,7 +467,6 @@ namespace {
 
 				if(resize_event.triggered) {
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
-					setCrosshairGridSize();
 				}
 
 				if(rotate_camera != glm::vec2 { }) { // Rotate the camera
@@ -544,6 +553,8 @@ namespace {
 		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
 			auto& os = ca.getObjectStorage();
 			auto& wr = ca.getWorldRenderer();
+
+			pollPresentExtentChange();
 
 			auto delta_integral = delta * delta / tickreg::delta_t(2.0);
 			auto rng = std::ranlux48(size_t(this));
