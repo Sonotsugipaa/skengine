@@ -4,7 +4,6 @@
 
 #include <skengine_fwd.hpp>
 
-#define VK_NO_PROTOTYPES // Don't need those in the header
 #include <vulkan/vulkan.h>
 
 #include <vk-util/memory.hpp>

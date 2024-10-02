@@ -1,7 +1,6 @@
-#include <vulkan/vulkan.h> // This *needs* to be included before "core.hpp" because of `VK_NO_PROTOTYPES`
-#include <vk-util/memory.hpp> // Same as above
 #include "core.hpp"
 
+#include <vk-util/memory.hpp>
 #include <vk-util/error.hpp>
 
 #include <cassert>

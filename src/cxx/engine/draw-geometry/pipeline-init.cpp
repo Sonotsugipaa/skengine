@@ -1,4 +1,3 @@
-#include <vulkan/vulkan.h> // This *needs* to be included before "core.hpp" because of `VK_NO_PROTOTYPES`
 #include "core.hpp"
 
 #include <vk-util/error.hpp>

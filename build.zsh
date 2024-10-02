@@ -17,5 +17,7 @@ mkdir -m755 -p "$dstpath/$config"
 
 cd "$dstpath/$config"
 
+if [[ $generator = "Ninja" ]]; then if tty; then export CMAKE_COLOR_DIAGNOSTICS=ON; fi; fi
+
 cmake -DCMAKE_BUILD_TYPE="$config" "$srcpath" -G "$generator"
 cmake --build . --config "$config"

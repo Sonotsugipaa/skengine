@@ -1,10 +1,10 @@
-#include <vulkan/vulkan.h> // VK_NO_PROTOTYPES, defined in other headers, makes it necessary to include this one first
+#include "core.hpp"
+
+#include <vulkan/vulkan.h>
 
 #include <vk-util/error.hpp>
 
 #include <random>
-
-#include "gui.hpp"
 
 #include <fmt/format.h>
 

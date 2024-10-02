@@ -29,6 +29,21 @@ add_library(engine
 	engine_asset_supplier_texture.cpp
 	engine_shader_cache.cpp )
 
+target_precompile_headers(engine
+	PUBLIC engine.hpp
+	PRIVATE
+		<spdlog/spdlog.h>
+		debug.inl.hpp
+		engine_gui_manager.hpp
+		gui.hpp
+		mutex_ptr.inl.hpp
+		object_storage.hpp
+		renderer.hpp
+		shader_cache.hpp
+		types.hpp
+		ui_renderer.hpp
+		world_renderer.hpp )
+
 target_link_libraries(engine
 	fmamdl
 	idgen
