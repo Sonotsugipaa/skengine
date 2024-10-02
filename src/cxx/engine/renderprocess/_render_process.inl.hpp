@@ -73,7 +73,7 @@ namespace SKENGINE_NAME_NS {
 	};
 
 	struct RprocRpassCreateInfo {
-		spdlog::logger& logger;
+		Logger& logger;
 		VmaAllocator vma;
 		size_t gframeCount;
 		const RenderTargetStorage& rtargetStorage;

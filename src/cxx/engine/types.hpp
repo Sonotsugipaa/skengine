@@ -15,6 +15,8 @@
 
 #include <vma/vk_mem_alloc.h>
 
+#include <sflog.hpp>
+
 
 
 #define ALIGNF32(N_) alignas((N_) * sizeof(float))
@@ -38,6 +40,9 @@ namespace SKENGINE_NAME_NS {
 	DECL_SCOPED_ENUM_(RenderTargetId,  render_target_id_e,  unsigned)
 	DECL_SCOPED_ENUM_(RenderPassId,    render_pass_id_e,    unsigned)
 	#undef DECL_SCOPED_ENUM_
+
+
+	using Logger = sflog::Logger<std::shared_ptr<posixfio::OutputBuffer>>;
 
 
 	struct TransferContext {

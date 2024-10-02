@@ -4,9 +4,6 @@
 
 #include <engine-util/basic_asset_source.hpp>
 
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 #include <posixfio_tl.hpp>
 
 #include <vk-util/error.hpp>
@@ -65,7 +62,7 @@ namespace {
 	static_assert(obj_count_sqrt_def > 0);
 
 
-	void readConfigFile(EnginePreferences* dst, spdlog::level::level_enum* dstLogLevel, const char* filename, spdlog::logger* logger) {
+	void readConfigFile(EnginePreferences* dst, sflog::Level* dstLogLevel, const char* filename, Logger& logger) {
 		Settings settings;
 		settings.initialPresentExtent = { dst->init_present_extent.width, dst->init_present_extent.height };
 		settings.maxRenderExtent      = { dst->max_render_extent.width, dst->max_render_extent.height };
@@ -86,7 +83,7 @@ namespace {
 		settings.logLevel         = *dstLogLevel;
 
 		auto file = posixfio::File::open(filename, OpenFlags::eRdonly | OpenFlags::eCreat);
-		parseSettings(&settings, file.mmap(file.lseek(0, Whence::eEnd), MemProtFlags::eRead, MemMapFlags::ePrivate, 0), *logger);
+		parseSettings(&settings, file.mmap(file.lseek(0, Whence::eEnd), MemProtFlags::eRead, MemMapFlags::ePrivate, 0), logger);
 
 		dst->init_present_extent = { settings.initialPresentExtent.width, settings.initialPresentExtent.height };
 		dst->max_render_extent   = { settings.maxRenderExtent.width, settings.maxRenderExtent.height };
@@ -108,7 +105,7 @@ namespace {
 	}
 
 
-	size_t objectCountFromEnv(spdlog::logger& logger) {
+	size_t objectCountFromEnv(Logger& logger) {
 		#define ENVVAR_ SKENGINE_NAME_UC_CSTR "_OBJECTS"
 		auto* str = std::getenv(ENVVAR_);
 		if(! str) return obj_count_sqrt_def;
@@ -678,25 +675,23 @@ namespace {
 
 
 int main(int argn, char** argv) {
-	auto logger = std::make_shared<spdlog::logger>(
-		SKENGINE_NAME_CSTR,
-		std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
-	logger->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
+	using namespace std::string_view_literals;
 
-	#ifdef NDEBUG
-		spdlog::set_level(spdlog::level::info);
-		logger->set_level(spdlog::level::info);
-	#else
-		spdlog::set_level(spdlog::level::debug);
-		logger->set_level(spdlog::level::debug);
+	auto logger = Logger(
+		std::make_shared<posixfio::OutputBuffer>(STDOUT_FILENO, 1<<12),
+		sflog::Level::eInfo,
+		sflog::AnsiSgr::eYes,
+		"["sv, SKENGINE_NAME_CSTR " "sv, ""sv, "]  "sv );
+
+	#ifndef NDEBUG
+		logger.setLevel(sflog::Level::eDebug);
 	#endif
 
 	auto prefs = engine_preferences;
-	auto log_level = logger->level();
-	readConfigFile(&prefs, &log_level, "assets/engine-settings.cfg", logger.get());
+	auto log_level = logger.getLevel();
+	readConfigFile(&prefs, &log_level, "assets/engine-settings.cfg", logger);
 
-	spdlog::set_level(log_level);
-	logger->set_level(log_level);
+	logger.setLevel(log_level);
 
 	try {
 		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
@@ -720,10 +715,10 @@ int main(int argn, char** argv) {
 
 		engine.run(loop);
 
-		logger->info("Successfully exiting the program.");
+		logger.info("Successfully exiting the program.");
 	} catch(posixfio::Errcode& e) {
-		logger->error("Uncaught posixfio error: {}", e.errcode);
+		logger.error("Uncaught posixfio error: {}", e.errcode);
 	} catch(vkutil::VulkanError& e) {
-		logger->error("Uncaught Vulkan error: {}", e.what());
+		logger.error("Uncaught Vulkan error: {}", e.what());
 	}
 }

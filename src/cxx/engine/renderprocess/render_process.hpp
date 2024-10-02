@@ -19,8 +19,6 @@
 
 #include <misc-util.tpp>
 
-#include <spdlog/logger.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -153,7 +151,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		RenderTargetStorage(const RenderTargetStorage&);
-		std::shared_ptr<spdlog::logger> rts_logger;
+		Logger rts_logger;
 		VmaAllocator rts_vma;
 		Descriptions rts_descs;
 		Entries rts_entries;
@@ -240,9 +238,9 @@ namespace SKENGINE_NAME_NS {
 			~RenderProcess();
 		#endif
 
-		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const DependencyGraph&);
-		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, DependencyGraph&&);
-		void setup(VmaAllocator vma, std::shared_ptr<spdlog::logger>, VkFormat depthImageFormat, unsigned gframeCount, const SequenceDescription&);
+		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, const DependencyGraph&);
+		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, DependencyGraph&&);
+		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, const SequenceDescription&);
 		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes);
 		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
 		void destroy();
@@ -260,7 +258,7 @@ namespace SKENGINE_NAME_NS {
 		WaveRange waveRange() &;
 
 	private:
-		std::shared_ptr<spdlog::logger> rp_logger;
+		Logger rp_logger;
 		VulkanState rp_vkState;
 		std::vector<std::pair<StepId, Step>> rp_steps;
 		std::vector<RenderPass> rp_rpasses;
@@ -293,7 +291,7 @@ namespace SKENGINE_NAME_NS {
 			StepId sg_step;
 		};
 
-		DependencyGraph(std::shared_ptr<spdlog::logger> logger, size_t gframeCount):
+		DependencyGraph(Logger logger, size_t gframeCount):
 			dg_rtsFactory(std::make_shared<RenderTargetStorage::Factory>(logger, gframeCount))
 		{ }
 
@@ -324,7 +322,7 @@ namespace SKENGINE_NAME_NS {
 		RenderTargetStorage dst;
 
 	public:
-		Factory(std::shared_ptr<spdlog::logger>, size_t gframeCount);
+		Factory(Logger, size_t gframeCount);
 
 		RenderTargetId setRenderTarget(RenderTargetDescription&&);
 

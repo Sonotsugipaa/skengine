@@ -73,7 +73,7 @@ namespace SKENGINE_NAME_NS {
 
 	UiRenderer UiRenderer::create(
 		VmaAllocator vma,
-		std::shared_ptr<spdlog::logger> logger,
+		Logger logger,
 		std::string fontFilePath
 
 	) {

@@ -28,7 +28,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void select_swapchain_extent(
-			spdlog::logger&   logger,
+			Logger&           logger,
 			VkExtent2D*       dst,
 			const VkExtent2D& desired,
 			const VkSurfaceCapabilitiesKHR& capabs,
@@ -50,7 +50,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	VkCompositeAlphaFlagBitsKHR select_composite_alpha(spdlog::logger& logger, const VkSurfaceCapabilitiesKHR& capabs, bool do_log) {
+	VkCompositeAlphaFlagBitsKHR select_composite_alpha(Logger& logger, const VkSurfaceCapabilitiesKHR& capabs, bool do_log) {
 		assert(capabs.supportedCompositeAlpha != 0);
 
 		#define TRY_CA_(NM_, BIT_) \
@@ -73,7 +73,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	VkPresentModeKHR select_present_mode(
-			spdlog::logger&  logger,
+			Logger&          logger,
 			VkPhysicalDevice phys_device,
 			VkSurfaceKHR     surface,
 			VkPresentModeKHR preferred_mode,
@@ -310,7 +310,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		mSurfaceFormat = vkutil::selectSwapchainFormat(state.reinit? nullptr : mLogger.get(), mPhysDevice, mSurface);
+		mSurfaceFormat = vkutil::selectSwapchainFormat(nullptr, mPhysDevice, mSurface);
 		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
 		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
@@ -366,14 +366,13 @@ namespace SKENGINE_NAME_NS {
 			for(auto i = 0u; i < 3u; ++i) {
 				try {
 					VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
-					mLogger->trace("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
+					mLogger.trace("vkCreateSwapchainKHR -> VK_SUCCESS (attempt n. {})", i+1);
 					return;
 				} catch(vkutil::VulkanError& err) {
-					mLogger->error("{} ({}) (attempt n. {})", err.what(), int32_t(err.vkResult()), i+1);
+					mLogger.error("{} ({}) (attempt n. {})", err.what(), int32_t(err.vkResult()), i+1);
 					std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				}
 				s_info.oldSwapchain = nullptr;
-				mLogger->flush();
 			}
 			VK_CHECK(vkCreateSwapchainKHR, mDevice, &s_info, nullptr, dst);
 		};
@@ -440,13 +439,13 @@ namespace SKENGINE_NAME_NS {
 			WorldRenderer::initSharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
 
 			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
-				std::make_shared<spdlog::logger>(logger()),
+				mLogger,
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mVma,
 				mAssetSupplier ));
 
 			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
-				std::make_shared<spdlog::logger>(logger()),
+				mLogger,
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
 				WorldRenderer::ProjectionInfo {
@@ -458,7 +457,7 @@ namespace SKENGINE_NAME_NS {
 
 			auto uiUptr = std::make_unique<UiRenderer>(UiRenderer::create(
 				mVma,
-				std::make_shared<spdlog::logger>(logger()),
+				mLogger,
 				mPrefs.font_location ));
 			mUiRenderer_TMP_UGLY_NAME = uiUptr.get();
 			mRenderers.emplace_back(std::move(uiUptr));
@@ -574,7 +573,7 @@ namespace SKENGINE_NAME_NS {
 			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
 			auto insertInfo = [&](SpassDescs& descDst, SpassDeps& depDst, std::string_view name) {
 				descDst.push_back(spDescTemplate);
-				mLogger->trace("Creating subpass for renderer \"{}\"{}", name, (descDst.size() >= 2)? " (dependent on the previous subpass)" : " (no dependency)");
+				mLogger.trace("Creating subpass for renderer \"{}\"{}", name, (descDst.size() >= 2)? " (dependent on the previous subpass)" : " (no dependency)");
 				if(descDst.size() >= 2 /* There can only be a dependency between two things */) [[unlikely]] {
 					depDst.push_back(spDepTemplate);
 					depDst.back().srcSubpass = descDst.size() - 2;
@@ -582,17 +581,18 @@ namespace SKENGINE_NAME_NS {
 				}
 			};
 			for(auto& r : mRenderers) {
+				auto rName = r->name();
 				auto& spInfo = r->pipelineInfo();
 				switch(spInfo.rpass) {
-					default: mLogger->error("Renderer \"{}\" targets an unexistent render pass"); break;
-					case Renderer::RenderPass::eWorld: insertInfo(subpassDescsWorld, subpassDepsWorld, r->name()); break;
-					case Renderer::RenderPass::eUi:    insertInfo(subpassDescsUi,    subpassDepsUi, r->name()); subpassDescsUi.back().pDepthStencilAttachment = nullptr; break;
+					default: mLogger.error("Renderer \"{}\" targets an unexistent render pass", rName); break;
+					case Renderer::RenderPass::eWorld: insertInfo(subpassDescsWorld, subpassDepsWorld, rName); break;
+					case Renderer::RenderPass::eUi:    insertInfo(subpassDescsUi,    subpassDepsUi, rName); subpassDescsUi.back().pDepthStencilAttachment = nullptr; break;
 				}
 			}
-			mLogger->trace("Rpass 0 has {} subpass{}", subpassDescsWorld.size(), subpassDescsWorld.size() == 1? "":"es");
-			mLogger->trace("Rpass 1 has {} subpass{}", subpassDescsUi   .size(), subpassDescsUi   .size() == 1? "":"es");
-			for(auto& dep : subpassDepsWorld) mLogger->trace("Rpass 0 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
-			for(auto& dep : subpassDepsUi)    mLogger->trace("Rpass 1 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
+			mLogger.trace("Rpass 0 has {} subpass{}", subpassDescsWorld.size(), subpassDescsWorld.size() == 1? "":"es");
+			mLogger.trace("Rpass 1 has {} subpass{}", subpassDescsUi   .size(), subpassDescsUi   .size() == 1? "":"es");
+			for(auto& dep : subpassDepsWorld) mLogger.trace("Rpass 0 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
+			for(auto& dep : subpassDepsUi)    mLogger.trace("Rpass 1 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
 		}
 
 		{ // Create the render passes

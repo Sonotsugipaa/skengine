@@ -1,8 +1,7 @@
-find_package(spdlog)
 find_package(glm)
 
 add_library(config-parser config/config.cpp)
-target_link_libraries(config-parser ctpg)
+target_link_libraries(config-parser ctpg sflog)
 target_compile_options(config-parser PUBLIC -Wno-abi)
 
 add_executable(sketch-sim
@@ -13,7 +12,7 @@ target_link_libraries(sketch-sim
 	engine
 	engine-util
 	config-parser
-	spdlog::spdlog )
+	sflog fmt )
 
 # Enable unity builds
 set_property(TARGET sketch-sim PROPERTY UNITY_BUILD true)

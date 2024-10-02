@@ -163,7 +163,7 @@ namespace SKENGINE_NAME_NS {
 		#ifdef NDEBUG
 			// The logic error is anything but unrecoverable; still, we can't resize an externally managed rtarget
 			if(entrySetIter == rts_map.end()) {
-				rts_logger->error("Attempting to resize externally managed rtarget {}", render_target_id_e(id));
+				rts_logger.error("Attempting to resize externally managed rtarget {}", render_target_id_e(id));
 				return;
 			}
 		#endif
@@ -177,7 +177,7 @@ namespace SKENGINE_NAME_NS {
 			(newExtent.height != baseExtent.height) ||
 			(newExtent.depth  != baseExtent.depth )
 		) {
-			auto& log = *rts_logger;
+			auto& log = rts_logger;
 			auto* dev = [](auto vma) { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; } (rts_vma);
 			log.trace("render_target_storage: resizing managed entries [{}, {}) of rtarget ID {}: {}x{}x{} -> {}x{}x{}",
 				auto(entrySet.second.offset),
@@ -200,7 +200,7 @@ namespace SKENGINE_NAME_NS {
 
 	void RenderTargetStorage::setGframeCount(size_t newGframeCount) {
 		if(rts_gframeCount == newGframeCount) return;
-		auto& log = *rts_logger;
+		auto& log = rts_logger;
 		auto* dev = [](auto vma) { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; } (rts_vma);
 		auto swapOut = decltype(rts_entries)(rts_descs.size() * newGframeCount, Entry { });
 		size_t copyCount = std::min(rts_gframeCount, newGframeCount);
@@ -250,7 +250,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void RenderTargetStorage::updateRtargetReferences() {
-		auto& log = *rts_logger;
+		auto& log = rts_logger;
 
 		{ // Create rtarget images
 			for(auto& mapping : rts_map) {
@@ -294,7 +294,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	RenderTargetStorage::Factory::Factory(std::shared_ptr<spdlog::logger> mvLogger, size_t gframeCount):
+	RenderTargetStorage::Factory::Factory(Logger mvLogger, size_t gframeCount):
 		dst()
 	{
 		dst.rts_logger = std::move(mvLogger);
@@ -336,7 +336,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	RenderTargetStorage RenderTargetStorage::Factory::finalize(VmaAllocator vma) && {
-		auto& log = *dst.rts_logger;
+		auto& log = dst.rts_logger;
 		auto* dev = [](auto vma) { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; } (vma);
 
 		{ // Create rtarget images

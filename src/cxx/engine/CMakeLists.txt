@@ -1,4 +1,3 @@
-find_package(spdlog)
 find_package(posixfio)
 find_package(glm)
 find_package(Vulkan)
@@ -31,18 +30,7 @@ add_library(engine
 
 target_precompile_headers(engine
 	PUBLIC engine.hpp
-	PRIVATE
-		<spdlog/spdlog.h>
-		debug.inl.hpp
-		engine_gui_manager.hpp
-		gui.hpp
-		mutex_ptr.inl.hpp
-		object_storage.hpp
-		renderer.hpp
-		shader_cache.hpp
-		types.hpp
-		ui_renderer.hpp
-		world_renderer.hpp )
+	PRIVATE types.hpp )
 
 target_link_libraries(engine
 	fmamdl
@@ -55,6 +43,6 @@ target_link_libraries(engine
 	vulkan vma
 	draw-geometry
 	sys-resources
-	spdlog::spdlog )
+	sflog )
 
-set_property(TARGET engine PROPERTY UNITY_BUILD true)
+set_property(TARGET engine PROPERTY UNITY_BUILD false)

@@ -6,8 +6,6 @@
 
 #include <posixfio.hpp>
 
-#include <spdlog/logger.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -28,14 +26,14 @@ namespace SKENGINE_NAME_NS {
 
 	class BasicAssetSource : public AssetSourceInterface {
 	public:
-		BasicAssetSource(std::string_view filenamePrefix, std::shared_ptr<spdlog::logger>);
+		BasicAssetSource(std::string_view filenamePrefix, Logger);
 
 		ModelSource asi_requestModelData(std::string_view locator) override;
 		MaterialSource asi_requestMaterialData(std::string_view locator) override;
 		void asi_releaseModelData(std::string_view locator) noexcept override;
 		void asi_releaseMaterialData(std::string_view locator) noexcept override;
 
-		spdlog::logger& logger() const { return *bas_logger; }
+		Logger& logger(this auto& self) { return self.bas_logger; }
 
 	private:
 		struct ModelRef {
@@ -51,7 +49,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		std::string bas_filenamePrefix;
-		std::shared_ptr<spdlog::logger> bas_logger;
+		Logger bas_logger;
 		std::unordered_map<std::string, ModelRef>    bas_mdlMmaps;
 		std::unordered_map<std::string, MaterialRef> bas_mtlMmaps;
 	};

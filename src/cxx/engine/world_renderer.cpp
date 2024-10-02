@@ -143,7 +143,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	WorldRenderer WorldRenderer::create(
-			std::shared_ptr<spdlog::logger> logger,
+			Logger logger,
 			std::shared_ptr<WorldRendererSharedState> sharedState,
 			std::shared_ptr<ObjectStorage> objectStorage,
 			const ProjectionInfo& projInfo
@@ -402,7 +402,7 @@ namespace SKENGINE_NAME_NS {
 
 		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
 		if(buffer_resized) {
-			mState.logger->trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
+			mState.logger.trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
 			debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
 			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
 

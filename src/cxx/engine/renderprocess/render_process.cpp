@@ -125,7 +125,7 @@ namespace SKENGINE_NAME_NS {
 
 	void RenderProcess::setup(
 		VmaAllocator vma,
-		std::shared_ptr<spdlog::logger> logger,
+		Logger logger,
 		VkFormat depthImageFormat,
 		unsigned gframeCount,
 		const DependencyGraph& depGraph
@@ -137,7 +137,7 @@ namespace SKENGINE_NAME_NS {
 
 	void RenderProcess::setup(
 		VmaAllocator vma,
-		std::shared_ptr<spdlog::logger> logger,
+		Logger logger,
 		VkFormat depthImageFormat,
 		unsigned gframeCount,
 		DependencyGraph&& depGraph
@@ -148,7 +148,7 @@ namespace SKENGINE_NAME_NS {
 
 	void RenderProcess::setup(
 		VmaAllocator vma,
-		std::shared_ptr<spdlog::logger> mvLogger,
+		Logger mvLogger,
 		VkFormat depthImageFormat,
 		unsigned gframeCount,
 		const SequenceDescription& seqDesc
@@ -158,7 +158,6 @@ namespace SKENGINE_NAME_NS {
 		rp_gframeCount = gframeCount;
 		rp_logger = std::move(mvLogger);
 		rp_vkState = { vma, depthImageFormat };
-		auto& logger = *rp_logger;
 		auto& rtsFac = * seqDesc.rtsFactory;
 
 		rp_steps.resize(seqDesc.steps.size());
@@ -174,7 +173,7 @@ namespace SKENGINE_NAME_NS {
 		{ // Create rpasses
 			size_t maxSubpassCount = 0;
 			for(auto& desc : seqDesc.rpasses) maxSubpassCount = std::max(maxSubpassCount, desc.subpasses.size());
-			auto rprocRpcInfo = RprocRpassCreateInfo { logger, vma, gframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
+			auto rprocRpcInfo = RprocRpassCreateInfo { rp_logger, vma, gframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
 			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, gframeCount);
 			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
 				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &seqDesc.rpasses[rpassIdx], rprocRpcInfo, vectors);
@@ -186,7 +185,7 @@ namespace SKENGINE_NAME_NS {
 		++ rp_waveIterValidity;
 		rp_initialized = true;
 
-		logger.debug("render_process: setup took {}ms", timer.count<float>() / 1000.0f);
+		rp_logger.debug("render_process: setup took {}ms", timer.count<float>() / 1000.0f);
 	}
 
 
@@ -209,7 +208,6 @@ namespace SKENGINE_NAME_NS {
 	void RenderProcess::reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> resizes) {
 		util::SteadyTimer<std::chrono::microseconds> timer;
 		VkExtent3D maxResize = { 0, 0, 0 };
-		auto& logger = *rp_logger;
 
 		bool doResize = resizes.size() > 0;
 		bool doChangeGframeCount = newGframeCount == rp_gframeCount;
@@ -227,7 +225,7 @@ namespace SKENGINE_NAME_NS {
 		auto recreateRpasses = [&](const std::vector<RenderPassDescription>* rpassDescs) {
 			size_t maxSubpassCount = 0;
 			for(auto& desc : *rpassDescs) maxSubpassCount = std::max(maxSubpassCount, desc.subpasses.size());
-			auto rprocRpcInfo = RprocRpassCreateInfo { logger, rp_vkState.vma, newGframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
+			auto rprocRpcInfo = RprocRpassCreateInfo { rp_logger, rp_vkState.vma, newGframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
 			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, newGframeCount);
 			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
 				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &(*rpassDescs)[rpassIdx], rprocRpcInfo, vectors);
@@ -252,7 +250,7 @@ namespace SKENGINE_NAME_NS {
 
 		if(doRecreateRpasses) recreateRpasses(&rpassDescs);
 
-		logger.debug("render_process: reset operation took {}ms", timer.count<float>() / 1000.0f);
+		rp_logger.debug("render_process: reset operation took {}ms", timer.count<float>() / 1000.0f);
 	}
 
 

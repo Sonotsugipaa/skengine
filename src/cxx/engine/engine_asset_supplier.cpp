@@ -18,7 +18,7 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	AssetSupplier::AssetSupplier(Engine& e, std::shared_ptr<spdlog::logger> logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy):
+	AssetSupplier::AssetSupplier(Engine& e, Logger logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy):
 			as_transferContext(e.getTransferContext()),
 			as_logger(std::move(logger)),
 			as_srcInterface(std::move(asi)),
@@ -98,7 +98,7 @@ namespace SKENGINE_NAME_NS {
 			auto vertices  = src.fmaHeader.vertices();
 
 			if(meshes.empty()) {
-				as_logger->critical(
+				as_logger.critical(
 					"Attempting to load model \"{}\" without meshes; fallback model logic is not implemented yet",
 					locator );
 				abort();
@@ -137,7 +137,7 @@ namespace SKENGINE_NAME_NS {
 
 			as_activeModels.insert(Models::value_type(std::move(locator_s), r));
 			double size_kib = indices.size_bytes() + vertices.size_bytes();
-			as_logger->info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+			as_logger.info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
 
 			as_srcInterface->asi_releaseModelData(locator);
 			return r;
@@ -161,9 +161,9 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferDuplex::destroy(vma, victim->second.vertices);
 				as_inactiveModels.erase(victim);
 			}
-			as_logger->info("Released model \"{}\"", locator);
+			as_logger.info("Released model \"{}\"", locator);
 		} else {
-			as_logger->debug("Tried to release model \"{}\", but it's not loaded", locator);
+			as_logger.debug("Tried to release model \"{}\", but it's not loaded", locator);
 		}
 	}
 

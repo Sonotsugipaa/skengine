@@ -1,15 +1,17 @@
 #pragma once
 
-#include <spdlog/logger.h>
-
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 
-#include <posixfio.hpp>
+#include <sflog.hpp>
 
 
 
 inline namespace main_ns {
+
+	using Logger = sflog::Logger<std::shared_ptr<posixfio::OutputBuffer>>;
+
 
 	enum class PresentMode : uint32_t {
 		eFifo,
@@ -36,10 +38,13 @@ inline namespace main_ns {
 		float       targetFramerate;
 		float       targetTickrate;
 		float       fieldOfView;
-		spdlog::level::level_enum logLevel;
+		sflog::Level logLevel;
 	};
 
 
-	void parseSettings(Settings* dst, const posixfio::MemMapping& data, spdlog::logger&);
+	void parseSettings(
+		Settings* dst,
+		const posixfio::MemMapping& data,
+		Logger& );
 
 }

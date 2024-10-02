@@ -7,8 +7,6 @@
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
 
-#include <spdlog/logger.h>
-
 #include <unordered_set>
 #include <memory>
 #include <span>
@@ -85,7 +83,7 @@ namespace SKENGINE_NAME_NS {
 		using MissingMaterials = std::unordered_set<std::string>;
 
 		AssetSupplier(): as_initialized(false) { }
-		AssetSupplier(Engine&, std::shared_ptr<spdlog::logger>, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy);
+		AssetSupplier(Engine&, Logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy();
@@ -104,7 +102,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		TransferContext as_transferContext;
-		std::shared_ptr<spdlog::logger> as_logger;
+		Logger as_logger;
 		std::shared_ptr<AssetSourceInterface> as_srcInterface;
 		Models    as_activeModels;
 		Models    as_inactiveModels;
@@ -202,7 +200,7 @@ namespace SKENGINE_NAME_NS {
 		ObjectStorage(ObjectStorage&&) = default;
 
 		static ObjectStorage create(
-			std::shared_ptr<spdlog::logger>,
+			Logger,
 			std::shared_ptr<WorldRendererSharedState>,
 			VmaAllocator,
 			AssetSupplier& );
@@ -243,7 +241,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		VmaAllocator mVma = nullptr;
-		std::shared_ptr<spdlog::logger> mLogger;
+		Logger mLogger;
 		std::shared_ptr<WorldRendererSharedState> mWrSharedState;
 		AssetSupplier* mAssetSupplier;
 

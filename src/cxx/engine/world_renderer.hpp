@@ -18,8 +18,6 @@
 #include <condition_variable>
 #include <unordered_map>
 
-#include <spdlog/logger.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -93,7 +91,7 @@ namespace SKENGINE_NAME_NS {
 		~WorldRenderer();
 
 		static WorldRenderer create(
-			std::shared_ptr<spdlog::logger>,
+			Logger,
 			std::shared_ptr<WorldRendererSharedState>,
 			std::shared_ptr<ObjectStorage>,
 			const ProjectionInfo& );
@@ -156,7 +154,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		struct {
-			std::shared_ptr<spdlog::logger> logger;
+			Logger logger;
 			std::shared_ptr<ObjectStorage> objectStorage;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
 			std::vector<GframeData> gframes;

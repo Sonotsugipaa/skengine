@@ -14,7 +14,7 @@ namespace SKENGINE_NAME_NS {
 	// These functions are defined in a similarly named translation unit,
 	// but not exposed through any header.
 	void create_texture_from_pixels(const TransferContext&, Material::Texture*, const void*, float, VkFormat, size_t, size_t);
-	bool create_texture_from_file(const TransferContext&, Material::Texture*, size_t*, size_t*, const char*, spdlog::logger&, float);
+	bool create_texture_from_file(const TransferContext&, Material::Texture*, size_t*, size_t*, const char*, Logger&, float);
 	size_t texture_size_bytes(const Material::Texture&);
 
 
@@ -112,7 +112,7 @@ namespace SKENGINE_NAME_NS {
 						((u4_t(fma_value >> u8_t( 8)) & u4_t(0xff)) << u4_t( 8)) |
 						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
 					create_texture_from_pixels(as_transferContext, &dst, &value4, as_maxSamplerAnisotropy, fmt, 1, 1);
-					as_logger->trace(
+					as_logger.trace(
 						"Loaded {} texture as a single texel ({:02x}{:02x}{:02x}{:02x})",
 						name,
 						(value4 >> u4_t( 0)) & u4_t(0xff),
@@ -127,13 +127,13 @@ namespace SKENGINE_NAME_NS {
 					texture_filename.append(texture_name);
 					size_t w;
 					size_t h;
-					auto success = create_texture_from_file(as_transferContext, &dst, &w, &h, texture_filename.c_str(), *as_logger, as_maxSamplerAnisotropy);
+					auto success = create_texture_from_file(as_transferContext, &dst, &w, &h, texture_filename.c_str(), as_logger, as_maxSamplerAnisotropy);
 					if(success) {
-						as_logger->trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
+						as_logger.trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
 					} else {
 						dst = fallback;
 						dst.is_copy = true;
-						as_logger->warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
+						as_logger.warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
 					}
 				}
 			};
@@ -167,7 +167,7 @@ namespace SKENGINE_NAME_NS {
 				size /= 1024.0*1024.0; unit = "GiB";
 				if(size > 5'000.0) [[unlikely]] { size /= 1024.0; unit = "TiB"; }
 			}
-			as_logger->info(
+			as_logger.info(
 				"Loaded material \"{}\" ({:.3f} {})",
 				locator,
 				size, unit );
@@ -193,14 +193,14 @@ namespace SKENGINE_NAME_NS {
 				destroy_material(dev, vma, victim->second);
 				as_inactiveMaterials.erase(victim);
 			}
-			as_logger->info("Released material \"{}\"", locator);
+			as_logger.info("Released material \"{}\"", locator);
 		}
 		else if(as_missingMaterials.end() != (missing = as_missingMaterials.find(locator_s))) {
-			as_logger->trace("Releasing missing material \"{}\"", locator);
+			as_logger.trace("Releasing missing material \"{}\"", locator);
 			as_missingMaterials.erase(missing);
 		}
 		else {
-			as_logger->debug("Tried to release material \"{}\", but it's not loaded", locator);
+			as_logger.debug("Tried to release material \"{}\", but it's not loaded", locator);
 		}
 	}
 

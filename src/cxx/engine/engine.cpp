@@ -11,8 +11,6 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 #include <deque>
 
 #include <vulkan/vk_enum_string_helper.h>
@@ -83,7 +81,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				sc_img_fence = selectGframeFence(e);
 			} catch(vkutil::VulkanError& err) {
 				auto str = std::string_view(string_VkResult(err.vkResult()));
-				e.mLogger->error("Failed to acquire gframe fence ({})", str);
+				e.mLogger.error("Failed to acquire gframe fence ({})", str);
 				return;
 			}
 			VkResult res = vkAcquireNextImageKHR(e.mDevice, e.mSwapchain, UINT64_MAX, nullptr, sc_img_fence, &sc_img_idx);
@@ -383,7 +381,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		std::swap(curSignal, e.mSignalGthread);
 		if(curSignal != Signal::eNone) {
 			handleSignal(curSignal);
-			e.mLogger->trace("Handled signal {} from graphics thread", signalString(curSignal));
+			e.mLogger.trace("Handled signal {} from graphics thread", signalString(curSignal));
 		}
 
 		awaitRpass();
@@ -391,8 +389,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		if(curSignal != Signal::eNone) {
 			do {
 				handleSignal(curSignal);
-				e.mLogger->trace("Handled signal {} from external thread, polling new immediate signal", signalString(curSignal));
-				e.mLogger->flush();
+				e.mLogger.trace("Handled signal {} from external thread, polling new immediate signal", signalString(curSignal));
 				curSignal = extractSignal();
 			} while(curSignal != Signal::eNone);
 		}
@@ -473,26 +470,9 @@ namespace SKENGINE_NAME_NS {
 			const EnginePreferences& ep,
 			std::shared_ptr<ShaderCacheInterface> sci,
 			std::shared_ptr<AssetSourceInterface> asi,
-			std::shared_ptr<spdlog::logger>       logger
+			Logger                                logger
 	):
-		mLogger([&]() {
-			decltype(mLogger) r;
-			if(logger) {
-				r = std::move(logger);
-			} else {
-				r = std::make_shared<spdlog::logger>(
-					SKENGINE_NAME_CSTR,
-					std::make_shared<spdlog::sinks::stdout_color_sink_mt>(spdlog::color_mode::automatic) );
-				r->set_pattern("[%^" SKENGINE_NAME_CSTR " %L%$] %v");
-				#ifdef NDEBUG
-					r->set_level(spdlog::level::info);
-				#else
-					r->set_level(spdlog::level::debug);
-				#endif
-			}
-			debug::setLogger(r);
-			return r;
-		} ()),
+		mLogger(std::move(logger)),
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
 			ep.framerate_samples,
@@ -612,12 +592,12 @@ namespace SKENGINE_NAME_NS {
 			;          addStep(uiRpassId,    renderers[1], presentExt3d).after(sg0);
 			try {
 				mRenderProcess.setup(mVma, mLogger, mDepthAtchFmt, mGframes.size(), depGraph.assembleSequence());
-				mLogger->debug("Renderer list:");
+				mLogger.debug("Renderer list:");
 				size_t waveIdx = 0;
 				for(auto wave : mRenderProcess.waveRange()) {
 					for(auto& step : wave) {
 						auto& ra = step.second.renderArea;
-						mLogger->debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
+						mLogger.debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
 							waveIdx,
 							RenderProcess::step_id_e(step.first),
 							render_target_id_e(step.second.renderer),
@@ -625,16 +605,16 @@ namespace SKENGINE_NAME_NS {
 					}
 					++ waveIdx;
 				}
-				if(waveIdx == 0) mLogger->debug("  (empty)");
+				if(waveIdx == 0) mLogger.debug("  (empty)");
 				mRenderProcess.reset(mRenderProcess.gframeCount() - 2, {
 					RtResize { dummyInAtch [1].rtarget, { 2100,2100,1 } },
 					RtResize { dummyColAtch[1].rtarget, { 2000,2000,1 } } });
 				mRenderProcess.destroy();
 			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
-				mLogger->error("{}:", err.what());
+				mLogger.error("{}:", err.what());
 				auto& chain = err.dependencyChain();
-				for(auto step : chain) mLogger->error("  Renderer {:3}", RenderProcess::step_id_e(step));
-				mLogger->error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
+				for(auto step : chain) mLogger.error("  Renderer {:3}", RenderProcess::step_id_e(step));
+				mLogger.error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
 			}
 		}
 	}
@@ -783,7 +763,7 @@ namespace SKENGINE_NAME_NS {
 		auto discardBecauseDuplicateFn = [&]() { return discardDuplicate && (oldSig == newSig); };
 
 		if(thisIsGraphicsThread) {
-			mLogger->trace("Graphics thread signaling {}", signalString(newSig));
+			mLogger.trace("Graphics thread signaling {}", signalString(newSig));
 			oldSig = Signal(mSignalGthread);
 			mSignalGthread = newSig;
 			assert(oldSig == Signal::eNone);
@@ -801,11 +781,10 @@ namespace SKENGINE_NAME_NS {
 			}
 			if(discardBecauseDuplicate) {
 				assert(oldSig == newSig);
-				mLogger->trace("Discarded duplicate signal {}", signalString(newSig));
+				mLogger.trace("Discarded duplicate signal {}", signalString(newSig));
 			} else {
 				assert(oldSig == Signal::eNone);
-				mLogger->trace("External thread signaling {}", signalString(newSig));
-				mLogger->flush();
+				mLogger.trace("External thread signaling {}", signalString(newSig));
 			}
 		}
 	}

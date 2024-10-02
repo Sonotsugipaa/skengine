@@ -224,7 +224,7 @@ namespace SKENGINE_NAME_NS {
 		bool erase_objects_with_model(
 				ObjectStorage::Objects& objects,
 				ObjectStorage::ObjectUpdates& object_updates,
-				spdlog::logger& log,
+				Logger& log,
 				ModelId id,
 				std::string_view locator
 		) {
@@ -296,7 +296,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	ObjectStorage ObjectStorage::create(
-			std::shared_ptr<spdlog::logger> logger,
+			Logger logger,
 			std::shared_ptr<WorldRendererSharedState> wrSharedState,
 			VmaAllocator vma,
 			AssetSupplier& asset_supplier
@@ -325,7 +325,7 @@ namespace SKENGINE_NAME_NS {
 		{ // Initialize the matrix assembler
 			constexpr auto maxWorkerCount = 4; // This heuristic value seems to outperform other bottlenecks
 			auto workerCount = std::min<size_t>(maxWorkerCount, sysres::optimalWorkerCount());
-			r.mLogger->info("ObjectStorage: using {} workers", workerCount);
+			r.mLogger.info("ObjectStorage: using {} workers", workerCount);
 			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
 			r.mMatrixAssembler->workers.reserve(workerCount);
 			for(size_t i = 0; i < workerCount; ++i) {
@@ -371,7 +371,7 @@ namespace SKENGINE_NAME_NS {
 		auto model_id   = getModelId(ins.model_locator);
 		auto model      = assert_not_nullptr_(getModel(model_id));
 
-		mLogger->trace("Generated Object ID {:x}", object_id_e(new_obj_id));
+		mLogger.trace("Generated Object ID {:x}", object_id_e(new_obj_id));
 
 		++ mModelDepCounters[model_id];
 
@@ -540,7 +540,7 @@ namespace SKENGINE_NAME_NS {
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mModelLocators.end()) { // Remove the existing ID and reassign it
 			id = found_locator->second;
-			mLogger->debug("ObjectStorage: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
+			mLogger.debug("ObjectStorage: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseModel(found_locator->second);
@@ -548,7 +548,7 @@ namespace SKENGINE_NAME_NS {
 			locator = ins.first->second.locator; // Again, `locator` was dangling
 		} else {
 			id = id_generator<ModelId>.generate();
-			mLogger->trace("ObjectStorage: associating model \"{}\" with ID {}", locator, model_id_e(id));
+			mLogger.trace("ObjectStorage: associating model \"{}\" with ID {}", locator, model_id_e(id));
 		}
 
 		// Insert the model data (with the backing string) first
@@ -572,7 +572,7 @@ namespace SKENGINE_NAME_NS {
 
 	void ObjectStorage::eraseModel(ModelId id) noexcept {
 		auto& model_data = assert_not_end_(mModels, id)->second;
-		if(erase_objects_with_model(mObjects, mObjectUpdates, *mLogger, id, model_data.locator)) {
+		if(erase_objects_with_model(mObjects, mObjectUpdates, mLogger, id, model_data.locator)) {
 			mBatchesNeedUpdate = true;
 		}
 		eraseModelNoObjectCheck(id, model_data);
@@ -606,7 +606,7 @@ namespace SKENGINE_NAME_NS {
 			candidates = { };
 
 			for(auto& material : erase_queue) {
-				mLogger->trace("ObjectStorage: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
+				mLogger.trace("ObjectStorage: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
 				eraseMaterial(material.first);
 			}
 		}
@@ -615,7 +615,7 @@ namespace SKENGINE_NAME_NS {
 
 		mUnboundDrawBatches.erase(id);
 		mAssetSupplier->releaseModel(model_locator);
-		mLogger->trace("ObjectStorage: removed model \"{}\"", model_locator);
+		mLogger.trace("ObjectStorage: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 		id_generator<ModelId>.recycle(id);
 	}
@@ -648,7 +648,7 @@ namespace SKENGINE_NAME_NS {
 		// Generate a new ID, or remove the existing one and reassign it
 		if(found_locator != mMaterialLocators.end()) {
 			id = found_locator->second;
-			mLogger->debug("ObjectStorage: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
+			mLogger.debug("ObjectStorage: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
 			eraseMaterial(found_locator->second);
@@ -656,7 +656,7 @@ namespace SKENGINE_NAME_NS {
 			locator = material_ins->second.locator; // Again, `locator` was dangling
 		} else {
 			id = id_generator<MaterialId>.generate();
-			mLogger->trace("ObjectStorage: associating material \"{}\" with ID {}", locator, material_id_e(id));
+			mLogger.trace("ObjectStorage: associating material \"{}\" with ID {}", locator, material_id_e(id));
 			material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, { }, std::string(locator) })).first;
 		}
 
@@ -780,7 +780,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto obj_ref : ubatch.object_refs) { // Update/set the instances, while indirectly sorting the buffer
 				auto src_obj_iter = mObjects.find(obj_ref);
 				if(src_obj_iter == mObjects.end()) {
-					mLogger->error("Renderer: trying to enqueue non-existent object {}", object_id_e(obj_ref));
+					mLogger.error("Renderer: trying to enqueue non-existent object {}", object_id_e(obj_ref));
 					continue;
 				}
 

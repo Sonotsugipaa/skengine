@@ -7,7 +7,7 @@
 
 namespace util {
 
-	template <typename clock_tp = std::chrono::steady_clock, typename duration_tp = std::chrono::steady_clock::duration>
+	template <typename clock_tp = std::chrono::steady_clock, typename duration_tp = clock_tp::duration>
 	requires std::chrono::is_clock_v<clock_tp>
 	class Timer {
 	public:
@@ -24,7 +24,7 @@ namespace util {
 	};
 
 
-	template <typename duration_tp>
+	template <typename duration_tp = std::chrono::steady_clock::duration>
 	requires requires(duration_tp t) { { std::chrono::duration_cast<std::chrono::seconds>(t) } -> std::same_as<std::chrono::seconds>; }
 	using SteadyTimer = Timer<std::chrono::steady_clock, duration_tp>;
 

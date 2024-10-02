@@ -115,7 +115,11 @@ inline namespace main_ns {
 	}
 
 
-	void parseSettings(Settings* dst, const posixfio::MemMapping& data, spdlog::logger& logger) {
+	void parseSettings(
+		Settings* dst,
+		const posixfio::MemMapping& data,
+		Logger& logger
+	) {
 		using namespace std::string_view_literals;
 		using StringView = std::u8string_view;
 		static constexpr auto whitespaceChars = std::array<char8_t, 2>{ ' ', '\t' };
@@ -192,13 +196,14 @@ inline namespace main_ns {
 				logger.error("Invalid field of view: \"{}\"", ln);
 			}
 		};
-		auto parseLogLevel = [&](spdlog::level::level_enum* dst, const std::string_view& ln) {
-			if     (ln == "trace")    *dst = spdlog::level::trace;
-			else if(ln == "debug")    *dst = spdlog::level::debug;
-			else if(ln == "info")     *dst = spdlog::level::info;
-			else if(ln == "error")    *dst = spdlog::level::err;
-			else if(ln == "critical") *dst = spdlog::level::critical;
-			else if(ln == "off")      *dst = spdlog::level::off;
+		auto parseLogLevel = [&](sflog::Level* dst, const std::string_view& ln) {
+			if     (ln == "all")      *dst = sflog::Level::eAll;
+			else if(ln == "trace")    *dst = sflog::Level::eTrace;
+			else if(ln == "debug")    *dst = sflog::Level::eDebug;
+			else if(ln == "info")     *dst = sflog::Level::eInfo;
+			else if(ln == "error")    *dst = sflog::Level::eError;
+			else if(ln == "critical") *dst = sflog::Level::eCritical;
+			else if(ln == "off")      *dst = sflog::Level::eOff;
 			else logger.error("Invalid log level: \"{}\"", ln);
 		};
 		#pragma endregion

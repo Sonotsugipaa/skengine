@@ -285,7 +285,7 @@ namespace SKENGINE_NAME_NS {
 			size_t*            dst_width,
 			size_t*            dst_height,
 			const char*        locator,
-			spdlog::logger& logger,
+			Logger& logger,
 			float maxSamplerAnisotropy
 	) {
 		using posixfio::MemProtFlags;

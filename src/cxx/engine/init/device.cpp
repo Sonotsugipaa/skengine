@@ -61,7 +61,7 @@ namespace SKENGINE_NAME_NS {
 			if(SDL_TRUE != SDL_Vulkan_GetInstanceExtensions(mSdlWindow, &extCount, extensions.data())) throw std::runtime_error("Failed to query SDL Vulkan extensions");
 
 			for(uint32_t i=0; i < extCount; ++i) {
-				logger().debug("SDL2 requires Vulkan extension \"{}\"", extensions[i]);
+				mLogger.debug("SDL2 requires Vulkan extension \"{}\"", extensions[i]);
 			}
 		}
 
@@ -98,7 +98,8 @@ namespace SKENGINE_NAME_NS {
 			unsigned best_dev_index;
 			vkutil::SelectBestPhysDeviceDst best_dev = {
 				mPhysDevice, mDevProps, best_dev_index };
-			vkutil::selectBestPhysDevice(mLogger.get(), best_dev, devs, features, &mPrefs.phys_device_uuid);
+			#warning "Remove spdlog dependency from vkutil"
+			vkutil::selectBestPhysDevice(nullptr, best_dev, devs, features, &mPrefs.phys_device_uuid);
 
 			std::vector<std::string_view> missing_props;
 			{ // Check for missing required properties
@@ -110,7 +111,7 @@ namespace SKENGINE_NAME_NS {
 
 			if(! missing_props.empty()) {
 				for(const auto& prop : missing_props) {
-					logger().error("Selected device [{}]={:x}:{:x} \"{}\" is missing property `{}`",
+					mLogger.error("Selected device [{}]={:x}:{:x} \"{}\" is missing property `{}`",
 						best_dev_index,
 						mDevProps.vendorID, mDevProps.deviceID,
 						mDevProps.deviceName,
@@ -137,12 +138,12 @@ namespace SKENGINE_NAME_NS {
 			avail_extensions.rehash(avail_extensions_count);
 			for(uint32_t i = 0; i < avail_extensions_count; ++i) {
 				auto* name = avail_extensions_buf[i].extensionName;
-				mLogger->trace("Available device extension: {}", name);
+				mLogger.trace("Available device extension: {}", name);
 				avail_extensions.insert(name);
 			}
 		}
 
-		mDepthAtchFmt = vkutil::selectDepthStencilFormat(mLogger.get(), mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
+		mDepthAtchFmt = vkutil::selectDepthStencilFormat(nullptr, mPhysDevice, VK_IMAGE_TILING_OPTIMAL);
 
 		{ // Create logical device
 			auto dev_dst = vkutil::CreateDeviceDst { this->mDevice, mQueues };
@@ -164,7 +165,7 @@ namespace SKENGINE_NAME_NS {
 				if(avail_extensions.contains(nm)) {
 					extensions.push_back(nm.data());
 				} else {
-					mLogger->error("Desired device extension not available: {}", nm);
+					mLogger.error("Desired device extension not available: {}", nm);
 				}
 			};
 			request_ext("VK_EXT_hdr_metadata");
@@ -175,7 +176,7 @@ namespace SKENGINE_NAME_NS {
 			cd_info.pPhysDevProps     = &mDevProps;
 			cd_info.pRequiredFeatures = &features;
 
-			vkutil::createDevice(mLogger.get(), dev_dst, cd_info);
+			vkutil::createDevice(nullptr, dev_dst, cd_info);
 		}
 	}
 
@@ -223,7 +224,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initAssets() {
-		auto newLogger = std::make_shared<spdlog::logger>(logger());
+		auto newLogger = mLogger;
 		mAssetSupplier = AssetSupplier(*this, std::move(newLogger), mAssetSource, 0.125f, mDevProps.limits.maxSamplerAnisotropy);
 	}
 

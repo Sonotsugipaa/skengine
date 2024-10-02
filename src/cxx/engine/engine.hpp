@@ -25,9 +25,9 @@
 
 #include "mutex_ptr.inl.hpp"
 
-#include <spdlog/logger.h>
-
 #include <SDL2/SDL_vulkan.h>
+
+#include <sflog.hpp>
 
 
 
@@ -222,7 +222,7 @@ namespace SKENGINE_NAME_NS {
 			const EnginePreferences&,
 			std::shared_ptr<ShaderCacheInterface>,
 			std::shared_ptr<AssetSourceInterface>,
-			std::shared_ptr<spdlog::logger> );
+			Logger );
 
 		VkShaderModule createShaderModuleFromFile(const std::string& file_path);
 
@@ -276,7 +276,7 @@ namespace SKENGINE_NAME_NS {
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
 
-		auto& logger() const noexcept { return *mLogger; }
+		auto& logger(this auto& self) noexcept { return self.mLogger; }
 		auto  frameCount() const noexcept { return mGframeCounter.load(std::memory_order_relaxed); }
 		auto  frameDelta() const noexcept { return mGraphicsReg.estDelta(); }
 		auto  tickDelta() const noexcept { return mLogicReg.estDelta(); }
@@ -292,7 +292,7 @@ namespace SKENGINE_NAME_NS {
 
 		SDL_Window* mSdlWindow = nullptr;
 
-		std::shared_ptr<spdlog::logger> mLogger;
+		Logger mLogger;
 
 		VkInstance       mVkInstance = nullptr;
 		VkPhysicalDevice mPhysDevice = nullptr;

@@ -7,8 +7,6 @@
 
 #include <vk-util/memory.hpp>
 
-#include <spdlog/logger.h>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -44,7 +42,7 @@ namespace SKENGINE_NAME_NS {
 		UiRenderer(UiRenderer&&);
 		~UiRenderer();
 
-		static UiRenderer create(VmaAllocator, std::shared_ptr<spdlog::logger>, std::string fontFilePath);
+		static UiRenderer create(VmaAllocator, Logger, std::string fontFilePath);
 		static void destroy(UiRenderer&);
 
 		std::string_view name() const noexcept override { return "ui"; }
@@ -60,7 +58,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		struct {
-			std::shared_ptr<spdlog::logger> logger;
+			Logger logger;
 			std::vector<GframeData> gframes;
 			std::unique_ptr<ui::Canvas> canvas;
 			std::unordered_map<unsigned short, TextCache> textCaches;
