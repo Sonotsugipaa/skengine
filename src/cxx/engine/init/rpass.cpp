@@ -434,18 +434,30 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::initRenderers(State& state) {
+		using namespace std::string_literals;
+		using namespace std::string_view_literals;
+
 		if(! state.reinit) {
 			mWorldRendererSharedState_TMP_UGLY_NAME = std::make_shared_for_overwrite<WorldRendererSharedState>();
 			WorldRenderer::initSharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
 
+			auto copyLogger = [&]<typename... Pfx>(std::string_view sub) {
+				auto r = mLogger;
+				std::string cat = std::string(SKENGINE_NAME_PC_CSTR ":");
+				cat.reserve(cat.size() + sub.size() + 1);
+				cat.append(sub);
+				cat.push_back(' ');
+				return cloneLogger(mLogger, "["sv, cat, ""sv, "]  "sv);
+			};
+
 			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
-				mLogger,
+				copyLogger("ObjStorage"),
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mVma,
 				mAssetSupplier ));
 
 			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
-				mLogger,
+				copyLogger("WorldRdr"),
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
 				WorldRenderer::ProjectionInfo {
@@ -457,7 +469,7 @@ namespace SKENGINE_NAME_NS {
 
 			auto uiUptr = std::make_unique<UiRenderer>(UiRenderer::create(
 				mVma,
-				mLogger,
+				copyLogger("UiRdr"),
 				mPrefs.font_location ));
 			mUiRenderer_TMP_UGLY_NAME = uiUptr.get();
 			mRenderers.emplace_back(std::move(uiUptr));

@@ -222,7 +222,7 @@ namespace SKENGINE_NAME_NS {
 			const EnginePreferences&,
 			std::shared_ptr<ShaderCacheInterface>,
 			std::shared_ptr<AssetSourceInterface>,
-			Logger );
+			const Logger& );
 
 		VkShaderModule createShaderModuleFromFile(const std::string& file_path);
 

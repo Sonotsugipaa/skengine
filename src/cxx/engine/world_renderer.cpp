@@ -7,7 +7,7 @@
 #include <cassert>
 #include <atomic>
 #include <tuple>
-#include <type_traits>
+#include <concepts>
 #include <random>
 
 #include "atomic_id_gen.inl.hpp"
@@ -66,9 +66,14 @@ namespace SKENGINE_NAME_NS {
 		} ();
 
 
+		template <std::unsigned_integral T>
+		constexpr T compute_buffer_resize(T current, T desired) noexcept {
+			return std::bit_ceil((desired > current? desired : current));
+		}
+
+
 		uint32_t set_light_buffer_capacity(VmaAllocator vma, WorldRenderer::LightStorage* dst, uint32_t desired) {
-			static_assert(std::bit_ceil(0u) == 1u);
-			desired = std::bit_ceil(desired);
+			desired = compute_buffer_resize(dst->bufferCapacity, desired);
 			if(desired != dst->bufferCapacity) {
 				if(dst->bufferCapacity > 0) {
 					dst->buffer.unmap(vma);

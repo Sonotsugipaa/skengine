@@ -470,9 +470,9 @@ namespace SKENGINE_NAME_NS {
 			const EnginePreferences& ep,
 			std::shared_ptr<ShaderCacheInterface> sci,
 			std::shared_ptr<AssetSourceInterface> asi,
-			Logger                                logger
+			const Logger&                         logger
 	):
-		mLogger(std::move(logger)),
+		mLogger(cloneLogger(logger, std::string_view("["), std::string_view(SKENGINE_NAME_PC_CSTR ":Engine "), std::string_view(""), std::string_view("]  "))),
 		mShaderCache(std::move(sci)),
 		mGraphicsReg(
 			ep.framerate_samples,

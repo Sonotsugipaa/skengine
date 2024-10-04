@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <cstdint>
 #include <stdfloat>
+#include <utility>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -43,6 +44,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	using Logger = sflog::Logger<std::shared_ptr<posixfio::OutputBuffer>>;
+
+	template <typename Logger, typename... Pfx>
+	Logger cloneLogger(const Logger& cp, Pfx&&... pfx) { return Logger(cp.sink(), cp.getLevel(), cp.options(), std::forward<Pfx>(pfx)...); }
 
 
 	struct TransferContext {

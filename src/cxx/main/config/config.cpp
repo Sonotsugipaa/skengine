@@ -203,7 +203,8 @@ inline namespace main_ns {
 			else if(ln == "info")     *dst = sflog::Level::eInfo;
 			else if(ln == "error")    *dst = sflog::Level::eError;
 			else if(ln == "critical") *dst = sflog::Level::eCritical;
-			else if(ln == "off")      *dst = sflog::Level::eOff;
+			else if(ln == "disabled") *dst = sflog::Level::eDisabled;
+			else if(ln == "off")      *dst = sflog::Level::eDisabled;
 			else logger.error("Invalid log level: \"{}\"", ln);
 		};
 		#pragma endregion

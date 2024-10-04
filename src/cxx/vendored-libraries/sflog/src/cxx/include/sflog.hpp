@@ -24,23 +24,33 @@ namespace sflog {
 
 	using level_e = unsigned;
 	enum class Level : level_e {
-		eAll      = 1,
-		eTrace    = 1,
+		eTrace    = 1, eAll = eTrace,
 		eDebug    = 2,
 		eInfo     = 3,
 		eWarn     = 4,
 		eError    = 5,
 		eCritical = 6,
-		eOff      = 7
+		eDisabled = 7
 	};
-	constexpr Level operator|(Level l, Level r) noexcept { return Level(level_e(l) | level_e(r)); }
 	constexpr bool operator<(Level l, Level r) noexcept { return level_e(l) > level_e(r); }
-
-	using ansi_sgr_e = unsigned;
-	enum class AnsiSgr { eNo = 0, eYes = 1 };
+	static_assert((level_e(Level::eCritical) == (level_e(Level::eDisabled) - 1)) && "the critical level must be the least common one");
 
 	template <Level level>
 	concept RealLevel = (Level::eTrace <= level) && (level <= Level::eCritical);
+
+
+	using options_e = unsigned;
+	enum class Options : options_e { };
+	enum class OptionBit : options_e {
+		eNone = 0,
+		eUseAnsiSgr = 0b1,
+		eAutoFlush  = 0b10
+	};
+	template <typename T> concept OptionType = std::same_as<T, Options> || std::same_as<T, OptionBit>;
+	template <OptionType L, OptionType R>
+	constexpr Options operator|(L l, R r) noexcept { return Options(options_e(l) | options_e(r)); }
+	constexpr bool operator&(Options l, OptionBit r) noexcept { return 0 != (options_e(l) & options_e(r)); }
+	constexpr Options defaultOptions = OptionBit::eUseAnsiSgr | OptionBit::eAutoFlush;
 
 
 	constexpr char ansiCsi[] = { 033, 0133 };
@@ -55,13 +65,26 @@ namespace sflog {
 	constexpr char ansiResetSgr[] = { ansiCsi[0], ansiCsi[1], 0155 };
 	constexpr auto ansiResetSgrView = std::string_view(ansiResetSgr, ansiResetSgr + std::size(ansiResetSgr));
 
-	template <Level level> requires RealLevel<level> constexpr std::string_view levelStr;
+	template <Level level> constexpr std::string_view levelStr;
 	template <> constexpr std::string_view levelStr<Level::eTrace>     = "Trace";
 	template <> constexpr std::string_view levelStr<Level::eDebug>     = "Debug";
 	template <> constexpr std::string_view levelStr<Level::eInfo>      = "Info";
 	template <> constexpr std::string_view levelStr<Level::eWarn>      = "Warn";
 	template <> constexpr std::string_view levelStr<Level::eError>     = "Error";
 	template <> constexpr std::string_view levelStr<Level::eCritical>  = "Critical";
+	template <> constexpr std::string_view levelStr<Level::eDisabled>  = "Disabled";
+	constexpr std::string_view levelStrOf(Level l) { switch(l) {
+		#define CASE_(L_) case L_: return levelStr<L_>;
+		CASE_(Level::eTrace   )
+		CASE_(Level::eDebug   )
+		CASE_(Level::eInfo    )
+		CASE_(Level::eWarn    )
+		CASE_(Level::eError   )
+		CASE_(Level::eCritical)
+		default: [[fallthrough]];
+		CASE_(Level::eDisabled)
+		#undef CASE_
+	}}
 
 
 	#ifdef SFLOG_ENABLE_POSIXFIO
@@ -124,13 +147,13 @@ namespace sflog {
 	concept StdOstreamType = StdOstreamPtrType<T*> && ! StdOstreamPtrType<T>;
 
 	template <StdOstreamType StdOstream, typename... Args>
-	void formatTo(StdOstream& ostr, fmt::format_string<Args...> fmtStr, Args... args) {
+	void formatTo(StdOstream& ostr, fmt::format_string<Args...> fmtStr, Args&&... args) {
 		auto ins = std::ostream_iterator<typename StdOstream::char_type>(ostr);
 		fmt::format_to(ins, fmtStr, std::forward<Args>(args)...);
 	}
 
 	template <StdOstreamPtrType StdOstreamPtr, typename... Args>
-	void formatTo(StdOstreamPtr ostr, fmt::format_string<Args...> fmtStr, Args... args) {
+	void formatTo(StdOstreamPtr ostr, fmt::format_string<Args...> fmtStr, Args&&... args) {
 		formatTo(*ostr, fmtStr, std::forward<Args>(args)...);
 	}
 
@@ -160,62 +183,35 @@ namespace sflog {
 	public:
 		using SinkPtr = sink_ptr_tp;
 
-		Logger(): l_prefixSegm { 0,0,0 }, l_level(Level::eInfo), l_sgr(AnsiSgr::eNo) { }
-		Logger(SinkPtr sink, Level level, AnsiSgr sgr): l_prefixSegm { 0,0,0 }, l_sink(std::move(sink)), l_level(level), l_sgr(sgr) { }
+
+		Logger(): l_prefixSegm { 0,0,0 }, l_level(Level::eInfo), l_opt(defaultOptions) { }
+		Logger(SinkPtr sink, Level level, OptionType auto opt): l_prefixSegm { 0,0,0 }, l_sink(std::move(sink)), l_level(level), l_opt(Options(options_e(opt))) { }
 		Logger(const Logger&) = default;  Logger& operator=(const Logger&) = default;
 		Logger(Logger&&)      = default;  Logger& operator=(Logger&&)      = default;
 
 		template <StringLike<char> Str0, StringLike<char> Str1>
 		Logger(
-			SinkPtr sink, Level level, AnsiSgr sgr,
+			SinkPtr sink, Level level, OptionType auto opt,
 			const Str0& pfxBeforeLevelColor, const Str1& pfxAfterLevelColor
 		):
-			Logger(std::move(sink), level, sgr)
+			Logger(std::move(sink), level, opt)
 		{
 			setPrefix(pfxBeforeLevelColor, pfxAfterLevelColor);
 		}
 
 		template <StringLike<char> Str0, StringLike<char> Str1, StringLike<char> Str2, StringLike<char> Str3>
 		Logger(
-			SinkPtr sink, Level level, AnsiSgr sgr,
+			SinkPtr sink, Level level, OptionType auto opt,
 			const Str0& pfxBeforeLevelColor, const Str1& pfxBeforeLevel, const Str2& pfxAfterLevel, const Str3& pfxAfterLevelColor
 		):
-			Logger(std::move(sink), level, sgr)
+			Logger(std::move(sink), level, opt)
 		{
 			setPrefix(pfxBeforeLevelColor, pfxBeforeLevel, pfxAfterLevel, pfxAfterLevelColor);
 		}
 
-		template <Level level, typename... Args> requires RealLevel<level>
-		void logRaw(fmt::format_string<Args...> fmtStr, Args... args) {
-			auto& ref = *l_sink;
-			auto pfx = getPrefixSegments();
-			formatTo(ref, "{}{}{}", std::get<0>(pfx), levelStr<level>, std::get<3>(pfx));
-			formatTo(ref, fmtStr, std::forward<Args>(args)...);
-			formatTo(ref, "\n");
-		}
-
-		template <Level level, typename... Args> requires RealLevel<level>
-		void logFormatted(fmt::format_string<Args...> fmtStr, Args... args) {
-			auto& ref = *l_sink;
-			auto pfx = getPrefixSegments();
-			formatTo(ref, "{}{}{}{}{}{}{}", std::get<0>(pfx), levelAnsiSgrView<level>, std::get<1>(pfx), levelStr<level>, std::get<2>(pfx), ansiResetSgrView, std::get<3>(pfx));
-			formatTo(ref, fmtStr, std::forward<Args>(args)...);
-			formatTo(ref, "\n");
-		}
-
-		template <Level level, typename... Args> requires RealLevel<level>
-		void log(fmt::format_string<Args...> fmtStr, Args... args) {
-			// Optimize for level > eDebug
-			#define LOG_ \
-				if(l_sgr == AnsiSgr::eYes) logFormatted<level, Args...>(fmtStr, args...); \
-				else                       logRaw      <level, Args...>(fmtStr, args...);
-			if constexpr (level <= Level::eDebug) { if(level >= l_level) [[unlikely]] { LOG_ }; }
-			if constexpr (level >  Level::eDebug) { if(level >= l_level) [[  likely]] { LOG_ }; }
-			#undef LOG_
-		}
 
 		#define LOG_ALIAS_SIG_(UC_, LC_, REST_) template <typename... Args> void LC_##REST_(fmt::format_string<Args...> fmtStr, Args... args)
-		#define LOG_ALIAS_BODY_(UC_, LC_, REST_) log<Level::e##UC_##REST_, Args...>(fmtStr, args...);
+		#define LOG_ALIAS_BODY_(UC_, LC_, REST_) l_log<Level::e##UC_##REST_, Args...>(fmtStr, std::forward<Args>(args)...);
 		#define LOG_ALIAS_(UC_, LC_, REST_) LOG_ALIAS_SIG_(UC_, LC_, REST_) { LOG_ALIAS_BODY_(UC_, LC_, REST_) }
 		LOG_ALIAS_(T,t,race)
 		LOG_ALIAS_(D,d,ebug)
@@ -226,6 +222,9 @@ namespace sflog {
 		#undef LOG_ALIAS_
 		#undef LOG_ALIAS_BODY_
 		#undef LOG_ALIAS_SIG_
+
+		void flush(this Logger& self) { sflog::flush(*(self.l_sink)); }
+
 
 		template <StringLike<char> Str0, StringLike<char> Str1, StringLike<char> Str2, StringLike<char> Str3>
 		auto& setPrefix(const Str0& beforeLevelColor, const Str1& beforeLevel, const Str2& afterLevel, const Str3& afterLevelColor) {
@@ -240,11 +239,13 @@ namespace sflog {
 			return *this;
 		}
 
+
 		template <StringLike<char> Str0, StringLike<char> Str1>
 		auto& setPrefix(Str0& beforeLevelColor, Str1& afterLevelColor) {
 			using namespace std::string_view_literals;
 			return setPrefix(beforeLevelColor, ""sv, ""sv, afterLevelColor);
 		}
+
 
 		auto getPrefix() const noexcept { return std::string_view(l_prefix); }
 		auto getPrefixSegments() const noexcept { return std::tuple(
@@ -253,20 +254,61 @@ namespace sflog {
 			std::string_view(l_prefix.begin() + l_prefixSegm[1], l_prefix.begin() + l_prefixSegm[2]),
 			std::string_view(l_prefix.begin() + l_prefixSegm[2], l_prefix.end()                    ) ); }
 
-		auto  usingAnsiSgr() const noexcept { return l_sgr; }
-		auto& useAnsiSgr(AnsiSgr v = AnsiSgr::eYes) noexcept { l_sgr = v; }
+
+		auto& options(this auto& self) noexcept { return self.l_opt; }
+		bool usingOption(OptionBit opt) const noexcept { return l_opt & opt; }
+
 
 		auto& sink(this auto& self) noexcept { return self.l_sink; }
+
 
 		void  setLevel(Level v) noexcept { l_level = v; }
 		Level getLevel() const noexcept { return l_level; }
 
 	private:
+
+
+		template <Level level, typename... Args> requires RealLevel<level>
+		void l_logRaw(fmt::format_string<Args...> fmtStr, Args&&... args) {
+			auto& ref = *l_sink;
+			auto pfx = getPrefixSegments();
+			formatTo(ref, "{}{}{}", std::get<0>(pfx), levelStr<level>, std::get<3>(pfx));
+			formatTo(ref, fmtStr, std::forward<Args>(args)...);
+			formatTo(ref, "\n");
+		}
+
+
+		template <Level level, typename... Args> requires RealLevel<level>
+		void l_logFormatted(fmt::format_string<Args...> fmtStr, Args&&... args) {
+			auto& ref = *l_sink;
+			auto pfx = getPrefixSegments();
+			formatTo(ref, "{}{}{}{}{}{}{}", std::get<0>(pfx), levelAnsiSgrView<level>, std::get<1>(pfx), levelStr<level>, std::get<2>(pfx), ansiResetSgrView, std::get<3>(pfx));
+			formatTo(ref, fmtStr, std::forward<Args>(args)...);
+			formatTo(ref, "\n");
+		}
+
+
+		template <Level level, typename... Args> requires RealLevel<level>
+		void l_log(fmt::format_string<Args...> fmtStr, Args&&... args) {
+			// Optimize for level > eDebug:
+			// debugging is always marginally slower, but perfectly up-to-code
+			// release builds shouldn't print debugging logs to begin with.
+			#define LOG_ \
+				if(usingOption(OptionBit::eUseAnsiSgr)) \
+				/**/ l_logFormatted<level, Args...>(fmtStr, std::forward<Args>(args)...); \
+				else l_logRaw      <level, Args...>(fmtStr, std::forward<Args>(args)...);
+			if      constexpr (level <= Level::eDebug   )  { if(level >= l_level) [[unlikely]] { LOG_ }; }
+			else if constexpr (level <  Level::eCritical)  { if(level >= l_level)              { LOG_ }; }
+			else             /*level >= Level::eCritical*/ {                                   { LOG_ }; }
+			#undef LOG_
+		}
+
+
 		std::string l_prefix;
 		size_t      l_prefixSegm[3];
 		SinkPtr     l_sink;
 		Level       l_level;
-		AnsiSgr     l_sgr;
+		Options     l_opt;
 	};
 
 }

@@ -4,6 +4,8 @@
 #include <vk-util/init.hpp>
 #include <vk-util/command_pool.hpp>
 
+#include "debug.inl.hpp"
+
 #include <string>
 #include <memory>
 #include <charconv>
@@ -15,7 +17,9 @@ namespace SKENGINE_NAME_NS {
 
 	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::DeviceInitializer::init(const DeviceInitInfo* dii) {
+		using namespace std::string_view_literals;
 		assert(dii != nullptr);
+		debug::setLogger(cloneLogger(mLogger, "["sv, "Skengine "sv, ""sv, "]  "sv));
 		initSdl(dii);
 		initVkInst(dii);
 		initVkDev();
@@ -34,6 +38,7 @@ namespace SKENGINE_NAME_NS {
 		destroyVkDev();
 		destroyVkInst();
 		destroySdl();
+		debug::setLogger(Logger());
 	}
 
 

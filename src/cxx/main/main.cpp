@@ -557,7 +557,8 @@ namespace {
 			auto rng = std::ranlux48(size_t(this));
 
 			auto inputLock = std::unique_lock(inputMutex);
-			float change_radius = 0.0f;
+			float change_light_mov_radius = 0.0f;
+			float change_light_intensity = 0.0f;
 			bool move_light_key_pressed, move_fwd, move_bkw, move_lft, move_rgt, move_drag_mod; {
 				move_light_key_pressed = pressedKeys.contains(SDLK_SPACE);
 				move_fwd = pressedKeys.contains(SDLK_w);
@@ -565,8 +566,10 @@ namespace {
 				move_lft = pressedKeys.contains(SDLK_a);
 				move_rgt = pressedKeys.contains(SDLK_d);
 				move_drag_mod = pressedKeys.contains(SDLK_LSHIFT);
-				if     (pressedKeys.contains(SDLK_1)) change_radius = -delta;
-				else if(pressedKeys.contains(SDLK_2)) change_radius = +delta;
+				if     (pressedKeys.contains(SDLK_1)) change_light_mov_radius = -delta;
+				else if(pressedKeys.contains(SDLK_2)) change_light_mov_radius = +delta;
+				else if(pressedKeys.contains(SDLK_3)) change_light_intensity = -1.0;
+				else if(pressedKeys.contains(SDLK_4)) change_light_intensity = +1.0;
 			}
 
 			// Randomly rotate all the objects
@@ -652,7 +655,7 @@ namespace {
 				constexpr auto pi2 = std::numbers::pi_v<float> * 2.0f;
 				auto angle = delta * pi2;
 				auto dist = glm::distance(pos, camLightCenter);
-				camLightRadius += 0.3f * change_radius * dist;
+				camLightRadius += 0.3f * change_light_mov_radius * dist;
 				camLightRadius = std::max(0.0f, camLightRadius);
 				if(camLightRadius != 0.0f) {
 					camLightAngle += 5.0f * angle;
@@ -661,6 +664,13 @@ namespace {
 				rotation_offset.x = std::cos(camLightAngle) * camLightRadius;
 				rotation_offset.z = std::sin(camLightAngle) * camLightRadius;
 				setPointLight->position = camLightCenter + rotation_offset;
+			}
+
+			{ // Change camera light intensity
+				constexpr float minChange = 0.1f; // Prevents (0x2=0) situations
+				float intensityDeltaScale = setPointLight->intensity + minChange;
+				float newIntensity = intensityDeltaScale * (1.0f + (0.02f * change_light_intensity));
+				setPointLight->intensity = std::max(0.0f, newIntensity - minChange);
 			}
 
 			fpsGauge.lock()->setText(fmt::format(
@@ -678,10 +688,10 @@ int main(int argn, char** argv) {
 	using namespace std::string_view_literals;
 
 	auto logger = Logger(
-		std::make_shared<posixfio::OutputBuffer>(STDOUT_FILENO, 1<<12),
+		std::make_shared<posixfio::OutputBuffer>(STDOUT_FILENO, 512),
 		sflog::Level::eInfo,
-		sflog::AnsiSgr::eYes,
-		"["sv, SKENGINE_NAME_CSTR " "sv, ""sv, "]  "sv );
+		sflog::OptionBit::eUseAnsiSgr | sflog::OptionBit::eAutoFlush,
+		"["sv, SKENGINE_NAME_CSTR " Demo : "sv, ""sv, "]  "sv );
 
 	#ifndef NDEBUG
 		logger.setLevel(sflog::Level::eDebug);
