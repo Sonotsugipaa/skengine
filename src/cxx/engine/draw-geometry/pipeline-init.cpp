@@ -227,17 +227,6 @@ inline namespace geom {
 
 		assert(psci.polyDsetLayout == nullptr && "polygon pipelines do not use descriptors (yet?)");
 
-		{ // Pipeline layout
-			VkPipelineLayoutCreateInfo plcInfo = { };
-			VkPushConstantRange pcRanges[1] = { { VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(geom::PushConstant) } };
-			plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			plcInfo.setLayoutCount = 1;
-			plcInfo.pSetLayouts    = &psci.textDsetLayout;
-			plcInfo.pushConstantRangeCount = std::size(pcRanges);
-			plcInfo.pPushConstantRanges = pcRanges;
-			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.layout);
-		}
-
 		// Create the shader modules
 		#define COMPILE_(NAME_, SRC_, KIND_) ShaderCompiler::glslSourceToModule(dev, NAME_, SRC_, shaderc_ ## KIND_ ## _shader)
 		auto polyVtxModule = COMPILE_("geom:poly.vtx", polyVtxSrc, vertex);
@@ -258,7 +247,7 @@ inline namespace geom {
 			pci.renderPass     = psci.renderPass;
 			pci.subpass        = psci.subpass;
 			pci.pipelineCache  = psci.pipelineCache;
-			pci.pipelineLayout = r.layout;
+			pci.pipelineLayout = psci.pipelineLayout;
 			pci.vertexShader   = polyVtxModule;
 			pci.fragmentShader = polyFrgModule;
 			pci.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
@@ -275,9 +264,8 @@ inline namespace geom {
 			pci.fragmentShader = textFrgModule;
 			pipelines.push_back(r.text = createPipeline<PipelineType::eText>(dev, pci));
 		} catch(...) {
-			// Destroy the now useless layout and the successfully created pipelines, then resume the downwards spiral
+			// Destroy the successfully created pipelines, then resume the downwards spiral
 			destroyShaderModules();
-			vkDestroyPipelineLayout(dev, r.layout, nullptr);
 			std::rethrow_exception(std::current_exception());
 		}
 		destroyShaderModules();
@@ -290,7 +278,6 @@ inline namespace geom {
 		vkDestroyPipeline(dev, ps.polyLine, nullptr);
 		vkDestroyPipeline(dev, ps.polyFill, nullptr);
 		vkDestroyPipeline(dev, ps.text, nullptr);
-		vkDestroyPipelineLayout(dev, ps.layout, nullptr);
 	}
 
 }}

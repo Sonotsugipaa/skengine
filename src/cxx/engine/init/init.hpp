@@ -19,10 +19,8 @@ namespace SKENGINE_NAME_NS {
 		void initVkDev();
 		void initVma();
 		void initTransferContext();
-		void initDsetLayouts();
 		void initAssets();
 		void destroyAssets();
-		void destroyDsetLayouts();
 		void destroyTransferContext();
 		void destroyVma();
 		void destroyVkDev();
@@ -46,10 +44,8 @@ namespace SKENGINE_NAME_NS {
 		void initRenderers(State&);
 		void initGframes(State&);
 		void initRpasses(State&);
-		void initFramebuffers(State&);
 		void initTop(State&);
 		void destroyTop(State&);
-		void destroyFramebuffers(State&);
 		void destroyRpasses(State&);
 		void destroyGframes(State&);
 		void destroyRenderers(State&);

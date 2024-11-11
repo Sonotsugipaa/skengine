@@ -20,8 +20,8 @@ namespace vkutil {
 
 
 	template <typename Fn, typename... Args>
-	VkResult vkCheck(const char* fnName, Fn fn, Args... args) {
-		VkResult r = fn(args...);
+	VkResult vkCheck(const char* fnName, Fn fn, Args&&... args) {
+		VkResult r = fn(std::forward<Args>(args)...);
 		if(r < 0) {
 			throw VulkanError(fnName, r);
 		}

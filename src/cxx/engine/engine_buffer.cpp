@@ -49,12 +49,11 @@ namespace SKENGINE_NAME_NS {
 		if(b.isHostVisible()) {
 			b.flush(nullptr, tc.vma);
 		} else {
-			VmaAllocatorInfo vaInfo;
-			vmaGetAllocatorInfo(tc.vma, &vaInfo);
-			auto cmd = create_cmd_buffer(vaInfo.device, tc.cmdPool);
+			auto dev = vmaGetAllocatorDevice(tc.vma);
+			auto cmd = create_cmd_buffer(dev, tc.cmdPool);
 			b.flush(cmd, tc.vma);
-			submit_onetime_cmd(vaInfo.device, tc.cmdQueue, cmd);
-			vkFreeCommandBuffers(vaInfo.device, tc.cmdPool, 1, &cmd);
+			submit_onetime_cmd(dev, tc.cmdQueue, cmd);
+			vkFreeCommandBuffers(dev, tc.cmdPool, 1, &cmd);
 		}
 	}
 
@@ -63,12 +62,11 @@ namespace SKENGINE_NAME_NS {
 		if(b.isHostVisible()) {
 			b.invalidate(nullptr, tc.vma);
 		} else {
-			VmaAllocatorInfo vaInfo;
-			vmaGetAllocatorInfo(tc.vma, &vaInfo);
-			auto cmd = create_cmd_buffer(vaInfo.device, tc.cmdPool);
+			auto dev = vmaGetAllocatorDevice(tc.vma);
+			auto cmd = create_cmd_buffer(dev, tc.cmdPool);
 			b.invalidate(cmd, tc.vma);
-			submit_onetime_cmd(vaInfo.device, tc.cmdQueue, cmd);
-			vkFreeCommandBuffers(vaInfo.device, tc.cmdPool, 1, &cmd);
+			submit_onetime_cmd(dev, tc.cmdQueue, cmd);
+			vkFreeCommandBuffers(dev, tc.cmdPool, 1, &cmd);
 		}
 	}
 

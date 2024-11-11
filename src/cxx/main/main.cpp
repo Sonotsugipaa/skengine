@@ -2,6 +2,7 @@
 #include <random>
 #include <cinttypes>
 
+#include <engine-util/basic_shader_cache.hpp>
 #include <engine-util/basic_asset_source.hpp>
 
 #include <posixfio_tl.hpp>

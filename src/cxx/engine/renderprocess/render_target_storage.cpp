@@ -179,7 +179,7 @@ namespace SKENGINE_NAME_NS {
 		) {
 			auto& log = rts_logger;
 			auto* dev = [](auto vma) { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; } (rts_vma);
-			log.trace("render_target_storage: resizing managed entries [{}, {}) of rtarget ID {}: {}x{}x{} -> {}x{}x{}",
+			log.trace("Resizing managed entries [{}, {}) of rtarget ID {}: {}x{}x{} -> {}x{}x{}",
 				auto(entrySet.second.offset),
 				entrySet.second.offset + rts_gframeCount,
 				render_target_id_e(id),
@@ -217,25 +217,25 @@ namespace SKENGINE_NAME_NS {
 			#define ARG_LIST_ rts_vma, dev, desc
 			auto copyEntry = [&](size_t gframe) {
 				size_t srcIdx = oldOffset + gframe, dstIdx = newOffset + gframe;
-				log.trace("render_target_storage: copying rtarget entry {} -> {}", srcIdx, dstIdx);
+				log.trace("Copying rtarget entry {} -> {}", srcIdx, dstIdx);
 				swapOut[dstIdx] = rts_entries[srcIdx];
 			};
 			auto destroyEntry = [&](size_t gframe) {
 				size_t idx = oldOffset + copyCount + gframe;
 				assert(idx < rts_entries.size());
-				log.trace("render_target_storage: destroying rtarget entry {}", idx);
+				log.trace("Destroying rtarget entry {}", idx);
 				destroyRtarget(rts_entries[idx].managed, ARG_LIST_);
 			};
 			auto initEntry = [&](size_t gframe) {
 				size_t idx = newOffset + copyCount + gframe;
 				assert(idx < swapOut.size());
-				log.trace("render_target_storage: creating rtarget entry {}", idx);
+				log.trace("Creating rtarget entry {}", idx);
 				initRtarget(swapOut[idx].managed, ARG_LIST_);
 			};
 			for(size_t i = 0; i < copyCount; ++i) copyEntry(i);
 			if(entrySet.isExternal) {
-				if(destroyCount > 0) log.trace("render_target_storage: not destroying"" external rtarget entries [{}, {})", oldOffset + copyCount, oldOffset + copyCount + destroyCount);
-				else                 log.trace("render_target_storage: not initializing external rtarget entries [{}, {})", newOffset + copyCount, newOffset + copyCount + createCount);
+				if(destroyCount > 0) log.trace("Not destroying"" external rtarget entries [{}, {})", oldOffset + copyCount, oldOffset + copyCount + destroyCount);
+				else                 log.trace("Not initializing external rtarget entries [{}, {})", newOffset + copyCount, newOffset + copyCount + createCount);
 			} else {
 				for(size_t i = 0; i < destroyCount; ++i) destroyEntry(i);
 				for(size_t i = 0; i < createCount ; ++i) initEntry(i);
@@ -257,7 +257,7 @@ namespace SKENGINE_NAME_NS {
 				auto& entrySet = mapping.second;
 				auto  descIdx  = entrySet.offset / rts_gframeCount;
 				if(entrySet.isExternal) {
-					log.trace("render_target_storage: updating external entries [{}, {}) matching ID {}", auto(entrySet.offset), entrySet.offset + rts_gframeCount, descIdx);
+					log.trace("Updating external entries [{}, {}) matching ID {}", auto(entrySet.offset), entrySet.offset + rts_gframeCount, descIdx);
 					auto& desc = rts_descs[descIdx];
 					auto& extImages = * desc.externalImages;
 					assert(extImages.size() >= rts_gframeCount);
@@ -345,7 +345,7 @@ namespace SKENGINE_NAME_NS {
 				auto& entrySet = mapping.second;
 				auto  descIdx  = entrySet.offset / dst.rts_gframeCount;
 				if(entrySet.isExternal) {
-					log.trace("render_target_storage: not populating external entries [{}, {}) matching ID {}", auto(entrySet.offset), entrySet.offset + dst.rts_gframeCount, descIdx);
+					log.trace("Not populating external entries [{}, {}) matching ID {}", auto(entrySet.offset), entrySet.offset + dst.rts_gframeCount, descIdx);
 				} else {
 					log.trace("render_target_storage: populating managed entries [{}, {}) matching ID {}", auto(entrySet.offset), entrySet.offset + dst.rts_gframeCount, descIdx);
 					for(size_t rtargetIdx = 0; rtargetIdx < dst.rts_gframeCount; ++ rtargetIdx) {

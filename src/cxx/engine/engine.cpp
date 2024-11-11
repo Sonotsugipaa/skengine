@@ -37,6 +37,13 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	using frame_counter_t = decltype(Engine::mGframeSelector);
 
 
+	struct DrawInfo {
+		ConcurrentAccess& concurrent_access;
+		GframeData* gframe;
+		uint32_t sc_img_idx;
+	};
+
+
 	static VkFence& selectGframeFence(Engine& e) {
 		auto i = (++ e.mGframeSelector) % frame_counter_t(e.mGframes.size());
 		auto& r = e.mGframeSelectionFences[i];
@@ -45,33 +52,63 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void setHdrMetadata(Engine& e) {
-		// HDR (This is just a stub, apparently HDR isn't a Linux thing yet and `vkSetHdrMetadataEXT` is not defined in the (standard?) Vulkan ICD)
-		//
-		(void) e;
-		// VkHdrMetadataEXT hdr = { };
-		// hdr.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
-		// hdr.minLuminance = 0.0f;
-		// hdr.maxLuminance = 1.0f;
-		// hdr.maxFrameAverageLightLevel = 0.7f;
-		// hdr.maxContentLightLevel      = 0.7f;
-		// hdr.whitePoint                = VkXYColorEXT { 0.3127f, 0.3290f };
-		// hdr.displayPrimaryRed         = VkXYColorEXT { 0.6400f, 0.3300f };
-		// hdr.displayPrimaryGreen       = VkXYColorEXT { 0.3000f, 0.6000f };
-		// hdr.displayPrimaryBlue        = VkXYColorEXT { 0.1500f, 0.0600f };
-		// vkSetHdrMetadataEXT(e.mDevice, 1, &e.mSwapchain, &hdr);
+	static void prepareStep(
+		Renderer& renderer,
+		RenderPass& rpass,
+		VkCommandBuffer cmd,
+		const Renderer::DrawSyncPrimitives& syncs,
+		DrawInfo& draw
+	) {
+		assert(draw.sc_img_idx < rpass.framebuffers.size());
+		auto  rdrDrawInfo = Renderer::DrawInfo { .syncPrimitives = syncs, .gframeIndex = draw.sc_img_idx };
+		renderer.duringPrepareStage(draw.concurrent_access, rdrDrawInfo, cmd);
+	}
+
+	static void drawStep(
+		RenderProcess::Step& step,
+		Renderer& renderer,
+		RenderPass& rpass,
+		VkCommandBuffer cmd,
+		const Renderer::DrawSyncPrimitives& syncs,
+		DrawInfo& draw
+	) {
+		auto rdrDrawInfo = Renderer::DrawInfo { .syncPrimitives = syncs, .gframeIndex = draw.sc_img_idx };
+		VkRenderPassBeginInfo rpb_info = { };
+		rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		rpb_info.framebuffer = rpass.framebuffers[draw.sc_img_idx].handle;
+		rpb_info.renderPass  = rpass.handle;
+		rpb_info.clearValueCount = step.clearColors.size();
+		rpb_info.pClearValues    = step.clearColors.begin();
+		rpb_info.renderArea      = step.renderArea;
+
+		vkCmdBeginRenderPass(cmd, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
+		renderer.duringDrawStage(draw.concurrent_access, rdrDrawInfo, cmd);
+		vkCmdEndRenderPass(cmd);
+		renderer.afterRenderPass(draw.concurrent_access, rdrDrawInfo, cmd);
 	}
 
 
 	static void draw(Engine& e, LoopInterface& loop) {
 		#define IF_WORLD_RPASS_(RENDERER_) if(RENDERER_->pipelineInfo().rpass == Renderer::RenderPass::eWorld)
 		#define IF_UI_RPASS_(RENDERER_)    if(RENDERER_->pipelineInfo().rpass == Renderer::RenderPass::eUi)
+		using SeqIdx = RenderProcess::SequenceIndex;
+		using seq_idx_e = RenderProcess::seq_idx_e;
 		GframeData* gframe;
 		uint32_t    sc_img_idx = ~ uint32_t(0);
 		auto        delta_avg  = e.mGraphicsReg.estDelta();
 		auto        delta_last = e.mGraphicsReg.lastDelta();
 		auto        delta      = choose_delta(delta_avg, delta_last);
 		auto        concurrent_access = ConcurrentAccess(&e, true);
+		auto        waves = e.mRenderProcess.waveRange();
+		auto        steps = e.mRenderProcess.sortedStepRange();
+
+		auto ifRenderer = [&] <typename Fn, typename... Args> (Renderer* rdr, Fn&& fn, Args&&... args) {
+			if(rdr != nullptr) (rdr->*std::forward<Fn>(fn))(std::forward<Args>(args)...);
+		};
+
+		auto stepRdrDrawInfo = [&](const RenderProcess::Step& step, decltype(sc_img_idx) gfIdx) {
+			return Renderer::DrawInfo { e.mRenderProcess.getDrawSyncPrimitives(step.seqIndex, gfIdx), gfIdx };
+		};
 
 		e.mGraphicsReg.beginCycle();
 
@@ -81,7 +118,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 				sc_img_fence = selectGframeFence(e);
 			} catch(vkutil::VulkanError& err) {
 				auto str = std::string_view(string_VkResult(err.vkResult()));
-				e.mLogger.error("Failed to acquire gframe fence ({})", str);
+				e.logger().error("Failed to acquire gframe fence ({})", str);
 				return;
 			}
 			VkResult res = vkAcquireNextImageKHR(e.mDevice, e.mSwapchain, UINT64_MAX, nullptr, sc_img_fence, &sc_img_idx);
@@ -104,10 +141,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 					throw vkutil::VulkanError("vkAcquireNextImage2KHR", res);
 			}
 			gframe = e.mGframes.data() + sc_img_idx;
-			VK_CHECK(vkWaitForFences, e.mDevice, 1, &sc_img_fence,       VK_TRUE, UINT64_MAX);
-			VK_CHECK(vkWaitForFences, e.mDevice, 1, &gframe->fence_draw, VK_TRUE, UINT64_MAX);
-			VK_CHECK(vkResetCommandPool, e.mDevice, gframe->cmd_pool, 0);
+			assert(! steps.empty());
+			VK_CHECK(vkWaitForFences, e.mDevice, 1, &sc_img_fence, VK_TRUE, UINT64_MAX);
 		}
+		auto draw_info = DrawInfo { concurrent_access, gframe, sc_img_idx };
 
 		e.mGframeCounter.fetch_add(1, std::memory_order_relaxed);
 
@@ -115,167 +152,76 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		gframe->frame_delta = delta;
 
-		for(auto& r : e.mRenderers) r->beforePreRender(concurrent_access, sc_img_idx);
+		for(auto wave : waves) for(auto& step : wave) {
+			auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+			ifRenderer(renderer, &Renderer::beforePreRender, concurrent_access, stepRdrDrawInfo(step.second, sc_img_idx));
+		}
 		loop.loop_async_preRender(concurrent_access, delta, delta_last);
 
-		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_prepare, &cbb_info);
-		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[0], &cbb_info);
-		VK_CHECK(vkBeginCommandBuffer, gframe->cmd_draw[1], &cbb_info);
-
 		e.mRendererMutex.lock();
-		for(auto& r : e.mRenderers) r->duringPrepareStage(concurrent_access, sc_img_idx, gframe->cmd_prepare);
 
-		VK_CHECK(vkEndCommandBuffer, gframe->cmd_prepare);
+		// Prepare and draw calls for each renderer
+		RenderProcess::DrawSyncPrimitives lastSyncs = { };
+		for(auto seqIdx = SeqIdx(0); auto wave : waves) {
+			#ifndef NDEBUG
+				for(auto& step : wave) assert(seqIdx == step.second.seqIndex);
+			#endif
 
-		VkImageMemoryBarrier2 imb[2] = { }; {
-			imb[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-			imb[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			imb[0].subresourceRange.layerCount = 1;
-			imb[0].subresourceRange.levelCount = 1;
-			imb[1] = imb[0];
+			auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
+			auto& waveGframe = e.mRenderProcess.getWaveGframeData(seqIdx, sc_img_idx);
+
+			VK_CHECK(vkResetCommandPool, e.mDevice, waveGframe.cmdPool, 0);
+			VK_CHECK(vkBeginCommandBuffer, waveGframe.cmdPrepare, &cbb_info);
+			VK_CHECK(vkBeginCommandBuffer, waveGframe.cmdDraw, &cbb_info);
+
+			for(auto& step : wave) {
+				auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+				if(renderer != nullptr) {
+					auto& rpass = e.mRenderProcess.getRenderPass(step.second.rpass);
+					prepareStep(*renderer, rpass, waveGframe.cmdPrepare, syncs, draw_info);
+				}
+			}
+			VK_CHECK(vkEndCommandBuffer, waveGframe.cmdPrepare);
+			for(auto& step : wave) {
+				auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+				if(renderer != nullptr) {
+					auto& rpass = e.mRenderProcess.getRenderPass(step.second.rpass);
+					drawStep(step.second, *renderer, rpass, waveGframe.cmdDraw, syncs, draw_info);
+				}
+			}
+			VK_CHECK(vkEndCommandBuffer, waveGframe.cmdDraw);
+
+			VkSubmitInfo subm = { };
+
+			{ // Submit the prepare and draw commands
+				assert(! wave.empty());
+				constexpr VkPipelineStageFlags waitStages[2] = {
+					0,
+					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT };
+				bool waitForLastDraw = seq_idx_e(seqIdx) > 0;
+				subm.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+				subm.commandBufferCount = 1;
+				subm.pCommandBuffers    = &waveGframe.cmdPrepare;
+				subm.pWaitDstStageMask  = waitStages + 0;
+				subm.waitSemaphoreCount = waitForLastDraw? 1 : 0;
+				subm.pWaitSemaphores    = waitForLastDraw? &lastSyncs.semaphores.draw : nullptr;
+				subm.signalSemaphoreCount = 1;
+				subm.pSignalSemaphores    = &syncs.semaphores.prepare;
+				VK_CHECK(vkResetFences, e.mDevice,          1,       &syncs.fences.prepare);
+				VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, syncs.fences.prepare);
+				subm.waitSemaphoreCount = 1;
+				subm.pCommandBuffers    = &waveGframe.cmdDraw;
+				subm.pWaitDstStageMask  = waitStages + 1;
+				subm.pWaitSemaphores    = &syncs.semaphores.prepare;
+				subm.pSignalSemaphores  = &syncs.semaphores.draw;
+				VK_CHECK(vkResetFences, e.mDevice,          1,       &syncs.fences.draw);
+				VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, syncs.fences.draw);
+
+				lastSyncs = syncs;
+			}
+
+			seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
 		}
-		VkDependencyInfo imbDep = { }; {
-			imbDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-			imbDep.pImageMemoryBarriers = imb;
-		}
-
-		{ // Begin the world render pass
-			constexpr size_t COLOR = 0;
-			constexpr size_t DEPTH = 1;
-			constexpr float clear_color[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
-			VkClearValue clears[2];
-			memcpy(clears[COLOR].color.float32, clear_color, 4 * sizeof(float));
-			clears[DEPTH].depthStencil = { 1.0f, 0 };
-
-			VkRenderPassBeginInfo rpb_info = { };
-			rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			rpb_info.framebuffer = gframe->worldFramebuffer;
-			rpb_info.renderPass  = e.mWorldRpass;
-			rpb_info.clearValueCount = 2;
-			rpb_info.pClearValues    = clears;
-			rpb_info.renderArea      = { VkOffset2D { 0, 0 }, e.mRenderExtent };
-
-			vkCmdBeginRenderPass(gframe->cmd_draw[0], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
-		}
-
-		{ // Draw the objects
-			auto& cmd = gframe->cmd_draw[0];
-			for(auto& r : e.mRenderers) IF_WORLD_RPASS_(r) r->duringDrawStage(concurrent_access, sc_img_idx, cmd);
-		}
-
-		vkCmdEndRenderPass(gframe->cmd_draw[0]);
-
-		{ // Barrier the color attachment and swapchain images for transfer
-			imb[0].image = gframe->atch_color;
-			imb[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			imb[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			imb[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			imb[1].image = gframe->swapchain_image;
-			imb[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			imb[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imb[1].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-			imb[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			imb[1].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			imb[1].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			imbDep.imageMemoryBarrierCount = 2;
-			vkCmdPipelineBarrier2(gframe->cmd_draw[0], &imbDep);
-		}
-
-		{ // Blit the image
-			VkImageBlit2 region = { };
-			region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-			region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			region.srcSubresource.layerCount = 1;
-			region.srcOffsets[1] = { int32_t(e.mRenderExtent.width), int32_t(e.mRenderExtent.height), 1 };
-			region.dstSubresource = region.srcSubresource;
-			region.dstOffsets[1] = { int32_t(e.mPresentExtent.width), int32_t(e.mPresentExtent.height), 1 };
-			VkBlitImageInfo2 blit = { };
-			blit.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-			blit.srcImage       = gframe->atch_color;
-			blit.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			blit.dstImage       = gframe->swapchain_image;
-			blit.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			blit.filter = VK_FILTER_NEAREST;
-			blit.regionCount = 1;
-			blit.pRegions = &region;
-			vkCmdBlitImage2(gframe->cmd_draw[0], &blit);
-		}
-
-		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw[0]);
-
-		{ // Barrier the swapchain image [0] for drawing the UI, and the color attachment [1] for... color attaching?
-			imb[0].image = gframe->swapchain_image;
-			imb[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imb[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			imb[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
-			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			imbDep.imageMemoryBarrierCount = 1;
-			vkCmdPipelineBarrier2(gframe->cmd_draw[1], &imbDep);
-		}
-
-		{ // Begin the ui render pass
-			VkRenderPassBeginInfo rpb_info = { };
-			rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			rpb_info.framebuffer = gframe->uiFramebuffer;
-			rpb_info.renderPass  = e.mUiRpass;
-			rpb_info.renderArea  = { VkOffset2D { 0, 0 }, e.mPresentExtent };
-			vkCmdBeginRenderPass(gframe->cmd_draw[1], &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
-		}
-
-		for(auto& r : e.mRenderers) IF_UI_RPASS_(r) r->duringDrawStage(concurrent_access, sc_img_idx, gframe->cmd_draw[1]);
-
-		vkCmdEndRenderPass(gframe->cmd_draw[1]);
-
-		{ // Barrier the swapchain image for presenting
-			imb[0].image = gframe->swapchain_image;
-			imb[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			imb[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			imb[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-			imb[0].dstAccessMask = VK_ACCESS_2_NONE;
-			imb[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-			imb[0].dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-			imbDep.imageMemoryBarrierCount = 1;
-			vkCmdPipelineBarrier2(gframe->cmd_draw[1], &imbDep);
-		}
-
-		VK_CHECK(vkEndCommandBuffer, gframe->cmd_draw[1]);
-
-		VkSubmitInfo subm = { };
-
-		{ // Submit the prepare and draw commands
-			constexpr VkPipelineStageFlags waitStages[3] = {
-				0,
-				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-				0 };
-			VkSemaphore drawSems[3] = { gframe->sem_prepare, gframe->sem_drawWorld, gframe->sem_drawGui };
-			subm.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			subm.commandBufferCount = 1;
-			subm.pCommandBuffers    = &gframe->cmd_prepare;
-			subm.pWaitDstStageMask  = waitStages + 0;
-			subm.signalSemaphoreCount = 1;
-			subm.pSignalSemaphores    = drawSems + 0;
-			VK_CHECK(vkResetFences, e.mDevice,          1,       &gframe->fence_prepare);
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, gframe->fence_prepare);
-			subm.waitSemaphoreCount = 1;
-			subm.pCommandBuffers    = gframe->cmd_draw + 0;
-			subm.pWaitDstStageMask  = waitStages       + 1;
-			subm.pWaitSemaphores    = drawSems         + 0;
-			subm.pSignalSemaphores  = drawSems         + 1;
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, nullptr);
-			subm.pCommandBuffers    = gframe->cmd_draw + 1;
-			subm.pWaitDstStageMask  = waitStages       + 2;
-			subm.pWaitSemaphores    = drawSems         + 1;
-			subm.pSignalSemaphores  = drawSems         + 2;
-			VK_CHECK(vkResetFences, e.mDevice,          1,       &gframe->fence_draw);
-			VK_CHECK(vkQueueSubmit, e.mQueues.graphics, 1, &subm, gframe->fence_draw);
-		}
-
-		setHdrMetadata(e);
 
 		{ // Here's a present!
 			VkResult res;
@@ -286,28 +232,48 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 			p_info.pSwapchains    = &e.mSwapchain;
 			p_info.pImageIndices  = &sc_img_idx;
 			p_info.waitSemaphoreCount = 1;
-			p_info.pWaitSemaphores    = &gframe->sem_drawGui;
+			p_info.pWaitSemaphores    = &lastSyncs.semaphores.draw;
 			VK_CHECK(vkQueuePresentKHR, e.mPresentQueue, &p_info);
 		}
 
-		for(auto& r : e.mRenderers) r->afterPresent(concurrent_access, sc_img_idx);
+		for(auto wave : waves) for(auto& step : wave) {
+			auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+			ifRenderer(renderer, &Renderer::afterPresent, concurrent_access, stepRdrDrawInfo(step.second, sc_img_idx));
+		}
 
 		e.mGframeLast = int_fast32_t(sc_img_idx);
+		#warning "Keep this next vector in `Engine`"
+		static thread_local std::vector<VkFence> waitFences;
+		waitFences.clear();
+		waitFences.reserve(e.mRenderProcess.waveCount());
 		if(e.mPrefs.wait_for_gframe) {
-			VkFence fences[2] = { gframe->fence_prepare, e.mGframes[sc_img_idx].fence_draw };
-			vkWaitForFences(e.mDevice, std::size(fences), fences, true, UINT64_MAX);
+			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
+				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
+				waitFences.push_back(syncs.fences.prepare);
+				waitFences.push_back(syncs.fences.draw);
+				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
+			}
 		} else {
-			vkWaitForFences(e.mDevice, 1, &gframe->fence_prepare, true, UINT64_MAX);
+			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
+				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
+				waitFences.push_back(syncs.fences.prepare);
+				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
+			}
 		}
 		e.mRendererMutex.unlock();
 
-		for(auto& r : e.mRenderers) r->beforePostRender(concurrent_access, sc_img_idx);
+		for(auto wave : waves) for(auto& step : wave) {
+			auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+			ifRenderer(renderer, &Renderer::beforePostRender, concurrent_access, stepRdrDrawInfo(step.second, sc_img_idx));
+		}
 		loop.loop_async_postRender(concurrent_access, delta, e.mGraphicsReg.lastDelta());
-		for(auto& r : e.mRenderers) r->afterPostRender(concurrent_access, sc_img_idx);
+		for(auto wave : waves) for(auto& step : wave) {
+			auto* renderer = e.mRenderProcess.getRenderer(step.second.renderer);
+			ifRenderer(renderer, &Renderer::afterPostRender, concurrent_access, stepRdrDrawInfo(step.second, sc_img_idx));
+		}
 
 		e.mGraphicsReg.endCycle();
 
-		e.mUiRenderer_TMP_UGLY_NAME->trimTextCaches(e.mPrefs.font_max_cache_size);
 		#undef IF_WORLD_RPASS_
 		#undef IF_UI_RPASS_
 	}
@@ -505,124 +471,10 @@ namespace SKENGINE_NAME_NS {
 			auto ca = ConcurrentAccess(this, true);
 			init->init(ca, rpass_cfg);
 		}
-
-		{ // Temporary RenderProcess test output
-			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
-			using RpDesc = RenderPassDescription;
-			using SpDesc = RpDesc::Subpass;
-			using SpDep = SpDesc::Dependency;
-			using Atch = SpDesc::Attachment;
-			using RtDesc = RenderTargetDescription;
-			using ImgRef = RtDesc::ImageRef;
-			using RtResize = RenderProcess::RtargetResizeInfo;
-			auto renderExt3d  = VkExtent3D { mRenderExtent .width, mRenderExtent .height, 1 };
-			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
-			auto worldRtargetRefs = std::make_shared<std::vector<ImgRef>>();
-			auto uiRtargetRefs    = std::make_shared<std::vector<ImgRef>>();
-			worldRtargetRefs->reserve(mGframes.size());
-			uiRtargetRefs   ->reserve(mGframes.size());
-			for(auto& gframe : mGframes) {
-				worldRtargetRefs->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
-				uiRtargetRefs   ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
-			}
-			RtDesc rtDesc[2] = {
-				RtDesc { worldRtargetRefs, renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false, true },
-				RtDesc { uiRtargetRefs,    presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false, true } };
-			RpDesc worldRpDesc, uiRpDesc;
-			Atch worldColAtch = {
-				.rtarget = depGraph.addRtarget(rtDesc[0]),
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			Atch uiColAtch = {
-				.rtarget = depGraph.addRtarget(rtDesc[1]),
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			Atch dummyInAtch[2]; for(size_t i = 0; i < std::size(dummyInAtch); ++i) dummyInAtch[i] = {
-				.rtarget = depGraph.addRtarget(RtDesc { nullptr, presentExt3d, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
-				.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE };
-			Atch dummyColAtch[2]; for(size_t i = 0; i < std::size(dummyColAtch); ++i) dummyColAtch[i] = {
-				.rtarget = depGraph.addRtarget(RtDesc { nullptr, presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_FORMAT_R32_SFLOAT, false, false, false, true }),
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			worldRpDesc.subpasses.push_back(SpDesc {
-					.inputAttachments = { }, .colorAttachments = { worldColAtch },
-					.subpassDependencies = { },
-					.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-					.requiresDepthAttachments = true });
-			worldRpDesc.subpasses.push_back(SpDesc {
-					.inputAttachments = { }, .colorAttachments = { worldColAtch },
-					.subpassDependencies = { SpDep {
-						.srcSubpass = 0,
-						.srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, .dstStageMask  = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-						.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,            .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-						.dependencyFlags = { } }},
-					.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-					.requiresDepthAttachments = true });
-			worldRpDesc.framebufferSize = renderExt3d;
-			uiRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { dummyInAtch[0], dummyInAtch[1] },
-				.colorAttachments = { uiColAtch, dummyColAtch[0], dummyColAtch[1] },
-				.subpassDependencies = { SpDesc::Dependency {
-					.srcSubpass = VK_SUBPASS_EXTERNAL,
-					.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-					.dependencyFlags = { } }},
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-				.depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				.requiresDepthAttachments = true });
-			uiRpDesc.framebufferSize = presentExt3d;
-			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
-			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
-			auto addStep = [&depGraph](RenderPassId rpass, RendererId renderer, const VkExtent3D& ext) {
-				RenderProcess::StepDescription desc = { };
-				desc.rpass = rpass;
-				desc.renderer = renderer;
-				desc.renderArea.extent = { ext.width, ext.height };
-				return depGraph.addStep(std::move(desc));
-			};
-			RendererId renderers[] = { depGraph.addRenderer({ }), depGraph.addRenderer({ }) };
-			auto sg0 = addStep(worldRpassId, renderers[0], renderExt3d );
-			;          addStep(uiRpassId,    renderers[1], presentExt3d).after(sg0);
-			try {
-				mRenderProcess.setup(mVma, mLogger, mDepthAtchFmt, mGframes.size(), depGraph.assembleSequence());
-				mLogger.debug("Renderer list:");
-				size_t waveIdx = 0;
-				for(auto wave : mRenderProcess.waveRange()) {
-					for(auto& step : wave) {
-						auto& ra = step.second.renderArea;
-						mLogger.debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
-							waveIdx,
-							RenderProcess::step_id_e(step.first),
-							render_target_id_e(step.second.renderer),
-							ra.offset.x, ra.offset.y, ra.extent.width, ra.extent.height );
-					}
-					++ waveIdx;
-				}
-				if(waveIdx == 0) mLogger.debug("  (empty)");
-				mRenderProcess.reset(mRenderProcess.gframeCount() - 2, {
-					RtResize { dummyInAtch [1].rtarget, { 2100,2100,1 } },
-					RtResize { dummyColAtch[1].rtarget, { 2000,2000,1 } } });
-				mRenderProcess.destroy();
-			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
-				mLogger.error("{}:", err.what());
-				auto& chain = err.dependencyChain();
-				for(auto step : chain) mLogger.error("  Renderer {:3}", RenderProcess::step_id_e(step));
-				mLogger.error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
-			}
-		}
 	}
 
 
 	Engine::~Engine() {
-		mShaderCache->shader_cache_releaseAllModules(*this);
-
 		{
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(this);
 			auto ca = ConcurrentAccess(this, true);
@@ -633,61 +485,6 @@ namespace SKENGINE_NAME_NS {
 			auto init = reinterpret_cast<Engine::DeviceInitializer*>(this);
 			init->destroy();
 		}
-	}
-
-
-	template <>
-	VkShaderModule Engine::createShaderModuleFromMemory(
-			std::span<const uint32_t> code
-	) {
-		VkShaderModuleCreateInfo sm_info = { };
-		sm_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		sm_info.pCode    = code.data();
-		sm_info.codeSize = code.size_bytes();
-		VkShaderModule r;
-		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		logger().trace("Loaded shader module from memory");
-		return r;
-	}
-
-
-	VkShaderModule Engine::createShaderModuleFromFile(
-			const std::string& file_path
-	) {
-		using namespace posixfio;
-		static_assert(4 == sizeof(uint32_t));
-
-		VkShaderModuleCreateInfo    sm_info = { };
-		std::unique_ptr<uint32_t[]> buffer;
-		try {
-			auto file    = posixfio::File::open(file_path.c_str(), OpenFlags::eRdonly);
-			size_t lsize = file.lseek(0, Whence::eEnd);
-			if(lsize > UINT32_MAX) throw ShaderModuleReadError("Shader file is too long");
-			if(lsize % 4 != 0)     throw ShaderModuleReadError("Misaligned shader file size");
-			file.lseek(0, Whence::eSet);
-			buffer    = std::make_unique_for_overwrite<uint32_t[]>(lsize / 4);
-			size_t rd = posixfio::readAll(file, buffer.get(), lsize);
-			if(rd != lsize) throw ShaderModuleReadError("Shader file partially read");
-			sm_info.codeSize = uint32_t(lsize);
-		} catch(const posixfio::FileError& e) {
-			switch(e.errcode) {
-				using namespace std::string_literals;
-				case ENOENT: throw ShaderModuleReadError("Shader file not found: \""s      + file_path + "\""s); break;
-				case EACCES: throw ShaderModuleReadError("Shader file not accessible: \""s + file_path + "\""s); break;
-				default: throw e;
-			}
-		}
-		sm_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		sm_info.pCode = buffer.get();
-		VkShaderModule r;
-		VK_CHECK(vkCreateShaderModule, mDevice, &sm_info, nullptr, &r);
-		logger().trace("Loaded shader module from file \"{}\"", file_path);
-		return r;
-	}
-
-
-	void Engine::destroyShaderModule(VkShaderModule module) {
-		vkDestroyShaderModule(mDevice, module, nullptr);
 	}
 
 
@@ -795,15 +592,19 @@ namespace SKENGINE_NAME_NS {
 
 		auto wait_for_fences = [&]() {
 			// Wait for all fences, in this order: selection -> prepare -> draw
+			#define ITERATE_STEP_GFRAMES_ for(auto& step : mRenderProcess.sortedStepRange()) for(size_t gfIdx = 0; gfIdx < mGframes.size(); ++gfIdx)
+			#define INSERT_FENCE_(M_) fences.push_back(mRenderProcess.getDrawSyncPrimitives(step.second.seqIndex, gfIdx).fences.M_);
 			std::vector<VkFence> fences;
 			for(auto& gff : mGframeSelectionFences) vkWaitForFences(mDevice, 1, &gff, true, UINT64_MAX);
 			fences.reserve(mGframes.size());
-			for(auto& gframe : mGframes) fences.push_back(gframe.fence_prepare);
+			ITERATE_STEP_GFRAMES_ { INSERT_FENCE_(prepare) }
 			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 			fences.clear();
 			fences.reserve(mGframes.size());
-			for(auto& gframe : mGframes) fences.push_back(gframe.fence_draw);
+			ITERATE_STEP_GFRAMES_ { INSERT_FENCE_(draw) }
 			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
+			#undef ITERATE_STEP_GFRAMES_
+			#undef INSERT_FENCE_
 
 			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
 			mUiRenderer_TMP_UGLY_NAME->forgetTextCacheFences();

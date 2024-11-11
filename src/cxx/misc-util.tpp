@@ -176,8 +176,7 @@ namespace util {
 
 		constexpr TransientPtrRange(): tr_begin(nullptr), tr_length(0) { }
 
-		template <typename U>
-		requires std::same_as<T, std::remove_cvref_t<U>>
+		template <typename U> requires std::same_as<T, std::remove_cvref_t<U>>
 		constexpr TransientPtrRange(std::initializer_list<U> initList):
 			TransientPtrRange(copyOf(std::ranges::subrange(initList.begin(), initList.end())))
 		{ }
@@ -203,6 +202,9 @@ namespace util {
 
 		auto& operator=(const TransientPtrRange& cp) { this->~TransientPtrRange(); return * new (this) TransientPtrRange(cp); }
 		auto& operator=(TransientPtrRange&& mv)      { this->~TransientPtrRange(); return * new (this) TransientPtrRange(std::move(mv)); }
+
+		template <typename U> requires std::same_as<T, std::remove_cvref_t<U>>
+		auto& operator=(std::initializer_list<U> initList) { this->~TransientPtrRange(); return * new (this) TransientPtrRange(std::move(initList)); }
 
 		constexpr ~TransientPtrRange() {
 			if(tr_length & size_t(1)) [[unlikely]] operator delete[](const_cast<std::remove_const_t<T>*>(tr_begin));

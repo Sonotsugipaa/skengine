@@ -120,7 +120,7 @@ namespace SKENGINE_NAME_NS {
 		auto vkDev = [&](auto vma) { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; } (vma);
 		*dst = RenderPass { };
 		dst->description = *rpassDesc;
-		logger.trace("render_process: creating rpass {}", rpassIdx);
+		logger.trace("Creating rpass {}", rpassIdx);
 		vectorCache.clear();
 		dst->framebuffers.resize(gframeCount, { });
 
@@ -143,13 +143,13 @@ namespace SKENGINE_NAME_NS {
 		for(size_t spIdx = 0; spIdx < rpassDesc->subpasses.size(); ++ spIdx) {
 			size_t usedDepthImages = 0;
 			auto& rpSubpass = rpassDesc->subpasses[spIdx];
-			logger.trace("render_process: appending subpass {}", spIdx);
+			logger.trace("Appending subpass {}", spIdx);
 			subpassAtchViews.push_back({ });
 			auto& subpassAtchViewSet_sp = subpassAtchViews.back();
 			auto appendAttachment = [&](const decltype(rpSubpass.inputAttachments[0])& rpAtchDescs) {
 				auto rtarget = rtargetStorage.getEntrySet(rpAtchDescs.rtarget); assert(rtarget.begin() != rtarget.end());
 				auto atchIdx = atchDescs.size();
-				logger.trace("render_process: attachment {} has rtarget ID {}", atchDescs.size(), render_target_id_e(rpAtchDescs.rtarget));
+				logger.trace("Attachment {} has rtarget ID {}", atchDescs.size(), render_target_id_e(rpAtchDescs.rtarget));
 				subpassAtchViewSet_sp.push_back({ });
 				auto& subpassAtchViewSet_a = subpassAtchViewSet_sp.back();
 				for(size_t i = 0; i < gframeCount; ++i) { // Append one image view for each gframe
@@ -174,10 +174,10 @@ namespace SKENGINE_NAME_NS {
 				atchRef.layout = atchDesc.finalLayout;
 			};
 			size_t firstInputAtch = atchRefs.size();
-			logger.trace("render_process: appending {} input attachment{} at index {}", rpSubpass.inputAttachments.size(), (rpSubpass.inputAttachments.size()) == 1? "":"s", firstInputAtch);
+			logger.trace("Appending {} input attachment{} at index {}", rpSubpass.inputAttachments.size(), (rpSubpass.inputAttachments.size()) == 1? "":"s", firstInputAtch);
 			for(auto& atch : rpSubpass.inputAttachments) appendAttachment(atch);
 			size_t firstColorAtch = atchRefs.size();
-			logger.trace("render_process: appending {} color attachment{} at index {}", rpSubpass.colorAttachments.size(), (rpSubpass.colorAttachments.size()) == 1? "":"s", firstColorAtch);
+			logger.trace("Appending {} color attachment{} at index {}", rpSubpass.colorAttachments.size(), (rpSubpass.colorAttachments.size()) == 1? "":"s", firstColorAtch);
 			for(auto& atch : rpSubpass.colorAttachments) appendAttachment(atch);
 			VkAttachmentDescription depthAtchDesc;
 			size_t depthAtch = atchRefs.size();
@@ -191,7 +191,7 @@ namespace SKENGINE_NAME_NS {
 					auto& depthImages = dst->framebuffers[i].depthImages;
 					assert(usedDepthImages < depthImages.size());
 					auto& depthImage = depthImages[usedDepthImages];
-					logger.trace("render_process: appending depth attachment a{},gf{} = {:016x}", subpassAtchViewSet_sp.size(), subpassAtchViewSet_a.size(), size_t(depthImage.second));
+					logger.trace("Appending depth attachment a{},gf{} = {:016x}", subpassAtchViewSet_sp.size(), subpassAtchViewSet_a.size(), size_t(depthImage.second));
 					subpassAtchViewSet_a.push_back(depthImages[usedDepthImages].second);
 				}
 				depthAtchDesc = { };
@@ -237,7 +237,7 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		logger.trace("render_process: finished appending subpasses for rpass {}", rpassIdx);
+		logger.trace("Finished appending subpasses for rpass {}", rpassIdx);
 		VkRenderPassCreateInfo rpcInfo = { }; {
 			rpcInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 			rpcInfo.attachmentCount = atchDescs.size();
@@ -268,7 +268,7 @@ namespace SKENGINE_NAME_NS {
 						auto& spAtchViews_a = spAtchViews_sp[atchIdx];
 						assert(gframeIdx < spAtchViews_a.size());
 						auto imgView = spAtchViews_a[gframeIdx];
-						logger.trace("render_process: gframe {} subpass {} attachment {} is {:016x}", gframeIdx, spIdx, framebufferAttachmentList.size(), size_t(imgView));
+						logger.trace("Gframe {} subpass {} attachment {} is {:016x}", gframeIdx, spIdx, framebufferAttachmentList.size(), size_t(imgView));
 						framebufferAttachmentList.push_back(imgView);
 					}
 				}

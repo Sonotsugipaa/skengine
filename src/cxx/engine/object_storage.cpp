@@ -301,8 +301,6 @@ namespace SKENGINE_NAME_NS {
 			VmaAllocator vma,
 			AssetSupplier& asset_supplier
 	) {
-		VmaAllocatorInfo vma_info;
-		vmaGetAllocatorInfo(vma, &vma_info);
 		ObjectStorage r;
 		r.mVma    = vma;
 		r.mLogger = std::move(logger);
@@ -348,7 +346,7 @@ namespace SKENGINE_NAME_NS {
 		debug::destroyedBuffer(r.mObjectBuffer, "object instances");
 		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
 
-		vkDestroyDescriptorPool(r.vkDevice(), r.mDpool, nullptr);
+		vkDestroyDescriptorPool(vmaGetAllocatorDevice(r.mVma), r.mDpool, nullptr);
 
 		{
 			for(auto& worker : r.mMatrixAssembler->workers) {
@@ -662,7 +660,7 @@ namespace SKENGINE_NAME_NS {
 
 		// Insert the material data (with the backing string) first
 		auto& locator_r = material_ins->second.locator;
-		create_mat_dset(vkDevice(), &mDpool, mWrSharedState->materialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
+		create_mat_dset(vmaGetAllocatorDevice(mVma), &mDpool, mWrSharedState->materialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
 
 		mMaterialLocators.insert(MaterialLookup::value_type(locator_r, id));
 
@@ -681,7 +679,7 @@ namespace SKENGINE_NAME_NS {
 		}
 		#endif
 
-		VK_CHECK(vkFreeDescriptorSets, vkDevice(), mDpool, 1, &mat_data.dset);
+		VK_CHECK(vkFreeDescriptorSets, vmaGetAllocatorDevice(mVma), mDpool, 1, &mat_data.dset);
 
 		mMaterialLocators.erase(mat_data.locator);
 

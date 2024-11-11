@@ -179,7 +179,7 @@ namespace SKENGINE_NAME_NS {
 	void AssetSupplier::releaseMaterial(std::string_view locator) noexcept {
 		auto missing = decltype(as_missingMaterials)::iterator();
 		auto vma     = this->vma();
-		auto dev     = vkDevice();
+		auto dev     = vmaGetAllocatorDevice(vma);
 
 		std::string locator_s = std::string(locator);
 

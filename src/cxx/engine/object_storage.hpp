@@ -98,7 +98,6 @@ namespace SKENGINE_NAME_NS {
 		void releaseAllMaterials() noexcept;
 
 		VmaAllocator vma() const noexcept { return as_transferContext.vma; }
-		VkDevice     vkDevice() const noexcept { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma(), &i); return i.device; }
 
 	private:
 		TransferContext as_transferContext;
@@ -221,7 +220,6 @@ namespace SKENGINE_NAME_NS {
 		const MaterialData* getMaterial   (MaterialId) const noexcept;
 
 		VmaAllocator vma() const noexcept { return mVma; }
-		VkDevice vkDevice() const noexcept { VmaAllocatorInfo ai; vmaGetAllocatorInfo(vma(), &ai); return ai.device; }
 
 		auto     getDrawBatches       () const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
 		VkBuffer getInstanceBuffer    () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }

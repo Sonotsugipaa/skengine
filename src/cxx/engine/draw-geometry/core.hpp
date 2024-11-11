@@ -33,7 +33,7 @@ inline namespace geom {
 	class FontError : public std::runtime_error {
 	public:
 		template <typename... Args>
-		FontError(Args... args): std::runtime_error::runtime_error(args...) { }
+		FontError(Args&&... args): std::runtime_error::runtime_error(std::forward<Args>(args)...) { }
 
 		FontError(std::string, FT_Error);
 		FontError(const char* c, FT_Error e): FontError(std::string(c), e) { }
@@ -69,13 +69,13 @@ inline namespace geom {
 		VkRenderPass    renderPass;
 		uint32_t        subpass;
 		VkPipelineCache pipelineCache;
+		VkPipelineLayout pipelineLayout;
 		VkDescriptorSetLayout polyDsetLayout;
 		VkDescriptorSetLayout textDsetLayout;
 	};
 
 
 	struct PipelineSet {
-		VkPipelineLayout layout;
 		VkPipeline polyLine;
 		VkPipeline polyFill;
 		VkPipeline text;

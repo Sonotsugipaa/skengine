@@ -3,6 +3,7 @@
 #include "types.hpp"
 #include "object_storage.hpp"
 #include "renderer.hpp"
+#include "shader_cache.hpp"
 
 #include <vk-util/memory.hpp>
 
@@ -102,9 +103,12 @@ namespace SKENGINE_NAME_NS {
 		static void destroySharedState(VkDevice, WorldRendererSharedState&);
 
 		std::string_view name() const noexcept override { return "world-surface"; }
+		void prepareSubpasses(const SubpassSetupInfo&, VkPipelineCache, ShaderCacheInterface*) override;
+		void forgetSubpasses(const SubpassSetupInfo&) override;
 		void afterSwapchainCreation(ConcurrentAccess&, unsigned) override;
-		void duringPrepareStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
-		void duringDrawStage(ConcurrentAccess&, unsigned, VkCommandBuffer) override;
+		void duringPrepareStage(ConcurrentAccess&, const DrawInfo&, VkCommandBuffer) override;
+		void duringDrawStage(ConcurrentAccess&, const DrawInfo&, VkCommandBuffer) override;
+		void afterRenderPass(ConcurrentAccess&, const DrawInfo&, VkCommandBuffer) override;
 
 		const glm::mat4& getViewTransf() noexcept;
 
@@ -148,15 +152,16 @@ namespace SKENGINE_NAME_NS {
 		PointLight&       modifyPointLight (ObjectId);
 
 		VmaAllocator vma() const noexcept { return mState.objectStorage->vma(); }
-		VkDevice vkDevice() const noexcept { VmaAllocatorInfo ai; vmaGetAllocatorInfo(vma(), &ai); return ai.device; }
 
 		const auto& lightStorage() const noexcept { return mState.lightStorage; }
 
 	private:
 		struct {
+			#warning "Move stuff in the shared state"
 			Logger logger;
 			std::shared_ptr<ObjectStorage> objectStorage;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
+			std::shared_ptr<ShaderCacheInterface> shaderCache;
 			std::vector<GframeData> gframes;
 			RayLights    rayLights;
 			PointLights  pointLights;
@@ -168,6 +173,8 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
+			VkPipelineLayout pipelineLayout;
+			VkPipeline pipeline;
 			bool projTransfOod       : 1;
 			bool viewTransfCacheOod  : 1;
 			bool lightStorageOod     : 1;

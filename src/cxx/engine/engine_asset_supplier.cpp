@@ -53,7 +53,7 @@ namespace SKENGINE_NAME_NS {
 	void AssetSupplier::destroy() {
 		assert(as_initialized);
 		auto vma = this->vma();
-		auto dev = vkDevice();
+		auto dev = vmaGetAllocatorDevice(vma);
 		releaseAllModels();
 		releaseAllMaterials();
 

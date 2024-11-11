@@ -266,8 +266,6 @@ namespace sflog {
 		Level getLevel() const noexcept { return l_level; }
 
 	private:
-
-
 		template <Level level, typename... Args> requires RealLevel<level>
 		void l_logRaw(fmt::format_string<Args...> fmtStr, Args&&... args) {
 			auto& ref = *l_sink;
@@ -275,6 +273,7 @@ namespace sflog {
 			formatTo(ref, "{}{}{}", std::get<0>(pfx), levelStr<level>, std::get<3>(pfx));
 			formatTo(ref, fmtStr, std::forward<Args>(args)...);
 			formatTo(ref, "\n");
+			if(usingOption(OptionBit::eAutoFlush)) flush();
 		}
 
 
@@ -285,6 +284,7 @@ namespace sflog {
 			formatTo(ref, "{}{}{}{}{}{}{}", std::get<0>(pfx), levelAnsiSgrView<level>, std::get<1>(pfx), levelStr<level>, std::get<2>(pfx), ansiResetSgrView, std::get<3>(pfx));
 			formatTo(ref, fmtStr, std::forward<Args>(args)...);
 			formatTo(ref, "\n");
+			if(usingOption(OptionBit::eAutoFlush)) flush();
 		}
 
 

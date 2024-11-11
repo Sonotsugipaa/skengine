@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <stdexcept>
 
 #include <vulkan/vulkan.h>
 
@@ -13,9 +14,14 @@
 
 namespace SKENGINE_NAME_NS {
 
-	class Engine; // Defined in `engine.hpp`
-
 	enum class PipelineLayoutId { eImage, eGeometry, e3d };
+
+
+	class ShaderModuleReadError : public std::runtime_error {
+	public:
+		template <typename... Args>
+		ShaderModuleReadError(Args... args): runtime_error::runtime_error(args...) { }
+	};
 
 
 	struct ShaderModuleSet {
@@ -60,65 +66,20 @@ namespace SKENGINE_NAME_NS {
 	/// \brief Allows on-demand access to shader modules
 	///        as desired by the user.
 	///
-	/// When a ShaderCacheInterface virtual function is called
-	/// by the Engine, the latter is guaranteed to be able to load
-	/// modules via `Engine::createShaderModuleFromFile` and
-	/// `Engine::createShaderModuleFromMemory`, and said Engine
-	/// is given as the first argument; although it is not necessarily
-	/// fully constructed, and only those two functions are guaranteed
-	/// to be accessible.
-	///
-	/// Before the ShaderCacheInterface is destroyed,
-	/// `shader_cache_releaseAllModules` is always called, and no other
-	/// function is called afterwards.
-	///
-	/// Furthermore, it may be assumed that the Engine will never
-	/// try to release a module that was never given by the
-	/// ShaderCacheInterface, and no module is released more
-	/// (nor fewer) times than it is acquired.
-	///
 	class ShaderCacheInterface {
 	public:
-		virtual ShaderModuleSet shader_cache_requestModuleSet(Engine&, const ShaderRequirement&) = 0;
-		virtual void shader_cache_releaseModuleSet  (Engine&, ShaderModuleSet&) = 0;
-		virtual void shader_cache_releaseAllModules (Engine&) = 0;
+		virtual ShaderModuleSet shader_cache_requestModuleSet(VkDevice, const ShaderRequirement&) = 0;
+		virtual void shader_cache_releaseModuleSet  (VkDevice, ShaderModuleSet&) = 0;
+		virtual void shader_cache_releaseAllModules (VkDevice) = 0;
 	};
 
 
-	/// \brief Basic implementation of a ShaderCacheInterface.
-	///
-	/// A BasicShaderCache attempts to read shaders from files that follow
-	/// the pattern "[type]-[name]-[stage].spv", or fallback to
-	/// "[type]-default-[stage].spv" if the requested shader isn't available.
-	///
-	/// All files are looked for in the current working directory.
-	///
-	/// For example, if the engine requests a world shader for a material
-	/// called "MATERIAL_0", the BasicShaderCache will attempt to read
-	/// "world-MATERIAL_0-vtx.spv" and "world-MATERIAL_0-frg.spv".
-	///
-	class BasicShaderCache : public ShaderCacheInterface {
-	public:
-		BasicShaderCache(std::string path_prefix);
+	VkShaderModule createShaderModuleFromMemory(VkDevice dev, std::span<const uint32_t> code);
 
-		#ifndef NDEBUG
-			// The non-default default constructor isn't necessary,
-			// and only used for runtime assertions
-			~BasicShaderCache();
-		#endif
 
-		ShaderModuleSet shader_cache_requestModuleSet(Engine&, const ShaderRequirement&) override;
-		void shader_cache_releaseModuleSet  (Engine&, ShaderModuleSet&) override;
-		void shader_cache_releaseAllModules (Engine&) override;
+	VkShaderModule createShaderModuleFromFile(VkDevice dev, const std::string& file_path);
 
-	private:
-		using SetCache       = std::unordered_map<ShaderRequirement, ShaderModuleSet, ShaderRequirementHash, ShaderRequirementCompare>;
-		using SetCacheLookup = std::unordered_map<ShaderModuleSet, ShaderRequirement, ShaderModuleSetHash, ShaderModuleSetCompare>;
-		using Counters       = std::unordered_map<ShaderRequirement, size_t, ShaderRequirementHash, ShaderRequirementCompare>;
-		std::string    mPrefix;
-		SetCache       mSetCache;
-		SetCacheLookup mSetLookup;
-		Counters       mModuleCounters;
-	};
+
+	void destroyShaderModule(VkDevice dev, VkShaderModule);
 
 }

@@ -23,8 +23,8 @@ namespace SKENGINE_NAME_NS {
 		auto createTextLine(ui::Lot&, float depth, const TextInfo&, std::string);
 
 	private:
-		GuiManager(UiRenderer* e): gm_uiRenderer(e) { }
-		UiRenderer* gm_uiRenderer;
+		GuiManager(std::shared_ptr<UiRenderer> e): gm_uiRenderer(e) { }
+		std::shared_ptr<UiRenderer> gm_uiRenderer;
 	};
 
 

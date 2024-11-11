@@ -25,14 +25,12 @@ namespace SKENGINE_NAME_NS {
 		initVkDev();
 		initVma();
 		initTransferContext();
-		initDsetLayouts();
 		initAssets();
 	}
 
 
 	void Engine::DeviceInitializer::destroy() {
 		destroyAssets();
-		destroyDsetLayouts();
 		destroyTransferContext();
 		destroyVma();
 		destroyVkDev();
@@ -209,25 +207,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::DeviceInitializer::initDsetLayouts() {
-		{ // GUI dset layouts
-			VkDescriptorSetLayoutBinding dslb[1] = { };
-			dslb[0].binding = WorldRenderer::DIFFUSE_TEX_BINDING; // ??
-			dslb[0].descriptorCount = 1;
-			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			dslb[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-			VkDescriptorSetLayoutCreateInfo dslc_info = { };
-			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			dslc_info.bindingCount = std::size(dslb);
-			dslc_info.pBindings = dslb;
-			VK_CHECK(vkCreateDescriptorSetLayout, mDevice, &dslc_info, nullptr, &mImagePipelineDsetLayout);
-
-			mGeometryPipelineDsetLayout = nullptr;
-		}
-	}
-
-
 	void Engine::DeviceInitializer::initAssets() {
 		auto newLogger = mLogger;
 		mAssetSupplier = AssetSupplier(*this, std::move(newLogger), mAssetSource, 0.125f, mDevProps.limits.maxSamplerAnisotropy);
@@ -236,12 +215,6 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::DeviceInitializer::destroyAssets() {
 		mAssetSupplier.destroy();
-	}
-
-
-	void Engine::DeviceInitializer::destroyDsetLayouts() {
-		vkDestroyDescriptorSetLayout(mDevice, mImagePipelineDsetLayout, nullptr);
-		assert(mGeometryPipelineDsetLayout == nullptr);
 	}
 
 

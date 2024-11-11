@@ -178,8 +178,7 @@ namespace SKENGINE_NAME_NS {
 			initSwapchain(state); SET_STAGE_(1)
 			initRenderers(state); SET_STAGE_(2)
 			initGframes(state); SET_STAGE_(3)
-			initRpasses(state); SET_STAGE_(3)
-			initFramebuffers(state); SET_STAGE_(4)
+			initRpasses(state); SET_STAGE_(4)
 			initTop(state); SET_STAGE_(5)
 		} catch(...) {
 			unwind(state);
@@ -192,7 +191,7 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::reinit(ConcurrentAccess& ca) {
 		#define SET_STAGE_(B_) state.stages = state.stages | (stages_t(1) << stages_t(B_));
 		#define UNSET_STAGE_(B_) state.stages = state.stages & (~ (stages_t(1) << stages_t(B_)));
-		logger().trace("Recreating swapchain");
+		mLogger.trace("Recreating swapchain");
 
 		auto state = State(ca, true);
 
@@ -202,15 +201,13 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_present_xt = mPresentExtent;
 
 		try {
-			destroyTop(state); UNSET_STAGE_(6)
-			destroyFramebuffers(state); UNSET_STAGE_(5)
+			destroyTop(state); UNSET_STAGE_(5)
 			destroySwapchain(state); UNSET_STAGE_(1)
 			destroyGframes(state); UNSET_STAGE_(3)
 			destroyRenderers(state); UNSET_STAGE_(2)
 			initSwapchain(state); SET_STAGE_(1)
 			initRenderers(state); SET_STAGE_(2)
 			initGframes(state); SET_STAGE_(3)
-			initFramebuffers(state); SET_STAGE_(5)
 
 			bool render_xt_changed =
 				(old_render_xt.width  != mRenderExtent.width) ||
@@ -224,7 +221,7 @@ namespace SKENGINE_NAME_NS {
 				initRpasses(state); SET_STAGE_(4)
 			}
 
-			initTop(state); SET_STAGE_(6)
+			initTop(state); SET_STAGE_(5)
 		} catch(...) {
 			state.reinit = false;
 			unwind(state);
@@ -243,8 +240,7 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::unwind(State& state) {
 		#define IF_STAGE_(B_) if(0 != (state.stages & (stages_t(1) << stages_t(B_))))
-		IF_STAGE_(6) destroyTop(state);
-		IF_STAGE_(5) destroyFramebuffers(state);
+		IF_STAGE_(5) destroyTop(state);
 		IF_STAGE_(4) destroyRpasses(state);
 		IF_STAGE_(1) destroySwapchain(state);
 		IF_STAGE_(3) destroyGframes(state);
@@ -280,11 +276,11 @@ namespace SKENGINE_NAME_NS {
 					if(supported) { \
 						mPresentQfamIndex = QfamIndex(mQueues.families.FAM_##Index); \
 						mPresentQueue = mQueues.FAM_; \
-						logger().debug("[+] Queue family {} can be used to present", \
+						mLogger.debug("[+] Queue family {} can be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
 						found = true; \
 					} else { \
-						logger().debug("[ ] Queue family {} cannot be used to present", \
+						mLogger.debug("[ ] Queue family {} cannot be used to present", \
 							uint32_t(mQueues.families.FAM_##Index) ); \
 					} \
 				}
@@ -292,7 +288,7 @@ namespace SKENGINE_NAME_NS {
 			TRY_FAM_(transfer)
 			TRY_FAM_(compute)
 			#undef TRY_FAM_
-			logger().debug("Using queue family {} for the present queue", uint32_t(mPresentQfamIndex));
+			mLogger.debug("Using queue family {} for the present queue", uint32_t(mPresentQfamIndex));
 		}
 	}
 
@@ -311,9 +307,9 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		mSurfaceFormat = vkutil::selectSwapchainFormat(nullptr, mPhysDevice, mSurface);
-		select_swapchain_extent(logger(), &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
+		select_swapchain_extent(mLogger, &mPresentExtent, mPrefs.init_present_extent, mSurfaceCapabs, ! state.reinit);
 		mRenderExtent = select_render_extent(mPresentExtent, mPrefs.max_render_extent, mPrefs.upscale_factor);
-		if(! state.reinit) logger().debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
+		if(! state.reinit) mLogger.debug("Chosen render extent {}x{}", mRenderExtent.width, mRenderExtent.height);
 
 		uint32_t concurrent_qfams[] = {
 			mQueues.families.graphicsIndex,
@@ -332,19 +328,19 @@ namespace SKENGINE_NAME_NS {
 			s_info.imageUsage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 			s_info.imageArrayLayers = 1;
 			s_info.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-			s_info.compositeAlpha   = (! mPrefs.composite_alpha)? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : select_composite_alpha(logger(), mSurfaceCapabs, ! state.reinit);
-			s_info.presentMode      = select_present_mode(logger(), mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
+			s_info.compositeAlpha   = (! mPrefs.composite_alpha)? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : select_composite_alpha(mLogger, mSurfaceCapabs, ! state.reinit);
+			s_info.presentMode      = select_present_mode(mLogger, mPhysDevice, mSurface, mPrefs.present_mode, ! state.reinit);
 			s_info.clipped          = VK_TRUE;
 			s_info.oldSwapchain     = mSwapchain;
 			s_info.pQueueFamilyIndices   = concurrent_qfams;
 			if(concurrent_qfams[0] == concurrent_qfams[1]) {
 				s_info.queueFamilyIndexCount = 0;
 				s_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-				logger().trace("Swapchain uses one queue family => exclusive sharing mode");
+				mLogger.trace("Swapchain uses one queue family => exclusive sharing mode");
 			} else {
 				s_info.queueFamilyIndexCount = 2;
 				s_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
-				logger().trace("Swapchain uses queue families {} and {} => concurrent sharing mode", concurrent_qfams[0], concurrent_qfams[1]);
+				mLogger.trace("Swapchain uses queue families {} and {} => concurrent sharing mode", concurrent_qfams[0], concurrent_qfams[1]);
 			}
 		}
 
@@ -357,7 +353,7 @@ namespace SKENGINE_NAME_NS {
 				desired,
 				mSurfaceCapabs.minImageCount,
 				max );
-			logger().trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
+			mLogger.trace("Requesting {} swapchain image{}", s_info.minImageCount, s_info.minImageCount == 1? "":"s");
 		}
 
 
@@ -405,7 +401,7 @@ namespace SKENGINE_NAME_NS {
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, nullptr);
 			images.resize(count);
 			vkGetSwapchainImagesKHR(mDevice, mSwapchain, &count, images.data());
-			logger().trace("Acquired {} swapchain image{}", count, count == 1? "":"s");
+			mLogger.trace("Acquired {} swapchain image{}", count, count == 1? "":"s");
 
 			assert(mGframes.empty() || state.reinit);
 			if(mGframes.size() < images.size()) state.createGframes  = true;
@@ -447,7 +443,7 @@ namespace SKENGINE_NAME_NS {
 				cat.reserve(cat.size() + sub.size() + 1);
 				cat.append(sub);
 				cat.push_back(' ');
-				return cloneLogger(mLogger, "["sv, cat, ""sv, "]  "sv);
+				return cloneLogger<Pfx...>(mLogger, "["sv, cat, ""sv, "]  "sv);
 			};
 
 			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
@@ -456,7 +452,7 @@ namespace SKENGINE_NAME_NS {
 				mVma,
 				mAssetSupplier ));
 
-			auto wrUptr = std::make_unique<WorldRenderer>(WorldRenderer::create(
+			mWorldRenderer_TMP_UGLY_NAME = std::make_shared<WorldRenderer>(WorldRenderer::create(
 				copyLogger("WorldRdr"),
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
@@ -464,20 +460,14 @@ namespace SKENGINE_NAME_NS {
 					.verticalFov = mPrefs.fov_y,
 					.zNear       = mPrefs.z_near,
 					.zFar        = mPrefs.z_far } ));
-			mWorldRenderer_TMP_UGLY_NAME = wrUptr.get();
-			mRenderers.emplace_back(std::move(wrUptr));
 
-			auto uiUptr = std::make_unique<UiRenderer>(UiRenderer::create(
+			mUiRenderer_TMP_UGLY_NAME = std::make_shared<UiRenderer>(UiRenderer::create(
 				mVma,
 				copyLogger("UiRdr"),
 				mPrefs.font_location ));
-			mUiRenderer_TMP_UGLY_NAME = uiUptr.get();
-			mRenderers.emplace_back(std::move(uiUptr));
 		}
 
 		assert(! mGframes.empty());
-		auto frame_n = mGframes.size();
-		for(auto& r : mRenderers) r->afterSwapchainCreation(state.concurrentAccess, frame_n);
 	}
 
 
@@ -487,14 +477,6 @@ namespace SKENGINE_NAME_NS {
 
 		mGframeLast = -1;
 
-		VkCommandPoolCreateInfo cpc_info = { };
-		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-		cpc_info.queueFamilyIndex = mQueues.families.graphicsIndex;
-		VkCommandBufferAllocateInfo cba_info = { };
-		cba_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cba_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		VkCommandBuffer cmd[3];
-		cba_info.commandBufferCount = std::size(cmd);
 		vkutil::ImageCreateInfo ic_info = { };
 		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
 		ic_info.type   = VK_IMAGE_TYPE_2D;
@@ -504,38 +486,34 @@ namespace SKENGINE_NAME_NS {
 		ic_info.qfamSharing = { };
 		ic_info.arrayLayers = 1;
 		ic_info.mipLevels   = 1;
+		VkImageViewCreateInfo ivc_info = { };
+		ivc_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		ivc_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		ivc_info.components.r =
+		ivc_info.components.g =
+		ivc_info.components.b =
+		ivc_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+		ivc_info.subresourceRange.layerCount = 1;
+		ivc_info.subresourceRange.levelCount = 1;
 		vkutil::AllocationCreateInfo ac_info = { };
 		ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 		ac_info.vmaUsage = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-		VkSemaphoreCreateInfo sc_info = { };
-		sc_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		VkFenceCreateInfo fc_info = { };
 		fc_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fc_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 		auto create_frame = [&](GframeData& gf, VkFence& gff) {
-			VK_CHECK(vkCreateCommandPool, mDevice, &cpc_info, nullptr, &gf.cmd_pool);
-			cba_info.commandPool = gf.cmd_pool;
-			VK_CHECK(vkAllocateCommandBuffers, mDevice, &cba_info, cmd);
-			gf.cmd_prepare = cmd[0];
-			memcpy(gf.cmd_draw, cmd+1, sizeof(gf.cmd_draw));
-
 			ic_info.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 			ic_info.format = mSurfaceFormat.format;
 			gf.atch_color  = vkutil::ManagedImage::create(mVma, ic_info, ac_info);
-			ic_info.usage        = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-			ic_info.format       = mDepthAtchFmt;
-			gf.atch_depthstencil = vkutil::ManagedImage::create(mVma, ic_info, ac_info);
-
-			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_prepare);
-			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_drawWorld);
-			VK_CHECK(vkCreateSemaphore, mDevice, &sc_info, nullptr, &gf.sem_drawGui);
-			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_prepare);
-			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gf.fence_draw);
+			ivc_info.image  = gf.atch_color;
+			ivc_info.format = mSurfaceFormat.format;
+			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_color_view);
 			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gff);
 		};
 
-		logger().trace("Creating {} gframe{}", frame_n, (frame_n != 1)? "s" : "");
+		mLogger.trace("Creating {} gframe{}", frame_n, (frame_n != 1)? "s" : "");
 		mGframeSelectionFences.resize(frame_n);
 		for(size_t i = 0; i < frame_n; ++i) {
 			GframeData& gf  = mGframes[i];
@@ -546,208 +524,115 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::initRpasses(State& state) {
-		constexpr size_t COLOR = 0;
-		constexpr size_t DEPTH = 1;
-
-		if(mRenderers.empty()) return;
-
-		VkAttachmentReference subpass_refs[2]; {
-			subpass_refs[COLOR].attachment = COLOR;
-			subpass_refs[COLOR].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			subpass_refs[DEPTH].attachment = DEPTH;
-			subpass_refs[DEPTH].layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		}
-
-		using SpassDescs = std::vector<VkSubpassDescription>;
-		using SpassDeps  = std::vector<VkSubpassDependency>;
-		size_t subpassCountHeuristic = (mRenderers.size() * 3) / 4;
-		SpassDescs subpassDescsWorld; subpassDescsWorld.reserve(subpassCountHeuristic);
-		SpassDescs subpassDescsUi;    subpassDescsUi   .reserve(subpassCountHeuristic);
-		SpassDeps subpassDepsWorld;   subpassDescsWorld.reserve(subpassCountHeuristic);
-		SpassDeps subpassDepsUi;      subpassDescsUi   .reserve(subpassCountHeuristic);
-		{ // Create subpass descriptions and references
-			VkSubpassDescription spDescTemplate = { };
-			spDescTemplate.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			spDescTemplate.colorAttachmentCount    = 1;
-			spDescTemplate.pColorAttachments       = subpass_refs + COLOR;
-			spDescTemplate.pDepthStencilAttachment = subpass_refs + DEPTH;
-			VkSubpassDependency spDepTemplate = { };
-			spDepTemplate.srcSubpass = VK_SUBPASS_EXTERNAL;
-			spDepTemplate.dstSubpass = 0;
-			spDepTemplate.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			spDepTemplate.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			spDepTemplate.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-			subpassDepsUi.push_back(spDepTemplate);
-			spDepTemplate.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			spDepTemplate.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			spDepTemplate.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			spDepTemplate.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-			auto insertInfo = [&](SpassDescs& descDst, SpassDeps& depDst, std::string_view name) {
-				descDst.push_back(spDescTemplate);
-				mLogger.trace("Creating subpass for renderer \"{}\"{}", name, (descDst.size() >= 2)? " (dependent on the previous subpass)" : " (no dependency)");
-				if(descDst.size() >= 2 /* There can only be a dependency between two things */) [[unlikely]] {
-					depDst.push_back(spDepTemplate);
-					depDst.back().srcSubpass = descDst.size() - 2;
-					depDst.back().dstSubpass = descDst.size() - 1;
-				}
-			};
-			for(auto& r : mRenderers) {
-				auto rName = r->name();
-				auto& spInfo = r->pipelineInfo();
-				switch(spInfo.rpass) {
-					default: mLogger.error("Renderer \"{}\" targets an unexistent render pass", rName); break;
-					case Renderer::RenderPass::eWorld: insertInfo(subpassDescsWorld, subpassDepsWorld, rName); break;
-					case Renderer::RenderPass::eUi:    insertInfo(subpassDescsUi,    subpassDepsUi, rName); subpassDescsUi.back().pDepthStencilAttachment = nullptr; break;
-				}
-			}
-			mLogger.trace("Rpass 0 has {} subpass{}", subpassDescsWorld.size(), subpassDescsWorld.size() == 1? "":"es");
-			mLogger.trace("Rpass 1 has {} subpass{}", subpassDescsUi   .size(), subpassDescsUi   .size() == 1? "":"es");
-			for(auto& dep : subpassDepsWorld) mLogger.trace("Rpass 0 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
-			for(auto& dep : subpassDepsUi)    mLogger.trace("Rpass 1 dependency: {} -> {}", dep.srcSubpass, dep.dstSubpass);
-		}
-
-		{ // Create the render passes
-			VkAttachmentDescription atch_descs[2]; {
-				atch_descs[COLOR] = { };
-				atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				atch_descs[COLOR].samples = VK_SAMPLE_COUNT_1_BIT;
-
-				atch_descs[COLOR].format = mSurfaceFormat.format;
-				atch_descs[COLOR].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-				atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				atch_descs[COLOR].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-				atch_descs[COLOR].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-				atch_descs[DEPTH] = atch_descs[COLOR];
-				atch_descs[DEPTH].format = mDepthAtchFmt;
-				atch_descs[DEPTH].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-				atch_descs[DEPTH].loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-				atch_descs[DEPTH].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-				atch_descs[DEPTH].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-				atch_descs[DEPTH].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			}
-
-			VkRenderPassCreateInfo rpc_info = { }; {
-				rpc_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-				rpc_info.attachmentCount = std::size(atch_descs);
-				rpc_info.pAttachments    = atch_descs;
-				rpc_info.dependencyCount = subpassDepsWorld.size();
-				rpc_info.pDependencies   = subpassDepsWorld.data();
-				rpc_info.subpassCount    = subpassDescsWorld.size();
-				rpc_info.pSubpasses      = subpassDescsWorld.data();
-			}
-
-			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mWorldRpass);
-
-			{ // Recycle the previous infos for the UI render pass
-				atch_descs[COLOR].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				atch_descs[COLOR].format = mSurfaceFormat.format;
-				atch_descs[COLOR].loadOp  = VK_ATTACHMENT_LOAD_OP_LOAD;
-				atch_descs[COLOR].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-				// No depth attachment, only color
-				rpc_info.attachmentCount = 1;
-				rpc_info.pAttachments    = atch_descs + COLOR;
-				rpc_info.dependencyCount = subpassDepsUi.size();
-				rpc_info.pDependencies   = subpassDepsUi.data();
-				rpc_info.subpassCount    = subpassDescsUi.size();
-				rpc_info.pSubpasses      = subpassDescsUi.data();
-			}
-
-			VK_CHECK(vkCreateRenderPass, mDevice, &rpc_info, nullptr, &mUiRpass);
-		}
-
+		using RtDesc = RenderTargetDescription;
+		using ImgRef = RtDesc::ImageRef;
 		if(! state.reinit) { // Create the dset layouts, pipeline layouts, pipeline cache and pipelines
-			VkDescriptorSetLayout layouts[] = { mWorldRendererSharedState_TMP_UGLY_NAME->gframeUboDsetLayout, mWorldRendererSharedState_TMP_UGLY_NAME->materialDsetLayout };
-			VkPipelineLayoutCreateInfo plc_info = { };
-			plc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			plc_info.setLayoutCount = std::size(layouts);
-			plc_info.pSetLayouts    = layouts;
-			VK_CHECK(vkCreatePipelineLayout, mDevice, &plc_info, nullptr, &m3dPipelineLayout);
-
 			VkPipelineCacheCreateInfo pcc_info = { };
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
-
-			geom::PipelineSetCreateInfo gpsci = { };
-			gpsci.subpass        = 0;
-			gpsci.renderPass     = mUiRpass;
-			gpsci.pipelineCache  = mPipelineCache;
-			gpsci.polyDsetLayout = mGeometryPipelineDsetLayout;
-			gpsci.textDsetLayout = mImagePipelineDsetLayout;
-			mGeomPipelines = geom::PipelineSet::create(mDevice, gpsci);
-
-			uint32_t worldSubpassIndex = 0;
-			uint32_t uiSubpassIndex = 0;
-			auto fwdSubpassIdx = [&](Renderer::RenderPass rp) { switch(rp) {
-				default: throw EngineRuntimeError("Bad render pass target for renderer pipeline");
-				case Renderer::RenderPass::eWorld: return worldSubpassIndex ++;
-				case Renderer::RenderPass::eUi:    return uiSubpassIndex ++;
-			}};
-			for(auto& r : mRenderers) {
-				using PipelineSet = decltype(mPipelines);
-				auto& info = r->pipelineInfo();
-				for(auto& shaderReq : info.shaderRequirements) {
-					auto pl = shaderReq.pipelineLayout;
-					switch(pl) {
-						default: throw EngineRuntimeError(fmt::format("Renderer requires bad pipeline layout ({})", std::underlying_type_t<PipelineLayoutId>(pl)));
-						case PipelineLayoutId::e3d:
-							mPipelines.insert(PipelineSet::value_type(shaderReq, create3dPipeline(shaderReq, fwdSubpassIdx(info.rpass), mWorldRpass)));
-							break;
-						case PipelineLayoutId::eGeometry: [[fallthrough]];
-						case PipelineLayoutId::eImage:
-							break;
-					}
-				}
-			}
 		}
-	}
-
-
-	void Engine::RpassInitializer::initFramebuffers(State&) {
-		VkImageViewCreateInfo ivc_info = { };
-		ivc_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		ivc_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		ivc_info.components.r =
-		ivc_info.components.g =
-		ivc_info.components.b =
-		ivc_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		ivc_info.subresourceRange.layerCount = 1;
-		ivc_info.subresourceRange.levelCount = 1;
-		VkFramebufferCreateInfo fc_info = { };
-		fc_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		fc_info.layers = 1;
-		for(size_t i = 0; i < mGframes.size(); ++i) {
-			GframeData& gf = mGframes[i];
-			ivc_info.image  = gf.atch_color;
-			ivc_info.format = mSurfaceFormat.format;
-			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_color_view);
-			ivc_info.image  = gf.atch_depthstencil;
-			ivc_info.format = mDepthAtchFmt;
-			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_depthstencil_view);
-
-			{ // Create the world rpass framebuffer
-				VkImageView atchs[] = { gf.atch_color_view, gf.atch_depthstencil_view };
-				fc_info.renderPass = mWorldRpass;
-				fc_info.attachmentCount = std::size(atchs);
-				fc_info.pAttachments    = atchs;
-				fc_info.width  = mRenderExtent.width;
-				fc_info.height = mRenderExtent.height;
-				VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.worldFramebuffer);
+		#warning "TODO: reset the RenderProcess without recreating it"
+		//if(state.reinit) {
+		//	mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->clear();
+		//	mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->clear();
+		//	for(auto& gframe : mGframes) {
+		//		mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
+		//		mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
+		//	}
+		//	mRenderProcess.reset(state.concurrentAccess, mGframes.size(), { });
+		//} else {
+		//	// Assemble the RenderProcess
+		//}
+		{ // Assemble the RenderProcess
+			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
+			using RpDesc = RenderPassDescription;
+			using SpDesc = RpDesc::Subpass;
+			using Atch = SpDesc::Attachment;
+			auto renderExt3d  = VkExtent3D { mRenderExtent .width, mRenderExtent .height, 1 };
+			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
+			mRenderProcessWorldImageRefs_TMP_UGLY_NAME  = std::make_shared<std::vector<ImgRef>>();
+			mRenderProcessUiImageRefs_TMP_UGLY_NAME     = std::make_shared<std::vector<ImgRef>>();
+			mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->reserve(mGframes.size());
+			mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->reserve(mGframes.size());
+			for(auto& gframe : mGframes) {
+				mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
+				mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
 			}
-
-			{ // Create the ui rpass framebuffer
-				VkImageView atchs[] = { gf.swapchain_image_view };
-				fc_info.renderPass = mUiRpass;
-				fc_info.attachmentCount = std::size(atchs);
-				fc_info.pAttachments    = atchs;
-				fc_info.width  = mPresentExtent.width;
-				fc_info.height = mPresentExtent.height;
-				VK_CHECK(vkCreateFramebuffer, mDevice, &fc_info, nullptr, &gf.uiFramebuffer);
+			RtDesc rtDesc[2] = {
+				RtDesc { mRenderProcessWorldImageRefs_TMP_UGLY_NAME, renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false, true },
+				RtDesc { mRenderProcessUiImageRefs_TMP_UGLY_NAME,    presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false, true } };
+			RpDesc worldRpDesc, uiRpDesc;
+			mWorldRenderTarget = depGraph.addRtarget(rtDesc[0]);
+			mPresentRenderTarget = depGraph.addRtarget(rtDesc[1]);
+			Atch worldColAtch = {
+				.rtarget = mWorldRenderTarget,
+				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			Atch uiColAtch = {
+				.rtarget = mPresentRenderTarget,
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			worldRpDesc.subpasses.push_back(SpDesc {
+				.inputAttachments = { }, .colorAttachments = { worldColAtch },
+				.subpassDependencies = { },
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.requiresDepthAttachments = true });
+			worldRpDesc.framebufferSize = renderExt3d;
+			uiRpDesc.subpasses.push_back(SpDesc {
+				.inputAttachments = { }, .colorAttachments = { uiColAtch },
+				.subpassDependencies = { SpDesc::Dependency {
+					.srcSubpass = VK_SUBPASS_EXTERNAL,
+					.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+					.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+					.dependencyFlags = { } }},
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.requiresDepthAttachments = true });
+			uiRpDesc.framebufferSize = presentExt3d;
+			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
+			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
+			auto addStep = [&depGraph](RenderPassId rpass, RendererId renderer, const VkExtent3D& ext, const VkClearColorValue& clr) {
+				RenderProcess::StepDescription desc = { };
+				desc.rpass = rpass;
+				desc.renderer = renderer;
+				desc.renderArea.extent = { ext.width, ext.height };
+				desc.clearColors = {
+					VkClearValue { .color = clr },
+					VkClearValue { .depthStencil = VkClearDepthStencilValue { .depth = 1.0f, .stencil = 0 } } };
+				return depGraph.addStep(std::move(desc));
+			};
+			RendererId renderers[] = {
+				depGraph.addRenderer(mWorldRenderer_TMP_UGLY_NAME),
+				depGraph.addRenderer(mUiRenderer_TMP_UGLY_NAME) };
+			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  { 0.0f, 0.2f, 0.0f, 1.0f });
+			;            addStep(uiRpassId,    renderers[1], presentExt3d, { 0.0f, 0.0f, 0.0f, 0.0f }).after(step0);
+			try {
+				mRenderProcess.setup(mVma, mLogger, state.concurrentAccess, mDepthAtchFmt, uint32_t(mPresentQfamIndex), mGframes.size(), depGraph.assembleSequence());
+				mLogger.debug("Renderer list:");
+				size_t waveIdx = 0;
+				for(auto wave : mRenderProcess.waveRange()) {
+					for(auto& step : wave) {
+						auto& ra = step.second.renderArea;
+						mLogger.debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
+							waveIdx,
+							RenderProcess::step_id_e(step.first),
+							render_target_id_e(step.second.renderer),
+							ra.offset.x, ra.offset.y, ra.extent.width, ra.extent.height );
+					}
+					++ waveIdx;
+				}
+				if(waveIdx == 0) mLogger.debug("  (empty)");
+			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
+				mLogger.error("{}:", err.what());
+				auto& chain = err.dependencyChain();
+				for(auto step : chain) mLogger.error("  Renderer {:3}", RenderProcess::step_id_e(step));
+				mLogger.error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
+				std::rethrow_exception(std::current_exception());
 			}
 		}
 	}
@@ -758,40 +643,17 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyTop(State&) {
 		{ // Wait for fences
-			std::vector<VkFence> fences;
-			fences.reserve(3 * mGframes.size());
-			for(size_t i = 0; i < mGframes.size(); ++i) {
-				auto& gf = mGframes[i];
-				fences.push_back(gf.fence_draw);
-				fences.push_back(gf.fence_prepare);
-				fences.push_back(mGframeSelectionFences[i]);
-			}
+			const auto& fences = mGframeSelectionFences;
 			vkWaitForFences(mDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX);
 		}
 	}
 
 
-	void Engine::RpassInitializer::destroyFramebuffers(State&) {
-		for(size_t i = 0; i < mGframes.size(); ++i) {
-			GframeData& gf = mGframes[i];
-			vkDestroyFramebuffer(mDevice, gf.uiFramebuffer, nullptr);
-			vkDestroyFramebuffer(mDevice, gf.worldFramebuffer, nullptr);
-			vkDestroyImageView(mDevice, gf.atch_depthstencil_view, nullptr);
-			vkDestroyImageView(mDevice, gf.atch_color_view, nullptr);
-		}
-	}
-
-
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
+		mRenderProcess.destroy(state.concurrentAccess);
 		if(! state.reinit) {
-			geom::PipelineSet::destroy(mDevice, mGeomPipelines);
-			for(auto& p : mPipelines) vkDestroyPipeline(mDevice, p.second, nullptr);
-			mPipelines.clear();
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
-			vkDestroyPipelineLayout(mDevice, m3dPipelineLayout, nullptr);
 		}
-		vkDestroyRenderPass(mDevice, mUiRpass, nullptr);
-		vkDestroyRenderPass(mDevice, mWorldRpass, nullptr);
 	}
 
 
@@ -811,20 +673,12 @@ namespace SKENGINE_NAME_NS {
 		state.destroyGframes = true;
 
 		auto destroy_frame = [&](GframeData& gf, VkFence& gframe_sel_fence) {
-			vkDestroyFence     (mDevice, gframe_sel_fence, nullptr);
-			vkDestroyFence     (mDevice, gf.fence_draw, nullptr);
-			vkDestroyFence     (mDevice, gf.fence_prepare, nullptr);
-			vkDestroySemaphore (mDevice, gf.sem_drawGui, nullptr);
-			vkDestroySemaphore (mDevice, gf.sem_drawWorld, nullptr);
-			vkDestroySemaphore (mDevice, gf.sem_prepare, nullptr);
-
+			vkDestroyFence(mDevice, gframe_sel_fence, nullptr);
+			vkDestroyImageView(mDevice, gf.atch_color_view, nullptr);
 			vkutil::ManagedImage::destroy(mVma, gf.atch_color);
-			vkutil::ManagedImage::destroy(mVma, gf.atch_depthstencil);
-
-			vkDestroyCommandPool(mDevice, gf.cmd_pool, nullptr);
 		};
 
-		logger().trace("Destroying {} gframe{}", mGframes.size(), (mGframes.size() != 1)? "s" : "");
+		mLogger.trace("Destroying {} gframe{}", mGframes.size(), (mGframes.size() != 1)? "s" : "");
 		for(size_t i = 0; i < mGframes.size(); ++i) {
 			GframeData& gf  = mGframes[i];
 			VkFence&    gff = mGframeSelectionFences[i];
@@ -835,10 +689,12 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::destroyRenderers(State& state) {
 		if(! state.reinit) {
+			UiRenderer::destroy(*mUiRenderer_TMP_UGLY_NAME);
 			WorldRenderer::destroy(*mWorldRenderer_TMP_UGLY_NAME);
 			ObjectStorage::destroy(*mObjectStorage);
 			WorldRenderer::destroySharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
-			mRenderers.clear();
+			mWorldRenderer_TMP_UGLY_NAME = nullptr;
+			mUiRenderer_TMP_UGLY_NAME    = nullptr;
 		}
 	}
 

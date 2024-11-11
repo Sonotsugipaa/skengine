@@ -167,24 +167,35 @@ namespace SKENGINE_NAME_NS {
 		DECL_SCOPED_ENUM_(SequenceIndex, seq_idx_e, std::make_unsigned_t<step_id_e>)
 		#undef DECL_SCOPED_ENUM_
 
+		using DrawSyncPrimitives = Renderer::DrawSyncPrimitives;
+
+		static constexpr auto nullSequence = idgen::invalidId<SequenceIndex>();
+
 		class UnsatisfiableDependencyError;
 		class DependencyGraph;
 
 		struct VulkanState {
 			VmaAllocator vma;
 			VkFormat depthImageFormat;
+			uint32_t queueFamIdx;
 			VkDevice device() noexcept { VmaAllocatorInfo i; vmaGetAllocatorInfo(vma, &i); return i.device; }
 		};
 
 		struct StepDescription {
-			util::TransientPtrRange<VkClearColorValue> clearColors;
+			util::TransientPtrRange<VkClearValue> clearColors;
 			RenderPassId rpass;
 			RendererId renderer;
 			VkRect2D renderArea;
 		};
 
-		struct Step : StepDescription {
+		struct Step : StepDescription{
 			SequenceIndex seqIndex;
+		};
+
+		struct WaveGframeData {
+			VkCommandPool cmdPool;
+			VkCommandBuffer cmdPrepare;
+			VkCommandBuffer cmdDraw;
 		};
 
 		class WaveIterator {
@@ -208,8 +219,8 @@ namespace SKENGINE_NAME_NS {
 
 		class WaveRange {
 		public:
-			WaveIterator& begin() noexcept { return beginIter; }
-			WaveIterator& end()   noexcept { return endIter; }
+			WaveIterator begin() noexcept { return beginIter; }
+			WaveIterator end()   noexcept { return endIter; }
 			WaveIterator beginIter;
 			WaveIterator endIter;
 		};
@@ -238,24 +249,32 @@ namespace SKENGINE_NAME_NS {
 			~RenderProcess();
 		#endif
 
-		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, const DependencyGraph&);
-		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, DependencyGraph&&);
-		void setup(VmaAllocator vma, Logger, VkFormat depthImageFormat, unsigned gframeCount, const SequenceDescription&);
-		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes);
-		void reset(unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
-		void destroy();
+		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, const DependencyGraph&);
+		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, DependencyGraph&&);
+		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, const SequenceDescription&);
+		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes);
+		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
+		void destroy(ConcurrentAccess&);
 
-		const Step&       getStep       (StepId) const &;
-		const RenderPass& getRenderPass (RenderPassId) const &;
-		const Renderer&   getRenderer   (RendererId) const &;
+		const Step&       getStep       (StepId id) const & { return const_cast<RenderProcess*>(this)->getStep(id); };
+		const RenderPass& getRenderPass (RenderPassId id) const & { return const_cast<RenderProcess*>(this)->getRenderPass(id); };
+		const Renderer*   getRenderer   (RendererId id) const & { return const_cast<RenderProcess*>(this)->getRenderer(id); };
+		Step&             getStep       (StepId) &;
+		RenderPass&       getRenderPass (RenderPassId) &;
+		Renderer*         getRenderer   (RendererId) &;
 
 		const RenderTargetDescription& getRenderTargetDescription(RenderTargetId) const &;
 		const RenderTarget& getRenderTarget(RenderTargetId, size_t subIndex) const &;
 
+		auto waveCount() const noexcept { return rp_waveCmds.size(); }
 		auto gframeCount() const noexcept { return rp_gframeCount; }
 		VulkanState getVulkanState() const noexcept { return rp_vkState; }
 
+		const DrawSyncPrimitives& getDrawSyncPrimitives(SequenceIndex wave, size_t gframe) const noexcept;
+		const WaveGframeData& getWaveGframeData(SequenceIndex wave, size_t gframe) const noexcept;
+
 		WaveRange waveRange() &;
+		auto sortedStepRange(this auto& self) { return std::span(self.rp_steps); }
 
 	private:
 		Logger rp_logger;
@@ -263,6 +282,8 @@ namespace SKENGINE_NAME_NS {
 		std::vector<std::pair<StepId, Step>> rp_steps;
 		std::vector<RenderPass> rp_rpasses;
 		std::vector<std::shared_ptr<Renderer>> rp_renderers;
+		std::vector<DrawSyncPrimitives> rp_drawSyncPrimitives;
+		std::vector<WaveGframeData> rp_waveCmds;
 		RenderTargetStorage rp_rtargetStorage;
 		unsigned rp_gframeCount;
 		unsigned rp_waveIterValidity;
@@ -272,7 +293,7 @@ namespace SKENGINE_NAME_NS {
 
 	class RenderProcess::DependencyGraph {
 	public:
-		using Steps = std::vector<StepDescription>;
+		using Steps = std::vector<Step>;
 		using Rtargets = std::vector<RenderTargetDescription>;
 		using Rpasses = std::vector<RenderPassDescription>;
 		using Renderers = std::vector<std::weak_ptr<Renderer>>;

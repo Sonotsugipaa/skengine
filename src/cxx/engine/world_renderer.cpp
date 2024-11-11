@@ -1,6 +1,7 @@
 #include "world_renderer.hpp"
 
 #include "engine.hpp"
+#include "shader_cache.hpp"
 #include "debug.inl.hpp"
 
 #include <bit>
@@ -31,6 +32,22 @@
 
 namespace SKENGINE_NAME_NS {
 
+	namespace world {
+
+		// Define elsewhere
+		VkPipeline create3dPipeline(
+			VkDevice,
+			ShaderCacheInterface&,
+			const ShaderRequirement&,
+			VkRenderPass,
+			VkPipelineCache,
+			VkPipelineLayout,
+			uint32_t subpass );
+
+	}
+
+
+
 	namespace world { namespace {
 
 		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
@@ -42,13 +59,12 @@ namespace SKENGINE_NAME_NS {
 		B_(WorldRenderer::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
 		#undef B_
 
-		constexpr ShaderRequirement world_pipelines[] = {
-			{ .name = "default", .pipelineLayout = PipelineLayoutId::e3d } };
+		constexpr ShaderRequirement pipeline_shreq = { .name = "default", .pipelineLayout = PipelineLayoutId::e3d };
 
-		constexpr auto world_renderer_subpass_info = Renderer::Info {
-			.dsetLayoutBindings = Renderer::Info::DsetLayoutBindings::referenceTo(world_dset_layout_bindings),
-			.shaderRequirements = Renderer::Info::ShaderRequirements::referenceTo(world_pipelines),
-			.rpass = Renderer::RenderPass::eWorld };
+		#define PI_ Renderer::PipelineInfo
+		constexpr auto world_renderer_subpass_info = PI_ {
+			.dsetLayoutBindings = PI_::DsetLayoutBindings::referenceTo(world_dset_layout_bindings) };
+		#undef PI_
 
 		constexpr auto light_storage_create_info(size_t light_count) {
 			vkutil::BufferCreateInfo r = { };
@@ -130,7 +146,7 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	WorldRenderer::WorldRenderer(): Renderer(world::world_renderer_subpass_info) { mState.initialized = false; }
+	WorldRenderer::WorldRenderer(): Renderer(world::world_renderer_subpass_info), mState{} { }
 
 	WorldRenderer::WorldRenderer(WorldRenderer&& mv):
 		Renderer(world::world_renderer_subpass_info),
@@ -154,21 +170,32 @@ namespace SKENGINE_NAME_NS {
 			const ProjectionInfo& projInfo
 	) {
 		WorldRenderer r;
+		r.mState = { };
 		r.mState.logger = std::move(logger);
 		r.mState.objectStorage = std::move(objectStorage);
 		r.mState.sharedState = std::move(sharedState);
-		r.mState.viewPosXyz = { };
-		r.mState.viewDirYpr = { };
-		r.mState.ambientLight = { };
-		r.mState.lightStorage = { };
+		r.mState.pipeline = nullptr;
 		r.mState.lightStorageOod = true;
 		r.mState.lightStorageDsetOod = true;
 		r.mState.viewTransfCacheOod = true;
 		r.mState.initialized = true;
+		auto dev = vmaGetAllocatorDevice(r.vma());
 
 		r.setProjection(projInfo);
 
+		{ // Pipeline layout
+			VkPipelineLayoutCreateInfo plcInfo = { };
+			VkDescriptorSetLayout layouts[] = {
+				r.mState.sharedState->gframeUboDsetLayout,
+				r.mState.sharedState->materialDsetLayout };
+			plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+			plcInfo.setLayoutCount = std::size(layouts);
+			plcInfo.pSetLayouts    = layouts;
+			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.mState.pipelineLayout);
+		}
+
 		world::set_light_buffer_capacity(r.vma(), &r.mState.lightStorage, 0);
+
 		return r;
 	}
 
@@ -185,6 +212,8 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedBuffer::destroy(vma, gf.lightStorage);
 		}
 		r.mState.gframes.clear();
+
+		vkDestroyPipelineLayout(dev, r.mState.pipelineLayout, nullptr);
 
 		vkDestroyDescriptorPool(dev, r.mState.gframeDpool, nullptr);
 
@@ -203,6 +232,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto  l : removeList) r.removeLight(l);
 		}
 
+		if(r.mState.pipeline != nullptr) vkDestroyPipeline(dev, r.mState.pipeline, nullptr);
 		r.mState.initialized = false;
 	}
 
@@ -246,6 +276,21 @@ namespace SKENGINE_NAME_NS {
 	void WorldRenderer::destroySharedState(VkDevice dev, WorldRendererSharedState& wrss) {
 		vkDestroyDescriptorSetLayout(dev, wrss.gframeUboDsetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(dev, wrss.materialDsetLayout, nullptr);
+	}
+
+
+	void WorldRenderer::prepareSubpasses(const SubpassSetupInfo& ssInfo, VkPipelineCache plCache, ShaderCacheInterface* shCache) {
+		assert(mState.pipeline == nullptr);
+		mState.pipeline = world::create3dPipeline(
+			vmaGetAllocatorDevice(mState.objectStorage->vma()),
+			*shCache, world::pipeline_shreq,
+			ssInfo.rpass, plCache, mState.pipelineLayout, 0 );
+	}
+
+
+	void WorldRenderer::forgetSubpasses(const SubpassSetupInfo&) {
+		vkDestroyPipeline(vmaGetAllocatorDevice(mState.objectStorage->vma()), mState.pipeline, nullptr);
+		mState.pipeline = nullptr;
 	}
 
 
@@ -337,10 +382,10 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::duringPrepareStage(ConcurrentAccess& ca, unsigned gframeIndex, VkCommandBuffer cmd) {
+	void WorldRenderer::duringPrepareStage(ConcurrentAccess& ca, const DrawInfo& drawInfo, VkCommandBuffer cmd) {
 		auto& e   = ca.engine();
-		auto& egf = ca.getGframeData(gframeIndex);
-		auto& wgf = mState.gframes[gframeIndex];
+		auto& egf = ca.getGframeData(drawInfo.gframeIndex);
+		auto& wgf = mState.gframes[drawInfo.gframeIndex];
 		auto& ls  = lightStorage();
 		auto& al  = getAmbientLight();
 		auto& ubo = * wgf.frameUbo.mappedPtr<dev::FrameUniform>();
@@ -434,11 +479,10 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void WorldRenderer::duringDrawStage(ConcurrentAccess& ca, unsigned gfIndex, VkCommandBuffer cmd) {
-		assert(gfIndex < mState.gframes.size());
-		auto& e = ca.engine();
+	void WorldRenderer::duringDrawStage(ConcurrentAccess& ca, const DrawInfo& drawInfo, VkCommandBuffer cmd) {
+		assert(drawInfo.gframeIndex < mState.gframes.size());
 		auto& objStorage     = * mState.objectStorage.get();
-		auto& wgf            = mState.gframes[gfIndex];
+		auto& wgf            = mState.gframes[drawInfo.gframeIndex];
 		auto batches         = objStorage.getDrawBatches();
 		auto instance_buffer = objStorage.getInstanceBuffer();
 		auto batch_buffer    = objStorage.getDrawCommandBuffer();
@@ -466,7 +510,7 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
 		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ca.getPipeline(pipelineInfo().shaderRequirements[0]));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipeline);
 		for(VkDeviceSize i = 0; const auto& batch : batches) {
 			auto* model = objStorage.getModel(batch.model_id);
 			assert(model != nullptr);
@@ -480,13 +524,36 @@ namespace SKENGINE_NAME_NS {
 				auto mat = objStorage.getMaterial(batch.material_id);
 				assert(mat != nullptr);
 				dsets[MATERIAL_DSET_LOC] = mat->dset;
-				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, e.getPipelineLayout3d(), 0, std::size(dsets), dsets, 0, nullptr);
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			}
 			vkCmdDrawIndexedIndirect(
 				cmd, batch_buffer,
 				i * sizeof(VkDrawIndexedIndirectCommand), 1,
 				sizeof(VkDrawIndexedIndirectCommand) );
 			++ i;
+		}
+	}
+
+
+	void WorldRenderer::afterRenderPass(ConcurrentAccess& ca, const DrawInfo& drawInfo, VkCommandBuffer cmd) {
+		{ // Barrier the color attachment image for transfer
+			VkImageMemoryBarrier2 imb { };
+			imb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+			imb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imb.subresourceRange.layerCount = 1;
+			imb.subresourceRange.levelCount = 1;
+			imb.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			imb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imb.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			imb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			imb.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			imb.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			imb.image = ca.getGframeData(drawInfo.gframeIndex).atch_color;
+			VkDependencyInfo imbDep = { };
+			imbDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			imbDep.pImageMemoryBarriers = &imb;
+			imbDep.imageMemoryBarrierCount = 1;
+			vkCmdPipelineBarrier2(cmd, &imbDep);
 		}
 	}
 
