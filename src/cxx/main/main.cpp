@@ -687,6 +687,8 @@ namespace {
 
 int main(int argn, char** argv) {
 	using namespace std::string_view_literals;
+	(void) argn;
+	(void) argv;
 
 	auto logger = Logger(
 		std::make_shared<posixfio::OutputBuffer>(STDOUT_FILENO, 512),

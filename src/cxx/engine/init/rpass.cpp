@@ -10,6 +10,8 @@
 
 #include <ui-structure/ui.hpp>
 
+#include <timer.tpp>
+
 
 
 namespace SKENGINE_NAME_NS {
@@ -18,6 +20,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct Engine::RpassInitializer::State {
+		util::SteadyTimer<> timer;
 		ConcurrentAccess& concurrentAccess;
 		stages_t stages;
 		bool reinit         : 1;
@@ -180,6 +183,7 @@ namespace SKENGINE_NAME_NS {
 			initGframes(state); SET_STAGE_(3)
 			initRpasses(state); SET_STAGE_(4)
 			initTop(state); SET_STAGE_(5)
+			mLogger.debug("Render process initialization took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 		} catch(...) {
 			unwind(state);
 			std::rethrow_exception(std::current_exception());
@@ -222,6 +226,7 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			initTop(state); SET_STAGE_(5)
+			mLogger.debug("Render process reinitialization took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 		} catch(...) {
 			state.reinit = false;
 			unwind(state);
@@ -246,6 +251,7 @@ namespace SKENGINE_NAME_NS {
 		IF_STAGE_(3) destroyGframes(state);
 		IF_STAGE_(2) destroyRenderers(state);
 		IF_STAGE_(0) destroySurface();
+		mLogger.debug("Render process destruction took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 	}
 
 

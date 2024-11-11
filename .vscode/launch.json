@@ -35,10 +35,10 @@
 			"name": "(gdb) Launch (Wayland Release)",
 			"type": "cppdbg",
 			"request": "launch",
-			"program": "/tmp/game-engine-sketch/Release-pack/sketch-sim",
+			"program": "/tmp/game-engine-sketch/RelWithDebInfo-pack/sketch-sim",
 			"args": [ ],
 			"stopAtEntry": false,
-			"cwd": "/tmp/game-engine-sketch/Release-pack/",
+			"cwd": "/tmp/game-engine-sketch/RelWithDebInfo-pack/",
 			"environment": [
 				{ "name": "SDL_VIDEODRIVER", "value": "wayland" }
 			],
@@ -89,10 +89,10 @@
 			"name": "(gdb) Launch (X11 Release)",
 			"type": "cppdbg",
 			"request": "launch",
-			"program": "/tmp/game-engine-sketch/Release-pack/sketch-sim",
+			"program": "/tmp/game-engine-sketch/RelWithDebInfo-pack/sketch-sim",
 			"args": [ ],
 			"stopAtEntry": false,
-			"cwd": "/tmp/game-engine-sketch/Release-pack/",
+			"cwd": "/tmp/game-engine-sketch/RelWithDebInfo-pack/",
 			"environment": [
 				{ "name": "SDL_VIDEODRIVER", "value": "x11" }
 			],

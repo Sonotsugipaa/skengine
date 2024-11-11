@@ -510,7 +510,9 @@ namespace SKENGINE_NAME_NS {
 					auto gframeLock = std::unique_lock(mGframeMutex, std::defer_lock);
 					if(mGframePriorityOverride.load(std::memory_order_consume)) [[unlikely]] {
 						gframeLock.lock();
-						mGframeResumeCond.wait(gframeLock);
+						if(mGframePriorityOverride.load(std::memory_order_consume)) { // Need to check again, after potentially waiting for the lock
+							mGframeResumeCond.wait(gframeLock);
+						}
 					} else {
 						gframeLock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
 					}
@@ -553,7 +555,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::signal(Signal newSig, bool discardDuplicate) noexcept {
-		using Ms = std::chrono::duration<float, std::milli>;
+		using Seconds = std::chrono::duration<float, std::ratio<1>>;
 		Signal oldSig;
 		bool thisIsGraphicsThread = mGraphicsThread.get_id() == std::this_thread::get_id();
 		auto exchangeSig = [&]() { auto r = mSignalXthread.exchange(newSig, std::memory_order::seq_cst); return Signal(r); };
@@ -569,12 +571,18 @@ namespace SKENGINE_NAME_NS {
 			oldSig = exchangeSig();
 			bool discardBecauseDuplicate = discardBecauseDuplicateFn();
 			while((oldSig != Signal::eNone) && (! discardBecauseDuplicate)) {
-				auto sleepTime = Ms(100.0f* 1000.0f / (mPrefs.target_tickrate * float(mPrefs.max_concurrent_frames)));
 				mSignalXthread.store(oldSig, std::memory_order::seq_cst);
-				std::this_thread::sleep_for(sleepTime);
-				mGframeResumeCond.notify_one();
-				oldSig = exchangeSig();
-				discardBecauseDuplicate = discardBecauseDuplicateFn();
+				mGframePriorityOverride.store(false, std::memory_order::release);
+				if(gframeLock.try_lock()) {
+					gframeLock.unlock();
+					oldSig = exchangeSig();
+					discardBecauseDuplicate = discardBecauseDuplicateFn();
+				} else {
+					auto sleepTime = Seconds(100.0f / (mPrefs.target_tickrate * float(mPrefs.max_concurrent_frames)));
+					mLogger.trace("Signal {} enqueued, sleeping for {}s", signalString(newSig), sleepTime.count());
+					mGframeResumeCond.notify_one();
+					std::this_thread::sleep_for(sleepTime);
+				}
 			}
 			if(discardBecauseDuplicate) {
 				assert(oldSig == newSig);

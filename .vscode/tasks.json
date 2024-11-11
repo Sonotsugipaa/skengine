@@ -18,12 +18,12 @@
 		{
 			"label": "build-release",
 			"type": "shell",
-			"command": "config=Release exec ${workspaceFolder}/build.zsh"
+			"command": "config=RelWithDebInfo exec ${workspaceFolder}/build.zsh"
 		},
 		{
 			"label": "pack-release",
 			"type": "shell",
-			"command": "config=Release exec ${workspaceFolder}/pack.zsh",
+			"command": "config=RelWithDebInfo exec ${workspaceFolder}/pack.zsh",
 			"dependsOrder": "sequence",
 			"dependsOn": [ "build-release" ]
 		}

@@ -10,8 +10,6 @@
 
 #include <vk-util/error.hpp>
 
-#include <timer.tpp>
-
 
 
 namespace SKENGINE_NAME_NS {
@@ -285,8 +283,6 @@ namespace SKENGINE_NAME_NS {
 		unsigned gframeCount,
 		const SequenceDescription& seqDesc
 	) {
-		util::SteadyTimer<std::chrono::microseconds> timer;
-
 		rp_gframeCount = gframeCount;
 		rp_logger = std::move(mvLogger);
 		rp_vkState = { vma, depthImageFormat, queueFamIdx };
@@ -350,8 +346,6 @@ namespace SKENGINE_NAME_NS {
 
 		++ rp_waveIterValidity;
 		rp_initialized = true;
-
-		rp_logger.debug("Setup took {}ms", timer.count<float>() / 1000.0f);
 	}
 
 
@@ -437,7 +431,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void RenderProcess::reset(ConcurrentAccess& ca, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> resizes) {
-		util::SteadyTimer<std::chrono::microseconds> timer;
 		VkExtent3D maxResize = { 0, 0, 0 };
 
 		bool doResize = resizes.size() > 0;
@@ -499,8 +492,6 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		if(doRecreateRpasses) recreateRpasses(&rpassDescs);
-
-		rp_logger.debug("Reset operation took {}ms", timer.count<float>() / 1000.0f);
 	}
 
 
