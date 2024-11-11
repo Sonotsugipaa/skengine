@@ -38,7 +38,7 @@ namespace SKENGINE_NAME_NS {
 		VkPipeline create3dPipeline(
 			VkDevice,
 			ShaderCacheInterface&,
-			const ShaderRequirement&,
+			const WorldRenderer::PipelineParameters& plParams,
 			VkRenderPass,
 			VkPipelineCache,
 			VkPipelineLayout,
@@ -58,8 +58,6 @@ namespace SKENGINE_NAME_NS {
 		B_(WorldRenderer::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
 		B_(WorldRenderer::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
 		#undef B_
-
-		constexpr ShaderRequirement pipeline_shreq = { .name = "default", .pipelineLayout = PipelineLayoutId::e3d };
 
 		#define PI_ Renderer::PipelineInfo
 		constexpr auto world_renderer_subpass_info = PI_ {
@@ -167,32 +165,22 @@ namespace SKENGINE_NAME_NS {
 			Logger logger,
 			std::shared_ptr<WorldRendererSharedState> sharedState,
 			std::shared_ptr<ObjectStorage> objectStorage,
-			const ProjectionInfo& projInfo
+			const ProjectionInfo& projInfo,
+			const PipelineParameters& plParams
 	) {
 		WorldRenderer r;
 		r.mState = { };
 		r.mState.logger = std::move(logger);
 		r.mState.objectStorage = std::move(objectStorage);
 		r.mState.sharedState = std::move(sharedState);
+		r.mState.pipelineParams = plParams;
 		r.mState.pipeline = nullptr;
+		r.mState.viewTransfCacheOod = true;
 		r.mState.lightStorageOod = true;
 		r.mState.lightStorageDsetOod = true;
-		r.mState.viewTransfCacheOod = true;
 		r.mState.initialized = true;
-		auto dev = vmaGetAllocatorDevice(r.vma());
 
 		r.setProjection(projInfo);
-
-		{ // Pipeline layout
-			VkPipelineLayoutCreateInfo plcInfo = { };
-			VkDescriptorSetLayout layouts[] = {
-				r.mState.sharedState->gframeUboDsetLayout,
-				r.mState.sharedState->materialDsetLayout };
-			plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			plcInfo.setLayoutCount = std::size(layouts);
-			plcInfo.pSetLayouts    = layouts;
-			VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &r.mState.pipelineLayout);
-		}
 
 		world::set_light_buffer_capacity(r.vma(), &r.mState.lightStorage, 0);
 
@@ -212,8 +200,6 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedBuffer::destroy(vma, gf.lightStorage);
 		}
 		r.mState.gframes.clear();
-
-		vkDestroyPipelineLayout(dev, r.mState.pipelineLayout, nullptr);
 
 		vkDestroyDescriptorPool(dev, r.mState.gframeDpool, nullptr);
 
@@ -239,43 +225,62 @@ namespace SKENGINE_NAME_NS {
 
 	void WorldRenderer::initSharedState(VkDevice dev, WorldRendererSharedState& wrss) {
 		VkDescriptorSetLayoutBinding dslb[5] = { };
-		dslb[0].binding = DIFFUSE_TEX_BINDING;
-		dslb[0].descriptorCount = 1;
-		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-		dslb[1] = dslb[0];
-		dslb[1].binding = NORMAL_TEX_BINDING;
-		dslb[2] = dslb[0];
-		dslb[2].binding = SPECULAR_TEX_BINDING;
-		dslb[3] = dslb[0];
-		dslb[3].binding = EMISSIVE_TEX_BINDING;
-		dslb[4] = dslb[0];
-		dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		dslb[4].binding = MATERIAL_UBO_BINDING;
+		wrss = { }; // Zero-initialization is important in case of failure
 
-		VkDescriptorSetLayoutCreateInfo dslc_info = { };
-		dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		dslc_info.bindingCount = std::size(dslb);
-		dslc_info.pBindings = dslb;
-		VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.materialDsetLayout);
+		try {
+			dslb[0].binding = DIFFUSE_TEX_BINDING;
+			dslb[0].descriptorCount = 1;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			dslb[1] = dslb[0];
+			dslb[1].binding = NORMAL_TEX_BINDING;
+			dslb[2] = dslb[0];
+			dslb[2].binding = SPECULAR_TEX_BINDING;
+			dslb[3] = dslb[0];
+			dslb[3].binding = EMISSIVE_TEX_BINDING;
+			dslb[4] = dslb[0];
+			dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			dslb[4].binding = MATERIAL_UBO_BINDING;
 
-		dslb[0] = { };
-		dslb[0].binding = FRAME_UBO_BINDING;
-		dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		dslb[0].descriptorCount = 1;
-		dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-		dslb[1] = dslb[0];
-		dslb[1].binding = LIGHT_STORAGE_BINDING;
-		dslb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			VkDescriptorSetLayoutCreateInfo dslc_info = { };
+			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			dslc_info.bindingCount = std::size(dslb);
+			dslc_info.pBindings = dslb;
+			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.materialDsetLayout);
 
-		dslc_info.bindingCount = 2;
-		VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.gframeUboDsetLayout);
+			dslb[0] = { };
+			dslb[0].binding = FRAME_UBO_BINDING;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			dslb[0].descriptorCount = 1;
+			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+			dslb[1] = dslb[0];
+			dslb[1].binding = LIGHT_STORAGE_BINDING;
+			dslb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+			dslc_info.bindingCount = 2;
+			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.gframeUboDsetLayout);
+
+			{ // Pipeline layout
+				VkPipelineLayoutCreateInfo plcInfo = { };
+				VkDescriptorSetLayout layouts[] = {
+					wrss.gframeUboDsetLayout,
+					wrss.materialDsetLayout };
+				plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+				plcInfo.setLayoutCount = std::size(layouts);
+				plcInfo.pSetLayouts    = layouts;
+				VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &wrss.pipelineLayout);
+			}
+		} catch(...) {
+			destroySharedState(dev, wrss);
+			std::rethrow_exception(std::current_exception());
+		}
 	}
 
 
 	void WorldRenderer::destroySharedState(VkDevice dev, WorldRendererSharedState& wrss) {
-		vkDestroyDescriptorSetLayout(dev, wrss.gframeUboDsetLayout, nullptr);
-		vkDestroyDescriptorSetLayout(dev, wrss.materialDsetLayout, nullptr);
+		if(wrss.pipelineLayout) vkDestroyPipelineLayout(dev, wrss.pipelineLayout, nullptr);
+		if(wrss.gframeUboDsetLayout) vkDestroyDescriptorSetLayout(dev, wrss.gframeUboDsetLayout, nullptr);
+		if(wrss.materialDsetLayout) vkDestroyDescriptorSetLayout(dev, wrss.materialDsetLayout, nullptr);
 	}
 
 
@@ -283,8 +288,8 @@ namespace SKENGINE_NAME_NS {
 		assert(mState.pipeline == nullptr);
 		mState.pipeline = world::create3dPipeline(
 			vmaGetAllocatorDevice(mState.objectStorage->vma()),
-			*shCache, world::pipeline_shreq,
-			ssInfo.rpass, plCache, mState.pipelineLayout, 0 );
+			*shCache, mState.pipelineParams,
+			ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, 0 );
 	}
 
 
@@ -524,7 +529,7 @@ namespace SKENGINE_NAME_NS {
 				auto mat = objStorage.getMaterial(batch.material_id);
 				assert(mat != nullptr);
 				dsets[MATERIAL_DSET_LOC] = mat->dset;
-				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
 			}
 			vkCmdDrawIndexedIndirect(
 				cmd, batch_buffer,

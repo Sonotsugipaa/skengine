@@ -242,21 +242,19 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		}
 
 		e.mGframeLast = int_fast32_t(sc_img_idx);
-		#warning "Keep this next vector in `Engine`"
-		static thread_local std::vector<VkFence> waitFences;
-		waitFences.clear();
-		waitFences.reserve(e.mRenderProcess.waveCount());
+		e.mWaveFencesWaitCache.clear();
+		e.mWaveFencesWaitCache.reserve(e.mRenderProcess.waveCount());
 		if(e.mPrefs.wait_for_gframe) {
 			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
 				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
-				waitFences.push_back(syncs.fences.prepare);
-				waitFences.push_back(syncs.fences.draw);
+				e.mWaveFencesWaitCache.push_back(syncs.fences.prepare);
+				e.mWaveFencesWaitCache.push_back(syncs.fences.draw);
 				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
 			}
 		} else {
 			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
 				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
-				waitFences.push_back(syncs.fences.prepare);
+				e.mWaveFencesWaitCache.push_back(syncs.fences.prepare);
 				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
 			}
 		}

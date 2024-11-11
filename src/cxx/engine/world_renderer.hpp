@@ -29,6 +29,7 @@ namespace SKENGINE_NAME_NS {
 	struct WorldRendererSharedState {
 		VkDescriptorSetLayout materialDsetLayout;
 		VkDescriptorSetLayout gframeUboDsetLayout;
+		VkPipelineLayout pipelineLayout;
 	};
 
 
@@ -42,6 +43,28 @@ namespace SKENGINE_NAME_NS {
 			float zNear       = 0.1f;
 			float zFar        = 10.0f;
 		};
+
+		struct PipelineParameters {
+			bool                primitiveRestartEnable;
+			VkPrimitiveTopology topology;
+			VkCullModeFlagBits  cullMode;
+			VkFrontFace         frontFace;
+			VkPolygonMode       polygonMode;
+			float               lineWidth;
+			bool                rasterizerDiscardEnable;
+			bool                depthTestEnable;
+			bool                depthWriteEnable;
+			VkCompareOp         depthCompareOp;
+			bool                blendEnable;
+			VkBlendFactor       srcColorBlendFactor;
+			VkBlendFactor       dstColorBlendFactor;
+			VkBlendOp           colorBlendOp;
+			VkBlendFactor       srcAlphaBlendFactor;
+			VkBlendFactor       dstAlphaBlendFactor;
+			VkBlendOp           alphaBlendOp;
+			ShaderRequirement   shaderRequirement;
+		};
+		static const PipelineParameters defaultPipelineParams;
 
 		struct LightStorage {
 			vkutil::ManagedBuffer buffer;
@@ -95,7 +118,8 @@ namespace SKENGINE_NAME_NS {
 			Logger,
 			std::shared_ptr<WorldRendererSharedState>,
 			std::shared_ptr<ObjectStorage>,
-			const ProjectionInfo& );
+			const ProjectionInfo&,
+			const PipelineParameters& = defaultPipelineParams );
 
 		static void destroy(WorldRenderer&);
 
@@ -157,7 +181,6 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		struct {
-			#warning "Move stuff in the shared state"
 			Logger logger;
 			std::shared_ptr<ObjectStorage> objectStorage;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
@@ -173,7 +196,7 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
-			VkPipelineLayout pipelineLayout;
+			PipelineParameters pipelineParams;
 			VkPipeline pipeline;
 			bool projTransfOod       : 1;
 			bool viewTransfCacheOod  : 1;
@@ -182,5 +205,27 @@ namespace SKENGINE_NAME_NS {
 			bool initialized         : 1;
 		} mState;
 	};
+
+
+	constexpr WorldRenderer::PipelineParameters WorldRenderer::defaultPipelineParams = {
+			.primitiveRestartEnable  = true,
+			.topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN,
+			.cullMode                = VK_CULL_MODE_BACK_BIT,
+			.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+			.polygonMode             = VK_POLYGON_MODE_FILL,
+			.lineWidth               = 1.0f,
+			.rasterizerDiscardEnable = false,
+			.depthTestEnable         = true,
+			.depthWriteEnable        = true,
+			.depthCompareOp          = VK_COMPARE_OP_LESS_OR_EQUAL,
+			.blendEnable             = false,
+			.srcColorBlendFactor     = { },
+			.dstColorBlendFactor     = { },
+			.colorBlendOp            = { },
+			.srcAlphaBlendFactor     = { },
+			.dstAlphaBlendFactor     = { },
+			.alphaBlendOp            = { },
+			.shaderRequirement       = ShaderRequirement { "default", PipelineLayoutId::e3d }
+		};
 
 }

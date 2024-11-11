@@ -332,6 +332,7 @@ namespace SKENGINE_NAME_NS {
 		int_fast32_t              mGframeLast;
 		std::vector<GframeData>   mGframes;
 		std::vector<VkFence>      mGframeSelectionFences;
+		std::vector<VkFence>      mWaveFencesWaitCache; // Not needed persistently across scopes, but keeping it here prevents frequent reallocations
 		std::thread               mGraphicsThread;
 
 		VkExtent2D            mRenderExtent;

@@ -537,18 +537,7 @@ namespace SKENGINE_NAME_NS {
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
 		}
-		#warning "TODO: reset the RenderProcess without recreating it"
-		//if(state.reinit) {
-		//	mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->clear();
-		//	mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->clear();
-		//	for(auto& gframe : mGframes) {
-		//		mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
-		//		mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
-		//	}
-		//	mRenderProcess.reset(state.concurrentAccess, mGframes.size(), { });
-		//} else {
-		//	// Assemble the RenderProcess
-		//}
+
 		{ // Assemble the RenderProcess
 			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
 			using RpDesc = RenderPassDescription;
