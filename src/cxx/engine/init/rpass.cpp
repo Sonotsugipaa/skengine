@@ -458,14 +458,16 @@ namespace SKENGINE_NAME_NS {
 				mVma,
 				mAssetSupplier ));
 
+			const auto worldProj = WorldRenderer::ProjectionInfo {
+				.verticalFov = mPrefs.fov_y,
+				.zNear       = mPrefs.z_near,
+				.zFar        = mPrefs.z_far };
+
 			mWorldRenderer_TMP_UGLY_NAME = std::make_shared<WorldRenderer>(WorldRenderer::create(
 				copyLogger("WorldRdr"),
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
-				WorldRenderer::ProjectionInfo {
-					.verticalFov = mPrefs.fov_y,
-					.zNear       = mPrefs.z_near,
-					.zFar        = mPrefs.z_far } ));
+				worldProj ));
 
 			mUiRenderer_TMP_UGLY_NAME = std::make_shared<UiRenderer>(UiRenderer::create(
 				mVma,
@@ -574,7 +576,7 @@ namespace SKENGINE_NAME_NS {
 			worldRpDesc.subpasses.push_back(SpDesc {
 				.inputAttachments = { }, .colorAttachments = { worldColAtch },
 				.subpassDependencies = { },
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
 				.requiresDepthAttachments = true });
 			worldRpDesc.framebufferSize = renderExt3d;
 			uiRpDesc.subpasses.push_back(SpDesc {
@@ -604,8 +606,8 @@ namespace SKENGINE_NAME_NS {
 			RendererId renderers[] = {
 				depGraph.addRenderer(mWorldRenderer_TMP_UGLY_NAME),
 				depGraph.addRenderer(mUiRenderer_TMP_UGLY_NAME) };
-			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  { 0.0f, 0.2f, 0.0f, 1.0f });
-			;            addStep(uiRpassId,    renderers[1], presentExt3d, { 0.0f, 0.0f, 0.0f, 0.0f }).after(step0);
+			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  { 0.035f, 0.062f, 0.094f, 1.0f });
+			;            addStep(uiRpassId,    renderers[1], presentExt3d, { 0.0f,   0.0f,   0.0f,   0.0f }).after(step0);
 			try {
 				mRenderProcess.setup(mVma, mLogger, state.concurrentAccess, mDepthAtchFmt, uint32_t(mPresentQfamIndex), mGframes.size(), depGraph.assembleSequence());
 				mLogger.debug("Renderer list:");

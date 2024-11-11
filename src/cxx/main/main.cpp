@@ -707,7 +707,7 @@ int main(int argn, char** argv) {
 	logger.setLevel(log_level);
 
 	try {
-		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/");
+		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/", logger);
 		auto* asset_source = new SKENGINE_NAME_NS_SHORT::BasicAssetSource("assets/", logger);
 
 		auto engine = SKENGINE_NAME_NS_SHORT::Engine(
