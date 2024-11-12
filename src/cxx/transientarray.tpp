@@ -148,7 +148,8 @@ namespace util {
 			if(tr_length & size_t(1)) [[unlikely]] operator delete[](const_cast<std::remove_const_t<T>*>(tr_begin));
 		}
 
-		auto copy() const& noexcept { return copyOf(tr_begin, tr_begin + size()); }
+		auto copy() const& { return copyOf(tr_begin, tr_begin + size()); }
+		void consolidate() & { if(! ownsMemory()) operator=(copy()); }
 
 		constexpr bool ownsMemory() const noexcept { return (tr_length & size_t(1)) == 1; }
 		constexpr size_t size() const noexcept { return tr_length >> size_t(1); }

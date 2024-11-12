@@ -119,7 +119,7 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<WorldRendererSharedState>,
 			std::shared_ptr<ObjectStorage>,
 			const ProjectionInfo&,
-			const PipelineParameters& = defaultPipelineParams );
+			util::TransientArray<PipelineParameters> = { defaultPipelineParams } );
 
 		static void destroy(WorldRenderer&);
 
@@ -185,7 +185,9 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<ObjectStorage> objectStorage;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
 			std::shared_ptr<ShaderCacheInterface> shaderCache;
+			util::TransientArray<PipelineParameters> pipelineParams;
 			std::vector<GframeData> gframes;
+			std::vector<VkPipeline> pipelines;
 			RayLights    rayLights;
 			PointLights  pointLights;
 			LightStorage lightStorage;
@@ -196,8 +198,6 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
-			PipelineParameters pipelineParams;
-			VkPipeline pipeline;
 			bool projTransfOod       : 1;
 			bool viewTransfCacheOod  : 1;
 			bool lightStorageOod     : 1;

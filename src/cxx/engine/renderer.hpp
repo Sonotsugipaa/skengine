@@ -100,9 +100,7 @@ namespace SKENGINE_NAME_NS {
 		bool r_buffersOod;
 
 		void r_consolidatePipelineInfo() {
-			#define CONSOLIDATE_(TA_) if(! r_pipelineInfo.TA_.ownsMemory()) r_pipelineInfo.TA_ = r_pipelineInfo.TA_.copy();
-			CONSOLIDATE_(dsetLayoutBindings)
-			#undef CONSOLIDATE_
+			r_pipelineInfo.dsetLayoutBindings.consolidate();
 		}
 	};
 

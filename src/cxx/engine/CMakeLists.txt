@@ -28,9 +28,6 @@ add_library(engine
 	engine_asset_supplier_material.cpp
 	engine_asset_supplier_texture.cpp )
 
-target_precompile_headers(engine
-	PUBLIC engine.hpp types.hpp )
-
 target_link_libraries(engine
 	fmamdl
 	idgen

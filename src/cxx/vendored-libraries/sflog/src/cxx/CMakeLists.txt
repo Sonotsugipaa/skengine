@@ -21,7 +21,6 @@ find_package(posixfio)
 add_library(sflog INTERFACE)
 add_dependencies(sflog fmt)
 target_include_directories(sflog INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_precompile_headers(sflog INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include/sflog.hpp")
 
 if(posixfio_FOUND)
 	target_compile_definitions(sflog INTERFACE "SFLOG_ENABLE_POSIXFIO")

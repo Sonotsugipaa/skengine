@@ -166,19 +166,20 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<WorldRendererSharedState> sharedState,
 			std::shared_ptr<ObjectStorage> objectStorage,
 			const ProjectionInfo& projInfo,
-			const PipelineParameters& plParams
+			util::TransientArray<PipelineParameters> plParams
 	) {
 		WorldRenderer r;
 		r.mState = { };
 		r.mState.logger = std::move(logger);
 		r.mState.objectStorage = std::move(objectStorage);
 		r.mState.sharedState = std::move(sharedState);
-		r.mState.pipelineParams = plParams;
-		r.mState.pipeline = nullptr;
 		r.mState.viewTransfCacheOod = true;
 		r.mState.lightStorageOod = true;
 		r.mState.lightStorageDsetOod = true;
 		r.mState.initialized = true;
+
+		r.mState.pipelineParams = plParams;
+		assert(r.mState.pipelineParams.ownsMemory() /* This SHOULD always be the case for the TransientArray copy-operator, but ynk */);
 
 		r.setProjection(projInfo);
 
@@ -218,7 +219,9 @@ namespace SKENGINE_NAME_NS {
 			for(auto  l : removeList) r.removeLight(l);
 		}
 
-		if(r.mState.pipeline != nullptr) vkDestroyPipeline(dev, r.mState.pipeline, nullptr);
+		for(auto pl : r.mState.pipelines) {
+			if(pl != nullptr) vkDestroyPipeline(dev, pl, nullptr);
+		}
 		r.mState.initialized = false;
 	}
 
@@ -285,17 +288,23 @@ namespace SKENGINE_NAME_NS {
 
 
 	void WorldRenderer::prepareSubpasses(const SubpassSetupInfo& ssInfo, VkPipelineCache plCache, ShaderCacheInterface* shCache) {
-		assert(mState.pipeline == nullptr);
-		mState.pipeline = world::create3dPipeline(
-			vmaGetAllocatorDevice(mState.objectStorage->vma()),
-			*shCache, mState.pipelineParams,
-			ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, 0 );
+		assert(mState.pipelines.empty());
+		mState.pipelines.reserve(mState.pipelineParams.size());
+		for(auto& params : mState.pipelineParams) {
+			mState.pipelines.push_back(world::create3dPipeline(
+				vmaGetAllocatorDevice(mState.objectStorage->vma()),
+				*shCache, params,
+				ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, 0 ));
+		}
 	}
 
 
 	void WorldRenderer::forgetSubpasses(const SubpassSetupInfo&) {
-		vkDestroyPipeline(vmaGetAllocatorDevice(mState.objectStorage->vma()), mState.pipeline, nullptr);
-		mState.pipeline = nullptr;
+		for(auto& pl : mState.pipelines) {
+			vkDestroyPipeline(vmaGetAllocatorDevice(mState.objectStorage->vma()), pl, nullptr);
+			pl = nullptr;
+		}
+		mState.pipelines.clear();
 	}
 
 
@@ -515,27 +524,38 @@ namespace SKENGINE_NAME_NS {
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
 		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipeline);
-		for(VkDeviceSize i = 0; const auto& batch : batches) {
-			auto* model = objStorage.getModel(batch.model_id);
-			assert(model != nullptr);
-			if(batch.model_id != last_mdl) {
-				VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
-				constexpr VkDeviceSize offsets[] = { 0, 0 };
-				vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
-				vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+		auto draw = [&](uint32_t subpassIdx) {
+			assert(subpassIdx < mState.pipelines.size());
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelines[subpassIdx]);
+			for(VkDeviceSize i = 0; const auto& batch : batches) {
+				auto* model = objStorage.getModel(batch.model_id);
+				assert(model != nullptr);
+				if(batch.model_id != last_mdl) {
+					VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
+					constexpr VkDeviceSize offsets[] = { 0, 0 };
+					vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
+					vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+				}
+				if(batch.material_id != last_mat) {
+					auto mat = objStorage.getMaterial(batch.material_id);
+					assert(mat != nullptr);
+					dsets[MATERIAL_DSET_LOC] = mat->dset;
+					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+				}
+				vkCmdDrawIndexedIndirect(
+					cmd, batch_buffer,
+					i * sizeof(VkDrawIndexedIndirectCommand), 1,
+					sizeof(VkDrawIndexedIndirectCommand) );
+				++ i;
 			}
-			if(batch.material_id != last_mat) {
-				auto mat = objStorage.getMaterial(batch.material_id);
-				assert(mat != nullptr);
-				dsets[MATERIAL_DSET_LOC] = mat->dset;
-				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
-			}
-			vkCmdDrawIndexedIndirect(
-				cmd, batch_buffer,
-				i * sizeof(VkDrawIndexedIndirectCommand), 1,
-				sizeof(VkDrawIndexedIndirectCommand) );
-			++ i;
+		};
+
+		draw(0);
+		auto subrangeFrom2nd = std::ranges::subrange(mState.pipelines.begin() + 1, mState.pipelines.end());
+		for(uint32_t subpassIdx = 1; auto pipeline : subrangeFrom2nd) {
+			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
+			draw(subpassIdx);
+			++ subpassIdx;
 		}
 	}
 
