@@ -3,7 +3,7 @@
 setopt errexit
 
 config="${config:-"Debug"}"
-generator="${generator:-"Unix Makefiles"}"
+generator="${generator:-"Ninja"}"
 
 srcpath="${srcpath:-"$(realpath ./src)"}"
 dstpath="${dstpath:-/tmp/game-engine-sketch}"

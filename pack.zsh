@@ -5,7 +5,7 @@ setopt errreturn
 setopt nullglob
 
 config="${config:-"Debug"}"
-generator="${generator:-"Unix Makefiles"}"
+generator="${generator:-"Ninja"}"
 
 dstpath="${dstpath:-/tmp/game-engine-sketch}"
 pkgpath=$dstpath/${config}-pack

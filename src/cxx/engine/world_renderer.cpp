@@ -290,11 +290,11 @@ namespace SKENGINE_NAME_NS {
 	void WorldRenderer::prepareSubpasses(const SubpassSetupInfo& ssInfo, VkPipelineCache plCache, ShaderCacheInterface* shCache) {
 		assert(mState.pipelines.empty());
 		mState.pipelines.reserve(mState.pipelineParams.size());
-		for(auto& params : mState.pipelineParams) {
+		for(uint32_t subpassIdx = 0; auto& params : mState.pipelineParams) {
 			mState.pipelines.push_back(world::create3dPipeline(
 				vmaGetAllocatorDevice(mState.objectStorage->vma()),
 				*shCache, params,
-				ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, 0 ));
+				ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, subpassIdx ++ ));
 		}
 	}
 
@@ -550,12 +550,11 @@ namespace SKENGINE_NAME_NS {
 			}
 		};
 
+		assert(mState.pipelines.size() == mState.pipelineParams.size());
 		draw(0);
-		auto subrangeFrom2nd = std::ranges::subrange(mState.pipelines.begin() + 1, mState.pipelines.end());
-		for(uint32_t subpassIdx = 1; auto pipeline : subrangeFrom2nd) {
+		for(uint32_t subpassIdx = 1; subpassIdx < mState.pipelines.size(); ++ subpassIdx) {
 			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
 			draw(subpassIdx);
-			++ subpassIdx;
 		}
 	}
 

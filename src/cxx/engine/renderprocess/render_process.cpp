@@ -544,6 +544,7 @@ namespace SKENGINE_NAME_NS {
 
 	RP_DG_::Subgraph RP_DG_::addStep(StepDescription stepDesc) {
 		Subgraph r;
+		stepDesc.clearColors.consolidate();
 		r.sg_graph = this;
 		r.sg_step = idFromIndex<StepId>(dg_steps.size());
 		dg_steps.push_back(Step { stepDesc, idgen::invalidId<SequenceIndex>() });

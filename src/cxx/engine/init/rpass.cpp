@@ -463,11 +463,19 @@ namespace SKENGINE_NAME_NS {
 				.zNear       = mPrefs.z_near,
 				.zFar        = mPrefs.z_far };
 
+			constexpr WorldRenderer::PipelineParameters outlinePlParams = [&]() {
+				auto r = WorldRenderer::defaultPipelineParams;
+				r.cullMode = VK_CULL_MODE_FRONT_BIT;
+				r.shaderRequirement = ShaderRequirement { .name = "outline", .pipelineLayout = PipelineLayoutId::e3d };
+				return r;
+			} ();
+
 			mWorldRenderer_TMP_UGLY_NAME = std::make_shared<WorldRenderer>(WorldRenderer::create(
 				copyLogger("WorldRdr"),
 				mWorldRendererSharedState_TMP_UGLY_NAME,
 				mObjectStorage,
-				worldProj ));
+				worldProj,
+				{ WorldRenderer::defaultPipelineParams, outlinePlParams } ));
 
 			mUiRenderer_TMP_UGLY_NAME = std::make_shared<UiRenderer>(UiRenderer::create(
 				mVma,
@@ -545,6 +553,7 @@ namespace SKENGINE_NAME_NS {
 			using RpDesc = RenderPassDescription;
 			using SpDesc = RpDesc::Subpass;
 			using Atch = SpDesc::Attachment;
+			using ClrValues = util::TransientArray<VkClearValue>;
 			auto renderExt3d  = VkExtent3D { mRenderExtent .width, mRenderExtent .height, 1 };
 			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
 			mRenderProcessWorldImageRefs_TMP_UGLY_NAME  = std::make_shared<std::vector<ImgRef>>();
@@ -561,22 +570,34 @@ namespace SKENGINE_NAME_NS {
 			RpDesc worldRpDesc, uiRpDesc;
 			mWorldRenderTarget = depGraph.addRtarget(rtDesc[0]);
 			mPresentRenderTarget = depGraph.addRtarget(rtDesc[1]);
-			Atch worldColAtch = {
+			Atch worldColAtch0 = {
 				.rtarget = mWorldRenderTarget,
-				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			Atch worldColAtch1 = {
+				.rtarget = mWorldRenderTarget,
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
 			Atch uiColAtch = {
 				.rtarget = mPresentRenderTarget,
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-				.storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
+			auto worldSp1Dep = RpDesc::Subpass::Dependency {
+				.srcSubpass = 0,
+				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // The first subpass is where values are cleared, otherwise the second subpass could begin as soon as the depth atch is written
+				.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+				.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+				.dependencyFlags = { } };
 			worldRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { }, .colorAttachments = { worldColAtch },
+				.inputAttachments = { }, .colorAttachments = { worldColAtch0 },
 				.subpassDependencies = { },
 				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
+				.requiresDepthAttachments = true });
+			worldRpDesc.subpasses.push_back(SpDesc {
+				.inputAttachments = { }, .colorAttachments = { worldColAtch1 },
+				.subpassDependencies = { worldSp1Dep },
+				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
 				.requiresDepthAttachments = true });
 			worldRpDesc.framebufferSize = renderExt3d;
 			uiRpDesc.subpasses.push_back(SpDesc {
@@ -593,21 +614,28 @@ namespace SKENGINE_NAME_NS {
 			uiRpDesc.framebufferSize = presentExt3d;
 			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
 			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
-			auto addStep = [&depGraph](RenderPassId rpass, RendererId renderer, const VkExtent3D& ext, const VkClearColorValue& clr) {
+			VkClearValue depthClr = { .depthStencil { .depth = 1.0f, .stencil = 0 } };
+			VkClearValue worldClr[4] = {
+				{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr,
+				{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr };
+			VkClearValue uiClr[2] = {
+				{ .color = { 0.0f,   0.0f,   0.0f,   0.0f } }, depthClr };
+			auto addStep =
+				[&depGraph]
+				(RenderPassId rpass, RendererId renderer, const VkExtent3D& ext, ClrValues clr)
+			{
 				RenderProcess::StepDescription desc = { };
 				desc.rpass = rpass;
 				desc.renderer = renderer;
 				desc.renderArea.extent = { ext.width, ext.height };
-				desc.clearColors = {
-					VkClearValue { .color = clr },
-					VkClearValue { .depthStencil = VkClearDepthStencilValue { .depth = 1.0f, .stencil = 0 } } };
+				desc.clearColors = clr;
 				return depGraph.addStep(std::move(desc));
 			};
 			RendererId renderers[] = {
 				depGraph.addRenderer(mWorldRenderer_TMP_UGLY_NAME),
 				depGraph.addRenderer(mUiRenderer_TMP_UGLY_NAME) };
-			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  { 0.035f, 0.062f, 0.094f, 1.0f });
-			;            addStep(uiRpassId,    renderers[1], presentExt3d, { 0.0f,   0.0f,   0.0f,   0.0f }).after(step0);
+			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  ClrValues::referenceTo(worldClr));
+			;            addStep(uiRpassId,    renderers[1], presentExt3d, ClrValues::referenceTo(uiClr   )).after(step0);
 			try {
 				mRenderProcess.setup(mVma, mLogger, state.concurrentAccess, mDepthAtchFmt, uint32_t(mPresentQfamIndex), mGframes.size(), depGraph.assembleSequence());
 				mLogger.debug("Renderer list:");

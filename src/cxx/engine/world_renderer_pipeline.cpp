@@ -90,10 +90,10 @@ namespace SKENGINE_NAME_NS::world {
 
 		VkPipelineRasterizationStateCreateInfo r = { }; {
 			r.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-			r.cullMode    = VK_CULL_MODE_BACK_BIT;
-			r.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-			r.polygonMode = VK_POLYGON_MODE_FILL;
-			r.lineWidth   = 1.0f;
+			r.cullMode    = plParams.cullMode;
+			r.frontFace   = plParams.frontFace;
+			r.polygonMode = plParams.polygonMode;
+			r.lineWidth   = plParams.lineWidth;
 			r.rasterizerDiscardEnable = plParams.rasterizerDiscardEnable;
 		}
 
