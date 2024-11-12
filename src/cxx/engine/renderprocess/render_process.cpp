@@ -430,7 +430,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void RenderProcess::reset(ConcurrentAccess& ca, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> resizes) {
+	void RenderProcess::reset(ConcurrentAccess& ca, unsigned newGframeCount, util::TransientArray<RtargetResizeInfo> resizes) {
 		VkExtent3D maxResize = { 0, 0, 0 };
 
 		bool doResize = resizes.size() > 0;

@@ -404,7 +404,7 @@ namespace {
 							{
 								bool w = ! engine->getPreferences().wait_for_gframe;
 								engine->setWaitForGframe(w);
-								engine->logger().debug("Wait for gframe: set to {}", w);
+								engine->logger().info("Wait for gframe: set to {}", w);
 							} break;
 						case SDLK_ESCAPE:
 							active = false;

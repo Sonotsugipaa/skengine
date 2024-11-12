@@ -2,7 +2,7 @@
 
 #include "shader_cache.hpp"
 
-#include <misc-util.tpp>
+#include <transientarray.tpp>
 
 
 
@@ -46,7 +46,7 @@ namespace SKENGINE_NAME_NS {
 	class Renderer {
 	public:
 		struct PipelineInfo {
-			using DsetLayoutBindings = util::TransientPtrRange<const VkDescriptorSetLayoutBinding>;
+			using DsetLayoutBindings = util::TransientArray<const VkDescriptorSetLayoutBinding>;
 			DsetLayoutBindings dsetLayoutBindings;
 		};
 
@@ -100,7 +100,7 @@ namespace SKENGINE_NAME_NS {
 		bool r_buffersOod;
 
 		void r_consolidatePipelineInfo() {
-			#define CONSOLIDATE_(TPR_) if(! r_pipelineInfo.TPR_.ownsMemory()) r_pipelineInfo.TPR_ = r_pipelineInfo.TPR_.copy();
+			#define CONSOLIDATE_(TA_) if(! r_pipelineInfo.TA_.ownsMemory()) r_pipelineInfo.TA_ = r_pipelineInfo.TA_.copy();
 			CONSOLIDATE_(dsetLayoutBindings)
 			#undef CONSOLIDATE_
 		}

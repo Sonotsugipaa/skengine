@@ -17,7 +17,7 @@
 
 #include <vk-util/memory.hpp>
 
-#include <misc-util.tpp>
+#include <transientarray.tpp>
 
 
 
@@ -45,7 +45,7 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct RenderPassDescription {
-		#define TPR_ util::TransientPtrRange
+		#define TA_ util::TransientArray
 		struct Subpass {
 			struct Dependency {
 				uint32_t srcSubpass;
@@ -62,16 +62,16 @@ namespace SKENGINE_NAME_NS {
 				VkAttachmentLoadOp  loadOp;
 				VkAttachmentStoreOp storeOp;
 			};
-			TPR_<Attachment> inputAttachments;
-			TPR_<Attachment> colorAttachments;
-			TPR_<Dependency> subpassDependencies;
+			TA_<Attachment> inputAttachments;
+			TA_<Attachment> colorAttachments;
+			TA_<Dependency> subpassDependencies;
 			VkAttachmentLoadOp  depthLoadOp;
 			VkAttachmentStoreOp depthStoreOp;
 			bool requiresDepthAttachments;
 		};
 		std::vector<Subpass> subpasses;
 		VkExtent3D framebufferSize;
-		#undef TPR_
+		#undef TA_
 	};
 
 
@@ -182,7 +182,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct StepDescription {
-			util::TransientPtrRange<VkClearValue> clearColors;
+			util::TransientArray<VkClearValue> clearColors;
 			RenderPassId rpass;
 			RendererId renderer;
 			VkRect2D renderArea;
@@ -252,8 +252,8 @@ namespace SKENGINE_NAME_NS {
 		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, const DependencyGraph&);
 		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, DependencyGraph&&);
 		void setup(VmaAllocator vma, Logger, ConcurrentAccess&, VkFormat depthImageFormat, uint32_t queueFamIdx, unsigned gframeCount, const SequenceDescription&);
-		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes);
-		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientPtrRange<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
+		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientArray<RtargetResizeInfo> rtargetResizes);
+		void reset(ConcurrentAccess&, unsigned newGframeCount, util::TransientArray<RtargetResizeInfo> rtargetResizes, const SequenceDescription&);
 		void destroy(ConcurrentAccess&);
 
 		const Step&       getStep       (StepId id) const & { return const_cast<RenderProcess*>(this)->getStep(id); };
