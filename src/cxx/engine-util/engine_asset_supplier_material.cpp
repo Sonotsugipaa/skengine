@@ -1,7 +1,9 @@
-#include "engine.hpp"
+#include <engine/engine.hpp>
 
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
+
+#include "object_storage.hpp"
 
 #include <vk-util/error.hpp>
 
@@ -73,7 +75,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	Material AssetSupplier::requestMaterial(std::string_view locator) {
+	Material AssetSupplier::requestMaterial(std::string_view locator, TransferContext transfCtx) {
 		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeMaterials.find(locator_s);
@@ -94,6 +96,7 @@ namespace SKENGINE_NAME_NS {
 
 			auto src   = as_srcInterface->asi_requestMaterialData(locator);
 			auto flags = std::byteswap(mf_e(src.fmaHeader.flags()));
+			auto maxSamplerAnisotropy = 1.0f;
 
 			auto load_texture = [&](
 					Material::Texture& dst,
@@ -111,7 +114,7 @@ namespace SKENGINE_NAME_NS {
 						((u4_t(fma_value >> u8_t(16)) & u4_t(0xff)) << u4_t(16)) |
 						((u4_t(fma_value >> u8_t( 8)) & u4_t(0xff)) << u4_t( 8)) |
 						((u4_t(fma_value >> u8_t( 0)) & u4_t(0xff)) << u4_t( 0));
-					create_texture_from_pixels(as_transferContext, &dst, &value4, as_maxSamplerAnisotropy, fmt, 1, 1);
+					create_texture_from_pixels(transfCtx, &dst, &value4, maxSamplerAnisotropy, fmt, 1, 1);
 					as_logger.trace(
 						"Loaded {} texture as a single texel ({:02x}{:02x}{:02x}{:02x})",
 						name,
@@ -127,7 +130,7 @@ namespace SKENGINE_NAME_NS {
 					texture_filename.append(texture_name);
 					size_t w;
 					size_t h;
-					auto success = create_texture_from_file(as_transferContext, &dst, &w, &h, texture_filename.c_str(), as_logger, as_maxSamplerAnisotropy);
+					auto success = create_texture_from_file(transfCtx, &dst, &w, &h, texture_filename.c_str(), as_logger, maxSamplerAnisotropy);
 					if(success) {
 						as_logger.trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
 					} else {
@@ -148,7 +151,7 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferCreateInfo bc_info = { };
 				bc_info.size  = sizeof(dev::MaterialUniform);
 				bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-				r.mat_uniform = vkutil::BufferDuplex::createUniformBuffer(vma(), bc_info);
+				r.mat_uniform = vkutil::BufferDuplex::createUniformBuffer(transfCtx.vma, bc_info);
 			}
 
 			[&](dev::MaterialUniform& uni) {
@@ -176,9 +179,9 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::releaseMaterial(std::string_view locator) noexcept {
+	void AssetSupplier::releaseMaterial(std::string_view locator, TransferContext transfCtx) noexcept {
 		auto missing = decltype(as_missingMaterials)::iterator();
-		auto vma     = this->vma();
+		auto vma     = transfCtx.vma;
 		auto dev     = vmaGetAllocatorDevice(vma);
 
 		std::string locator_s = std::string(locator);
@@ -205,12 +208,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::releaseAllMaterials() noexcept {
+	void AssetSupplier::releaseAllMaterials(TransferContext transfCtx) noexcept {
 		std::vector<std::string> queue;
 		queue.reserve(as_activeMaterials.size());
 		for(auto& mat : as_activeMaterials)  queue.push_back(mat.first);
 		for(auto& mat : as_missingMaterials) queue.push_back(mat);
-		for(auto& loc : queue)               releaseMaterial(loc);
+		for(auto& loc : queue)               releaseMaterial(loc, transfCtx);
 	}
 
 }

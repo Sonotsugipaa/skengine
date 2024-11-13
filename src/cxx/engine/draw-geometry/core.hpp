@@ -312,6 +312,7 @@ inline namespace geom {
 		void syncWithFence(VkFence fence) noexcept; // DOCUMENTATION HINT: a non-null fence may be waited upon on the next call to `updateImage`.
 		void forgetFence(VkFence fence) noexcept { if(txtcache_lock == fence) txtcache_lock = nullptr; }
 		void forgetFence() noexcept { forgetFence(txtcache_lock); }
+		VkFence currentFence() const noexcept { return txtcache_lock; }
 
 		void updateImage(VkCommandBuffer) noexcept; // DOCUMENTATION HINT: when called immediately after `fetchChars(str)`, the referenced map is guaranteed to contain mappings for all characters in `str`; the same goes for all previous similar calls.
 		const CharMap& getChars() const noexcept { return txtcache_charMap; }

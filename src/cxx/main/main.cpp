@@ -4,6 +4,8 @@
 
 #include <engine-util/basic_shader_cache.hpp>
 #include <engine-util/basic_asset_source.hpp>
+#include <engine-util/basic_renderprocess.hpp>
+#include <engine-util/gui_manager.hpp>
 
 #include <posixfio_tl.hpp>
 
@@ -134,6 +136,7 @@ namespace {
 		std::mutex inputMutex;
 		std::unordered_set<SDL_KeyCode> pressedKeys;
 		std::vector<ObjectId> createdLights;
+		std::shared_ptr<BasicRenderProcess> rprocessImpl;
 		std::weak_ptr<ui::BasicGrid> crosshairGrid;
 		std::weak_ptr<ui::Lot> crosshairLot;
 		std::weak_ptr<gui::BasicPolygon> crosshair;
@@ -217,7 +220,7 @@ namespace {
 			o.model_locator = "world.fma";
 			o.position_xyz  = { 0.0f, 0.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
-			world = os.createObject(o);
+			world = os.createObject(engine->getTransferContext(), o);
 		}
 
 
@@ -226,7 +229,7 @@ namespace {
 			o.model_locator = "spaceship.fma";
 			o.position_xyz  = { 0.0f, 10.0f, 0.0f };
 			o.scale_xyz     = { 1.0f, 1.0f, 1.0f };
-			spaceship = os.createObject(o);
+			spaceship = os.createObject(engine->getTransferContext(), o);
 		}
 
 
@@ -252,7 +255,7 @@ namespace {
 					o.position_xyz.z = oz;
 					size_t xi = x + obj_count_sqrt_half;
 					size_t zi = z + obj_count_sqrt_half;
-					objectIdFromXz(xi, zi) = os.createObject(o);
+					objectIdFromXz(xi, zi) = os.createObject(engine->getTransferContext(), o);
 				}
 			};
 
@@ -291,7 +294,7 @@ namespace {
 			o.scale_xyz     = { 0.05f, 0.05f, 0.05f };
 			o.model_locator = "gold-bars.fma";
 			o.hidden        = true;
-			lightGuide = os.createObject(o);
+			lightGuide = os.createObject(engine->getTransferContext(), o);
 		}
 
 
@@ -323,8 +326,9 @@ namespace {
 		}
 
 
-		explicit Loop(Engine& e):
+		explicit Loop(Engine& e, std::shared_ptr<BasicRenderProcess> brp):
 			engine(&e),
+			rprocessImpl(std::move(brp)),
 			objectCountSqrt(objectCountFromEnv(e.logger())),
 			objectSpacing(object_space_sqrt / float(objectCountSqrt + 2)),
 			lightType(LightType::eNone),
@@ -333,11 +337,21 @@ namespace {
 			lightGuideVisible(false),
 			lightCreated(false),
 			active(true)
-		{
+		{ }
+
+
+		~Loop() {
+			crosshairGrid = { };
+			crosshairLot = { };
+			crosshair = { };
+		}
+
+
+		void loop_begin() override {
 			auto  ca = engine->getConcurrentAccess();
-			auto& os = ca->getObjectStorage();
-			auto& wr = ca->getWorldRenderer();
-			auto  gui = ca->gui();
+			auto& os = * rprocessImpl->objectStorage<const BasicRenderProcess>();
+			auto& wr = * rprocessImpl->worldRenderer<const BasicRenderProcess>();
+			auto  gui = skengine::GuiManager(rprocessImpl->uiRenderer<const BasicRenderProcess>());
 
 			objects = std::make_unique_for_overwrite<ObjectId[]>((objectCountSqrt+1) * (objectCountSqrt+1));
 
@@ -349,12 +363,7 @@ namespace {
 			createGui(gui);
 		}
 
-
-		~Loop() {
-			crosshairGrid = { };
-			crosshairLot = { };
-			crosshair = { };
-		}
+		void loop_end() noexcept override { }
 
 
 		void loop_processEvents(tickreg::delta_t delta, tickreg::delta_t) override {
@@ -461,7 +470,7 @@ namespace {
 
 			if(request_ca) {
 				auto  ca = engine->getConcurrentAccess();
-				auto& wr = ca->getWorldRenderer();
+				auto& wr = * rprocessImpl->worldRenderer<const BasicRenderProcess>();
 
 				if(resize_event.triggered) {
 					ca->setPresentExtent({ resize_event.width, resize_event.height });
@@ -517,7 +526,6 @@ namespace {
 								break;
 						}
 						lightCounter.lock()->setText(fmt::format("Lights: {}", createdLights.size()));
-						engine->logger().info("Creating light {}", object_id_e(createdLights.back()));
 						lightCreated = true;
 						#undef LOG_LIGHT_NONE_
 						#undef LOG_LIGHT_INV_
@@ -536,7 +544,7 @@ namespace {
 		}
 
 
-		SKENGINE_NAME_NS_SHORT::LoopInterface::LoopState loop_pollState() const noexcept override {
+		ske::LoopInterface::LoopState loop_pollState() const noexcept override {
 			return active? LoopState::eShouldContinue : LoopState::eShouldStop;
 		}
 
@@ -548,9 +556,9 @@ namespace {
 		}
 
 
-		void loop_async_postRender(ConcurrentAccess ca, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
-			auto& os = ca.getObjectStorage();
-			auto& wr = ca.getWorldRenderer();
+		void loop_async_postRender(ConcurrentAccess, tickreg::delta_t delta, tickreg::delta_t /*delta_last*/) override {
+			auto& os = * rprocessImpl->objectStorage<const BasicRenderProcess>();
+			auto& wr = * rprocessImpl->worldRenderer<const BasicRenderProcess>();
 
 			pollPresentExtentChange();
 
@@ -707,11 +715,13 @@ int main(int argn, char** argv) {
 	logger.setLevel(log_level);
 
 	try {
-		auto* shader_cache = new SKENGINE_NAME_NS_SHORT::BasicShaderCache("assets/", logger);
-		auto* asset_source = new SKENGINE_NAME_NS_SHORT::BasicAssetSource("assets/", logger);
+		auto shader_cache   = std::make_shared<ske::BasicShaderCache>("assets/", logger);
+		auto asset_source   = std::make_shared<ske::BasicAssetSource>("assets/", logger);
+		auto basic_rprocess = std::make_shared<ske::BasicRenderProcess>();
+		BasicRenderProcess::setup(*basic_rprocess, logger, asset_source, 0.125);
 
-		auto engine = SKENGINE_NAME_NS_SHORT::Engine(
-			SKENGINE_NAME_NS_SHORT::DeviceInitInfo {
+		auto engine = ske::Engine(
+			ske::DeviceInitInfo {
 				.window_title     = SKENGINE_NAME_CSTR " Test Window",
 				.application_name = SKENGINE_NAME_PC_CSTR,
 				.app_version = VK_MAKE_API_VERSION(
@@ -720,13 +730,18 @@ int main(int argn, char** argv) {
 					SKENGINE_VERSION_MINOR,
 					SKENGINE_VERSION_PATCH ) },
 			prefs,
-			std::shared_ptr<SKENGINE_NAME_NS_SHORT::BasicShaderCache>(shader_cache),
-			std::shared_ptr<SKENGINE_NAME_NS_SHORT::AssetSourceInterface>(asset_source),
+			std::move(shader_cache),
 			logger );
 
-		auto loop = Loop(engine);
+		#warning "Find a way to document or fix what the comment below describes"
+		// Weird stuff happens here: renderers get initialized by Engine::run's request,
+		// while a user may reasonably expect things in BasicRenderProcess to be ready to use
+		// when constructing the LoopInterface.
+		auto loop = Loop(engine, basic_rprocess);
 
-		engine.run(loop);
+		engine.run(loop, basic_rprocess);
+
+		BasicRenderProcess::destroy(*basic_rprocess, engine.getTransferContext());
 
 		logger.info("Successfully exiting the program.");
 	} catch(posixfio::Errcode& e) {

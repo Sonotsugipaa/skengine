@@ -1,7 +1,9 @@
-#include "engine.hpp"
+#include <engine/engine.hpp>
 
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
+
+#include "object_storage.hpp"
 
 #include <posixfio.hpp>
 

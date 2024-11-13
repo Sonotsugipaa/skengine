@@ -44,6 +44,44 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	};
 
 
+	static void setupRprocess(Engine& e, RenderProcessInterface& rpi) {
+		auto depGraph = RenderProcess::DependencyGraph(e.mLogger, e.gframeCount());
+		auto ca = ConcurrentAccess(&e, true);
+
+		rpi.rpi_setupRenderProcess(ca, depGraph);
+
+		try {
+			e.mRenderProcess.setup(e.mVma, e.mLogger, ca, e.mDepthAtchFmt, uint32_t(e.mPresentQfamIndex), e.mGframes.size(), depGraph.assembleSequence());
+			e.mLogger.debug("Renderer list:");
+			size_t waveIdx = 0;
+			for(auto wave : e.mRenderProcess.waveRange()) {
+				for(auto& step : wave) {
+					auto& ra = step.second.renderArea;
+					e.mLogger.debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
+						waveIdx,
+						RenderProcess::step_id_e(step.first),
+						render_target_id_e(step.second.renderer),
+						ra.offset.x, ra.offset.y, ra.extent.width, ra.extent.height );
+				}
+				++ waveIdx;
+			}
+			if(waveIdx == 0) e.mLogger.debug("  (empty)");
+		} catch(RenderProcess::UnsatisfiableDependencyError& err) {
+			e.mLogger.error("{}:", err.what());
+			auto& chain = err.dependencyChain();
+			for(auto step : chain) e.mLogger.error("  Renderer {:3}", RenderProcess::step_id_e(step));
+			e.mLogger.error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
+			std::rethrow_exception(std::current_exception());
+		}
+	}
+
+	static void destroyRprocess(Engine& e, RenderProcessInterface& rpi) {
+		auto ca = ConcurrentAccess(&e, true);
+		e.mRenderProcess.destroy(ca);
+		rpi.rpi_destroyRenderProcess(ca);
+	}
+
+
 	static VkFence& selectGframeFence(Engine& e) {
 		auto i = (++ e.mGframeSelector) % frame_counter_t(e.mGframes.size());
 		auto& r = e.mGframeSelectionFences[i];
@@ -59,6 +97,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		const Renderer::DrawSyncPrimitives& syncs,
 		DrawInfo& draw
 	) {
+		(void) rpass;
 		assert(draw.sc_img_idx < rpass.framebuffers.size());
 		auto  rdrDrawInfo = Renderer::DrawInfo { .syncPrimitives = syncs, .gframeIndex = draw.sc_img_idx };
 		renderer.duringPrepareStage(draw.concurrent_access, rdrDrawInfo, cmd);
@@ -296,7 +335,7 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 	}
 
 
-	static void handleSignals(Engine& e) {
+	static void handleSignals(Engine& e, RenderProcessInterface& rpi) {
 		bool reinitGate = false;
 		auto reinit = [&]() {
 			using tickreg::delta_t;
@@ -313,7 +352,9 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 
 			auto init = reinterpret_cast<Engine::RpassInitializer*>(&e);
 			auto ca = ConcurrentAccess(&e, true);
+			Implementation::destroyRprocess(e, rpi);
 			init->reinit(ca);
+			Implementation::setupRprocess(e, rpi);
 		};
 
 		std::unique_lock<std::mutex> gframeLock;
@@ -430,11 +471,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	Engine::Engine(
-			const DeviceInitInfo&    di,
+			const DeviceInitInfo& di,
 			const EnginePreferences& ep,
 			std::shared_ptr<ShaderCacheInterface> sci,
-			std::shared_ptr<AssetSourceInterface> asi,
-			const Logger&                         logger
+			const Logger& logger
 	):
 		mLogger(cloneLogger(logger, std::string_view("["), std::string_view(SKENGINE_NAME_PC_CSTR ":Engine "), std::string_view(""), std::string_view("]  "))),
 		mShaderCache(std::move(sci)),
@@ -454,7 +494,6 @@ namespace SKENGINE_NAME_NS {
 		mSignalGthread(Signal::eNone),
 		mSignalXthread(Signal::eNone),
 		mLastResizeTime(0),
-		mAssetSource(std::move(asi)),
 		mPrefs(ep),
 		mIsRunning(false)
 	{
@@ -486,7 +525,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::run(LoopInterface& loop) {
+	void Engine::run(LoopInterface& loop, std::shared_ptr<RenderProcessInterface> rpi) {
 		auto loop_state = loop.loop_pollState();
 		auto exception  = std::exception_ptr(nullptr);
 
@@ -495,6 +534,14 @@ namespace SKENGINE_NAME_NS {
 			exception = std::current_exception();
 			loop_state = LoopInterface::LoopState::eShouldStop;
 		};
+
+		{
+			auto ca = ConcurrentAccess(this, true);
+			rpi->rpi_createRenderers(ca);
+			Implementation::setupRprocess(*this, *rpi);
+		}
+
+		auto gframeLock = std::unique_lock(mGframeMutex);
 
 		mGraphicsThread = std::thread([&]() {
 			#ifdef NDEBUG
@@ -515,7 +562,7 @@ namespace SKENGINE_NAME_NS {
 						gframeLock.lock(); // This must be done for both branches, but before waiting on the cond var AND after checking the atomic var
 					}
 					Implementation::draw(*this, loop);
-					Implementation::handleSignals(*this);
+					Implementation::handleSignals(*this, *rpi);
 					gframeLock.unlock();
 					mGraphicsReg.awaitNextTick();
 				} catch(...) {
@@ -525,6 +572,8 @@ namespace SKENGINE_NAME_NS {
 			mIsRunning.store(false, std::memory_order::seq_cst);
 		});
 
+		try { loop.loop_begin(); } catch(...) { handle_exception(); }
+		gframeLock.unlock();
 		while((exception == nullptr) && (loop_state != LoopInterface::LoopState::eShouldStop)) {
 			try {
 				loop_state = Implementation::runLogicIteration(*this, loop);
@@ -532,14 +581,24 @@ namespace SKENGINE_NAME_NS {
 				handle_exception();
 			}
 		}
+		mGframePriorityOverride.store(true, std::memory_order_seq_cst);
+		gframeLock.lock();
+		loop.loop_end();
+		gframeLock.unlock();
 
 		assert(mGraphicsThread.joinable());
-		auto lock = pauseRenderPass();
+		auto renderPassLock = pauseRenderPass();
 		mGframePriorityOverride.store(false, std::memory_order_seq_cst);
 		mGframeResumeCond.notify_one();
-		lock.unlock();
+		renderPassLock.unlock();
 		mGraphicsThread.join();
 		mGraphicsThread = { };
+
+		{
+			auto ca = ConcurrentAccess(this, true);
+			Implementation::destroyRprocess(*this, *rpi);
+			rpi->rpi_destroyRenderers(ca);
+		}
 
 		if(exception) {
 			std::rethrow_exception(exception);
@@ -611,9 +670,6 @@ namespace SKENGINE_NAME_NS {
 			vkWaitForFences(mDevice, fences.size(), fences.data(), true, UINT64_MAX);
 			#undef ITERATE_STEP_GFRAMES_
 			#undef INSERT_FENCE_
-
-			// Text caches no longer need synchronization, and MUST forget about potentially soon-to-be deleted fences
-			mUiRenderer_TMP_UGLY_NAME->forgetTextCacheFences();
 		};
 
 		bool is_graphics_thread = std::this_thread::get_id() == mGraphicsThread.get_id();

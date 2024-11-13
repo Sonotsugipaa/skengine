@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.hpp"
+#include <engine/types.hpp>
 
 #include <vk-util/memory.hpp>
 
@@ -74,8 +74,6 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	/// \internal
-	///
 	class AssetSupplier {
 	public:
 		using Models           = std::unordered_map<std::string, DevModel>;
@@ -83,24 +81,26 @@ namespace SKENGINE_NAME_NS {
 		using MissingMaterials = std::unordered_set<std::string>;
 
 		AssetSupplier(): as_initialized(false) { }
-		AssetSupplier(Engine&, Logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy);
+		AssetSupplier(Logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
-		void destroy();
-		~AssetSupplier() { if(as_initialized) destroy(); }
+		void destroy(TransferContext);
 
-		DevModel requestModel(std::string_view locator);
-		void     releaseModel(std::string_view locator) noexcept;
-		void releaseAllModels() noexcept;
+		#ifndef NDEBUG
+			~AssetSupplier(); // Only asserts whether it has already been destroyed
+		#endif
 
-		Material requestMaterial(std::string_view locator);
-		void     releaseMaterial(std::string_view locator) noexcept;
-		void releaseAllMaterials() noexcept;
+		DevModel requestModel(std::string_view locator, TransferContext);
+		void     releaseModel(std::string_view locator, TransferContext) noexcept;
+		void releaseAllModels(TransferContext) noexcept;
 
-		VmaAllocator vma() const noexcept { return as_transferContext.vma; }
+		Material requestMaterial(std::string_view locator, TransferContext);
+		void     releaseMaterial(std::string_view locator, TransferContext) noexcept;
+		void releaseAllMaterials(TransferContext) noexcept;
+
+		bool isInitialized() const noexcept { return as_initialized; }
 
 	private:
-		TransferContext as_transferContext;
 		Logger as_logger;
 		std::shared_ptr<AssetSourceInterface> as_srcInterface;
 		Models    as_activeModels;
@@ -110,8 +110,8 @@ namespace SKENGINE_NAME_NS {
 		Material  as_fallbackMaterial;
 		MissingMaterials as_missingMaterials;
 		float as_maxInactiveRatio;
-		float as_maxSamplerAnisotropy;
 		bool as_initialized;
+		bool as_fallbackMaterialExists;
 	};
 
 
@@ -204,19 +204,19 @@ namespace SKENGINE_NAME_NS {
 			VmaAllocator,
 			AssetSupplier& );
 
-		static void destroy(ObjectStorage&);
+		static void destroy(TransferContext, ObjectStorage&);
 
-		[[nodiscard]] ObjectId createObject (const NewObject&);
-		void                   removeObject (ObjectId) noexcept;
-		void                   clearObjects () noexcept;
-		std::optional<const Object*>    getObject    (ObjectId) const noexcept;
+		[[nodiscard]] ObjectId createObject (TransferContext, const NewObject&);
+		void                   removeObject (TransferContext, ObjectId) noexcept;
+		void                   clearObjects (TransferContext) noexcept;
 		std::optional<ModifiableObject> modifyObject (ObjectId) noexcept;
+		std::optional<const Object*>    getObject    (ObjectId) const noexcept;
 
-		ModelId          getModelId (std::string_view locator);
+		ModelId          getModelId (TransferContext, std::string_view locator);
 		const ModelData* getModel   (ModelId) const noexcept;
-		void             eraseModel (ModelId) noexcept;
+		void             eraseModel (TransferContext, ModelId) noexcept;
 
-		MaterialId          getMaterialId (std::string_view locator);
+		MaterialId          getMaterialId (TransferContext, std::string_view locator);
 		const MaterialData* getMaterial   (MaterialId) const noexcept;
 
 		VmaAllocator vma() const noexcept { return mVma; }
@@ -265,10 +265,10 @@ namespace SKENGINE_NAME_NS {
 		bool mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
 		bool mObjectsNeedFlush   : 1; // `true` when the object buffer needs to be uploaded, but all objects already exist in it
 
-		ModelId    setModel      (std::string_view locator, DevModel);
-		MaterialId setMaterial   (std::string_view locator, Material);
-		void       eraseMaterial (MaterialId) noexcept;
-		void       eraseModelNoObjectCheck (ModelId, ModelData&) noexcept;
+		ModelId    setModel      (TransferContext, std::string_view locator, DevModel);
+		MaterialId setMaterial   (TransferContext, std::string_view locator, Material);
+		void       eraseMaterial (TransferContext, MaterialId) noexcept;
+		void       eraseModelNoObjectCheck (TransferContext, ModelId, ModelData&) noexcept;
 	};
 
 }

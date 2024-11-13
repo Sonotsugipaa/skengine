@@ -412,6 +412,25 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
+	const RenderTargetDescription& RenderProcess::getRenderTargetDescription(RenderTargetId id) const & {
+		return rp_rtargetStorage.getDescription(id);
+	}
+
+
+	const RenderTarget& RenderProcess::getRenderTarget(RenderTargetId id, size_t subIndex) const & {
+		auto entrySet = rp_rtargetStorage.getEntrySet(id);
+		assert(! entrySet.isExternal);
+		assert(subIndex < entrySet.entries.size());
+		#ifdef NDEBUG
+			static constexpr RenderTarget nullRt = { };
+			if(entrySet.isExternal) [[unlikely]] return nullRt; // Null pointers are more predictable UB than actual non-zero garbage
+			else return entrySet.entries[subIndex].managed;
+		#else
+			return entrySet.entries[subIndex].managed;
+		#endif
+	}
+
+
 	const RenderProcess::DrawSyncPrimitives& RenderProcess::getDrawSyncPrimitives(SequenceIndex wave, size_t gframe) const noexcept {
 		auto idx = (size_t(wave) * rp_gframeCount) + gframe;
 		assert(idx < rp_drawSyncPrimitives.size());

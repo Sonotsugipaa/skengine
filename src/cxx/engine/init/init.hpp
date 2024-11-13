@@ -41,14 +41,12 @@ namespace SKENGINE_NAME_NS {
 		void unwind(State&);
 		void initSurface();
 		void initSwapchain(State&);
-		void initRenderers(State&);
 		void initGframes(State&);
 		void initRpasses(State&);
 		void initTop(State&);
 		void destroyTop(State&);
 		void destroyRpasses(State&);
 		void destroyGframes(State&);
-		void destroyRenderers(State&);
 		void destroySwapchain(State&);
 		void destroySurface();
 	};

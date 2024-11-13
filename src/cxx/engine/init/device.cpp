@@ -209,12 +209,11 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::DeviceInitializer::initAssets() {
 		auto newLogger = mLogger;
-		mAssetSupplier = AssetSupplier(*this, std::move(newLogger), mAssetSource, 0.125f, mDevProps.limits.maxSamplerAnisotropy);
 	}
 
 
 	void Engine::DeviceInitializer::destroyAssets() {
-		mAssetSupplier.destroy();
+		// NOP
 	}
 
 

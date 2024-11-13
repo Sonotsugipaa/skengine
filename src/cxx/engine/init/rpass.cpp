@@ -179,10 +179,9 @@ namespace SKENGINE_NAME_NS {
 		try {
 			initSurface(); SET_STAGE_(0)
 			initSwapchain(state); SET_STAGE_(1)
-			initRenderers(state); SET_STAGE_(2)
-			initGframes(state); SET_STAGE_(3)
-			initRpasses(state); SET_STAGE_(4)
-			initTop(state); SET_STAGE_(5)
+			initGframes(state); SET_STAGE_(2)
+			initRpasses(state); SET_STAGE_(3)
+			initTop(state); SET_STAGE_(4)
 			mLogger.debug("Render process initialization took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 		} catch(...) {
 			unwind(state);
@@ -205,13 +204,11 @@ namespace SKENGINE_NAME_NS {
 		VkExtent2D old_present_xt = mPresentExtent;
 
 		try {
-			destroyTop(state); UNSET_STAGE_(5)
+			destroyTop(state); UNSET_STAGE_(4)
 			destroySwapchain(state); UNSET_STAGE_(1)
-			destroyGframes(state); UNSET_STAGE_(3)
-			destroyRenderers(state); UNSET_STAGE_(2)
+			destroyGframes(state); UNSET_STAGE_(2)
 			initSwapchain(state); SET_STAGE_(1)
-			initRenderers(state); SET_STAGE_(2)
-			initGframes(state); SET_STAGE_(3)
+			initGframes(state); SET_STAGE_(2)
 
 			bool render_xt_changed =
 				(old_render_xt.width  != mRenderExtent.width) ||
@@ -221,11 +218,11 @@ namespace SKENGINE_NAME_NS {
 				(old_present_xt.height != mPresentExtent.height);
 
 			if(render_xt_changed || present_xt_changed) {
-				destroyRpasses(state); UNSET_STAGE_(4)
-				initRpasses(state); SET_STAGE_(4)
+				destroyRpasses(state); UNSET_STAGE_(3)
+				initRpasses(state); SET_STAGE_(3)
 			}
 
-			initTop(state); SET_STAGE_(5)
+			initTop(state); SET_STAGE_(4)
 			mLogger.debug("Render process reinitialization took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 		} catch(...) {
 			state.reinit = false;
@@ -245,11 +242,10 @@ namespace SKENGINE_NAME_NS {
 
 	void Engine::RpassInitializer::unwind(State& state) {
 		#define IF_STAGE_(B_) if(0 != (state.stages & (stages_t(1) << stages_t(B_))))
-		IF_STAGE_(5) destroyTop(state);
-		IF_STAGE_(4) destroyRpasses(state);
+		IF_STAGE_(4) destroyTop(state);
+		IF_STAGE_(3) destroyRpasses(state);
 		IF_STAGE_(1) destroySwapchain(state);
-		IF_STAGE_(3) destroyGframes(state);
-		IF_STAGE_(2) destroyRenderers(state);
+		IF_STAGE_(2) destroyGframes(state);
 		IF_STAGE_(0) destroySurface();
 		mLogger.debug("Render process destruction took {}ms", float(state.timer.count<std::micro>()) / 1000.0f);
 	}
@@ -435,230 +431,34 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void Engine::RpassInitializer::initRenderers(State& state) {
-		using namespace std::string_literals;
-		using namespace std::string_view_literals;
-
-		if(! state.reinit) {
-			mWorldRendererSharedState_TMP_UGLY_NAME = std::make_shared_for_overwrite<WorldRendererSharedState>();
-			WorldRenderer::initSharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
-
-			auto copyLogger = [&]<typename... Pfx>(std::string_view sub) {
-				auto r = mLogger;
-				std::string cat = std::string(SKENGINE_NAME_PC_CSTR ":");
-				cat.reserve(cat.size() + sub.size() + 1);
-				cat.append(sub);
-				cat.push_back(' ');
-				return cloneLogger<Pfx...>(mLogger, "["sv, cat, ""sv, "]  "sv);
-			};
-
-			mObjectStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
-				copyLogger("ObjStorage"),
-				mWorldRendererSharedState_TMP_UGLY_NAME,
-				mVma,
-				mAssetSupplier ));
-
-			const auto worldProj = WorldRenderer::ProjectionInfo {
-				.verticalFov = mPrefs.fov_y,
-				.zNear       = mPrefs.z_near,
-				.zFar        = mPrefs.z_far };
-
-			constexpr WorldRenderer::PipelineParameters outlinePlParams = [&]() {
-				auto r = WorldRenderer::defaultPipelineParams;
-				r.cullMode = VK_CULL_MODE_FRONT_BIT;
-				r.shaderRequirement = ShaderRequirement { .name = "outline", .pipelineLayout = PipelineLayoutId::e3d };
-				return r;
-			} ();
-
-			mWorldRenderer_TMP_UGLY_NAME = std::make_shared<WorldRenderer>(WorldRenderer::create(
-				copyLogger("WorldRdr"),
-				mWorldRendererSharedState_TMP_UGLY_NAME,
-				mObjectStorage,
-				worldProj,
-				{ WorldRenderer::defaultPipelineParams, outlinePlParams } ));
-
-			mUiRenderer_TMP_UGLY_NAME = std::make_shared<UiRenderer>(UiRenderer::create(
-				mVma,
-				copyLogger("UiRdr"),
-				mPrefs.font_location ));
-		}
-
-		assert(! mGframes.empty());
-	}
-
-
 	void Engine::RpassInitializer::initGframes(State&) {
 		assert(! mGframes.empty());
 		auto frame_n = mGframes.size();
 
 		mGframeLast = -1;
 
-		vkutil::ImageCreateInfo ic_info = { };
-		ic_info.extent = VkExtent3D { mRenderExtent.width, mRenderExtent.height, 1 };
-		ic_info.type   = VK_IMAGE_TYPE_2D;
-		ic_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		ic_info.samples = VK_SAMPLE_COUNT_1_BIT;
-		ic_info.tiling  = VK_IMAGE_TILING_OPTIMAL;
-		ic_info.qfamSharing = { };
-		ic_info.arrayLayers = 1;
-		ic_info.mipLevels   = 1;
-		VkImageViewCreateInfo ivc_info = { };
-		ivc_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		ivc_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		ivc_info.components.r =
-		ivc_info.components.g =
-		ivc_info.components.b =
-		ivc_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		ivc_info.subresourceRange.layerCount = 1;
-		ivc_info.subresourceRange.levelCount = 1;
-		vkutil::AllocationCreateInfo ac_info = { };
-		ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		ac_info.vmaUsage = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
 		VkFenceCreateInfo fc_info = { };
 		fc_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fc_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-		auto create_frame = [&](GframeData& gf, VkFence& gff) {
-			ic_info.usage  = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-			ic_info.format = mSurfaceFormat.format;
-			gf.atch_color  = vkutil::ManagedImage::create(mVma, ic_info, ac_info);
-			ivc_info.image  = gf.atch_color;
-			ivc_info.format = mSurfaceFormat.format;
-			ivc_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			VK_CHECK(vkCreateImageView, mDevice, &ivc_info, nullptr, &gf.atch_color_view);
-			VK_CHECK(vkCreateFence,     mDevice, &fc_info, nullptr, &gff);
+		auto create_frame = [&](VkFence& gff) {
+			VK_CHECK(vkCreateFence, mDevice, &fc_info, nullptr, &gff);
 		};
 
 		mLogger.trace("Creating {} gframe{}", frame_n, (frame_n != 1)? "s" : "");
 		mGframeSelectionFences.resize(frame_n);
 		for(size_t i = 0; i < frame_n; ++i) {
-			GframeData& gf  = mGframes[i];
-			VkFence&    gff = mGframeSelectionFences[i];
-			create_frame(gf, gff);
+			VkFence& gff = mGframeSelectionFences[i];
+			create_frame(gff);
 		}
 	}
 
 
 	void Engine::RpassInitializer::initRpasses(State& state) {
-		using RtDesc = RenderTargetDescription;
-		using ImgRef = RtDesc::ImageRef;
 		if(! state.reinit) { // Create the dset layouts, pipeline layouts, pipeline cache and pipelines
 			VkPipelineCacheCreateInfo pcc_info = { };
 			pcc_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			VK_CHECK(vkCreatePipelineCache, mDevice, &pcc_info, nullptr, &mPipelineCache);
-		}
-
-		{ // Assemble the RenderProcess
-			auto depGraph = RenderProcess::DependencyGraph(mLogger, mGframes.size());
-			using RpDesc = RenderPassDescription;
-			using SpDesc = RpDesc::Subpass;
-			using Atch = SpDesc::Attachment;
-			using ClrValues = util::TransientArray<VkClearValue>;
-			auto renderExt3d  = VkExtent3D { mRenderExtent .width, mRenderExtent .height, 1 };
-			auto presentExt3d = VkExtent3D { mPresentExtent.width, mPresentExtent.height, 1 };
-			mRenderProcessWorldImageRefs_TMP_UGLY_NAME  = std::make_shared<std::vector<ImgRef>>();
-			mRenderProcessUiImageRefs_TMP_UGLY_NAME     = std::make_shared<std::vector<ImgRef>>();
-			mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->reserve(mGframes.size());
-			mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->reserve(mGframes.size());
-			for(auto& gframe : mGframes) {
-				mRenderProcessWorldImageRefs_TMP_UGLY_NAME ->push_back(ImgRef { .image = gframe.atch_color,      .imageView = gframe.atch_color_view      });
-				mRenderProcessUiImageRefs_TMP_UGLY_NAME    ->push_back(ImgRef { .image = gframe.swapchain_image, .imageView = gframe.swapchain_image_view });
-			}
-			RtDesc rtDesc[2] = {
-				RtDesc { mRenderProcessWorldImageRefs_TMP_UGLY_NAME, renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mSurfaceFormat.format, false, false, false, true },
-				RtDesc { mRenderProcessUiImageRefs_TMP_UGLY_NAME,    presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mSurfaceFormat.format, false, false, false, true } };
-			RpDesc worldRpDesc, uiRpDesc;
-			mWorldRenderTarget = depGraph.addRtarget(rtDesc[0]);
-			mPresentRenderTarget = depGraph.addRtarget(rtDesc[1]);
-			Atch worldColAtch0 = {
-				.rtarget = mWorldRenderTarget,
-				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			Atch worldColAtch1 = {
-				.rtarget = mWorldRenderTarget,
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			Atch uiColAtch = {
-				.rtarget = mPresentRenderTarget,
-				.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-			auto worldSp1Dep = RpDesc::Subpass::Dependency {
-				.srcSubpass = 0,
-				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // The first subpass is where values are cleared, otherwise the second subpass could begin as soon as the depth atch is written
-				.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-				.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-				.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-				.dependencyFlags = { } };
-			worldRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { }, .colorAttachments = { worldColAtch0 },
-				.subpassDependencies = { },
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-				.requiresDepthAttachments = true });
-			worldRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { }, .colorAttachments = { worldColAtch1 },
-				.subpassDependencies = { worldSp1Dep },
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-				.requiresDepthAttachments = true });
-			worldRpDesc.framebufferSize = renderExt3d;
-			uiRpDesc.subpasses.push_back(SpDesc {
-				.inputAttachments = { }, .colorAttachments = { uiColAtch },
-				.subpassDependencies = { SpDesc::Dependency {
-					.srcSubpass = VK_SUBPASS_EXTERNAL,
-					.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
-					.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-					.dependencyFlags = { } }},
-				.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				.requiresDepthAttachments = true });
-			uiRpDesc.framebufferSize = presentExt3d;
-			const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
-			const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
-			VkClearValue depthClr = { .depthStencil { .depth = 1.0f, .stencil = 0 } };
-			VkClearValue worldClr[4] = {
-				{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr,
-				{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr };
-			VkClearValue uiClr[2] = {
-				{ .color = { 0.0f,   0.0f,   0.0f,   0.0f } }, depthClr };
-			auto addStep =
-				[&depGraph]
-				(RenderPassId rpass, RendererId renderer, const VkExtent3D& ext, ClrValues clr)
-			{
-				RenderProcess::StepDescription desc = { };
-				desc.rpass = rpass;
-				desc.renderer = renderer;
-				desc.renderArea.extent = { ext.width, ext.height };
-				desc.clearColors = clr;
-				return depGraph.addStep(std::move(desc));
-			};
-			RendererId renderers[] = {
-				depGraph.addRenderer(mWorldRenderer_TMP_UGLY_NAME),
-				depGraph.addRenderer(mUiRenderer_TMP_UGLY_NAME) };
-			auto step0 = addStep(worldRpassId, renderers[0], renderExt3d,  ClrValues::referenceTo(worldClr));
-			;            addStep(uiRpassId,    renderers[1], presentExt3d, ClrValues::referenceTo(uiClr   )).after(step0);
-			try {
-				mRenderProcess.setup(mVma, mLogger, state.concurrentAccess, mDepthAtchFmt, uint32_t(mPresentQfamIndex), mGframes.size(), depGraph.assembleSequence());
-				mLogger.debug("Renderer list:");
-				size_t waveIdx = 0;
-				for(auto wave : mRenderProcess.waveRange()) {
-					for(auto& step : wave) {
-						auto& ra = step.second.renderArea;
-						mLogger.debug("  Wave {}: step {} renderer {} renderArea ({},{})x({},{})",
-							waveIdx,
-							RenderProcess::step_id_e(step.first),
-							render_target_id_e(step.second.renderer),
-							ra.offset.x, ra.offset.y, ra.extent.width, ra.extent.height );
-					}
-					++ waveIdx;
-				}
-				if(waveIdx == 0) mLogger.debug("  (empty)");
-			} catch(RenderProcess::UnsatisfiableDependencyError& err) {
-				mLogger.error("{}:", err.what());
-				auto& chain = err.dependencyChain();
-				for(auto step : chain) mLogger.error("  Renderer {:3}", RenderProcess::step_id_e(step));
-				mLogger.error("  Renderer {:3} ...", RenderProcess::step_id_e(chain.front()));
-				std::rethrow_exception(std::current_exception());
-			}
 		}
 	}
 
@@ -675,7 +475,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::RpassInitializer::destroyRpasses(State& state) {
-		mRenderProcess.destroy(state.concurrentAccess);
 		if(! state.reinit) {
 			vkDestroyPipelineCache(mDevice, mPipelineCache, nullptr);
 		}
@@ -697,29 +496,14 @@ namespace SKENGINE_NAME_NS {
 	void Engine::RpassInitializer::destroyGframes(State& state) {
 		state.destroyGframes = true;
 
-		auto destroy_frame = [&](GframeData& gf, VkFence& gframe_sel_fence) {
+		auto destroy_frame = [&](VkFence& gframe_sel_fence) {
 			vkDestroyFence(mDevice, gframe_sel_fence, nullptr);
-			vkDestroyImageView(mDevice, gf.atch_color_view, nullptr);
-			vkutil::ManagedImage::destroy(mVma, gf.atch_color);
 		};
 
 		mLogger.trace("Destroying {} gframe{}", mGframes.size(), (mGframes.size() != 1)? "s" : "");
 		for(size_t i = 0; i < mGframes.size(); ++i) {
-			GframeData& gf  = mGframes[i];
-			VkFence&    gff = mGframeSelectionFences[i];
-			destroy_frame(gf, gff);
-		}
-	}
-
-
-	void Engine::RpassInitializer::destroyRenderers(State& state) {
-		if(! state.reinit) {
-			UiRenderer::destroy(*mUiRenderer_TMP_UGLY_NAME);
-			WorldRenderer::destroy(*mWorldRenderer_TMP_UGLY_NAME);
-			ObjectStorage::destroy(*mObjectStorage);
-			WorldRenderer::destroySharedState(mDevice, *mWorldRendererSharedState_TMP_UGLY_NAME);
-			mWorldRenderer_TMP_UGLY_NAME = nullptr;
-			mUiRenderer_TMP_UGLY_NAME    = nullptr;
+			VkFence& gff = mGframeSelectionFences[i];
+			destroy_frame(gff);
 		}
 	}
 

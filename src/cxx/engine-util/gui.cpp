@@ -2,7 +2,7 @@
 
 #include "gui.hpp"
 
-#include "engine.hpp"
+#include <engine/engine.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -39,49 +39,24 @@ namespace SKENGINE_NAME_NS::gui {
 
 
 
-	struct DrawContext::EngineAccess {
-		static auto& pipelineSet(gui::DrawContext& c) { return c.engine->mUiRenderer_TMP_UGLY_NAME->getPipelineSet(); };
-		static auto& placeholderTextCache(gui::DrawContext& c, unsigned short size) { return c.engine->mUiRenderer_TMP_UGLY_NAME->getTextCache(size); }
-	};
-
-	using Ea = DrawContext::EngineAccess;
-
-
-	void DrawContext::insertDrawJob(
-		VkPipeline pl,
-		VkDescriptorSet imageDset,
-		const ViewportScissor& vs,
-		DrawableShapeSet* ds,
-		glm::vec3 offset, glm::vec3 scale
-	) {
+	void DrawContext::insertDrawJob(const DrawJob& job) {
+		// VkPipeline pl,
+		// VkDescriptorSet imageDset,
+		// const ViewportScissor& vs,
+		// DrawableShapeSet* ds,
+		// glm::vec3 offset, glm::vec3 scale
+		// ---
+		// .push_back(DrawJob {
+		// 	.pipeline = pl,
+		// 	.viewportScissor = vs,
+		// 	.imageDset = imageDset,
+		// 	.shapeSet = ds,
+		// 	.transform = { { offset.x, offset.y, offset.z }, { scale.x, scale.y, scale.z } } });
 		drawJobs
-		[pl]
-		[vs]
-		[imageDset]
-		.push_back(DrawJob {
-			.pipeline = pl,
-			.viewportScissor = vs,
-			.imageDset = imageDset,
-			.shapeSet = ds,
-			.transform = { { offset.x, offset.y, offset.z }, { scale.x, scale.y, scale.z } } });
-	}
-
-	void DrawContext::insertDrawJob(
-		VkPipeline pl,
-		VkDescriptorSet imageDset,
-		const ViewportScissor& vs,
-		DrawableShapeSet* ds
-	) {
-		drawJobs
-		[pl]
-		[vs]
-		[imageDset]
-		.push_back(DrawJob {
-			.pipeline = pl,
-			.viewportScissor = vs,
-			.imageDset = imageDset,
-			.shapeSet = ds,
-			.transform = { { }, { 1.0f, 1.0f, 1.0f } } });
+		[job.pipeline]
+		[job.viewportScissor]
+		[job.imageDset]
+		.push_back(job);
 	}
 
 
@@ -103,10 +78,16 @@ namespace SKENGINE_NAME_NS::gui {
 		ViewportScissor vs;
 		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
-		auto& pipelines = Ea::pipelineSet(guiCtx);
-		auto  pipeline  = dpoly_doFill? pipelines.polyFill : pipelines.polyLine;
+		auto& pipelines = guiCtx.uiRenderer->getPipelineSet();
 
-		guiCtx.insertDrawJob(pipeline, nullptr, vs, &dpoly_shapeSet);
+		DrawJob job = {
+			.pipeline = dpoly_doFill? pipelines.polyFill : pipelines.polyLine,
+			.viewportScissor = vs,
+			.imageDset = nullptr,
+			.shapeSet = &dpoly_shapeSet,
+			.transform = { { }, { 1.0f, 1.0f, 1.0f } } };
+
+		guiCtx.insertDrawJob(job);
 	}
 
 
@@ -170,7 +151,7 @@ namespace SKENGINE_NAME_NS::gui {
 		}
 
 		auto& guiCtx   = getGuiDrawContext(uiCtx);
-		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
+		auto& txtCache = guiCtx.uiRenderer->getTextCache(txt_info.fontSize);
 
 		struct Pen {
 			float x;
@@ -249,7 +230,7 @@ namespace SKENGINE_NAME_NS::gui {
 		auto  cBounds = ui_elem_getBounds(lot);
 
 		auto& extent   = guiCtx.engine->getPresentExtent();
-		auto& txtCache = Ea::placeholderTextCache(guiCtx, txt_info.fontSize);
+		auto& txtCache = guiCtx.uiRenderer->getTextCache(txt_info.fontSize);
 		float xfExtent = float(extent.width);
 		float yfExtent = float(extent.height);
 
@@ -293,7 +274,14 @@ namespace SKENGINE_NAME_NS::gui {
 				off.y = +1.0f - ((1.0f / baselineMul) * scale.y * 2.0f); break;
 		}
 
-		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, txtCache.dset(), vs, &txt_shapeSet, off, scale);
+		DrawJob job = {
+			.pipeline = guiCtx.uiRenderer->getPipelineSet().text,
+			.viewportScissor = vs,
+			.imageDset = txtCache.dset(),
+			.shapeSet = &txt_shapeSet,
+			.transform = { { off.x, off.y, off.z }, { scale.x, scale.y, scale.z } } };
+
+		guiCtx.insertDrawJob(job);
 	}
 
 
@@ -381,7 +369,14 @@ namespace SKENGINE_NAME_NS::gui {
 		ViewportScissor vs;
 		setViewportScissor(vs, xfExtent, yfExtent, cbounds);
 
-		guiCtx.insertDrawJob(Ea::pipelineSet(guiCtx).text, tcv_cache->dset(), vs, &tcv_shapeSet);
+		DrawJob job = {
+			.pipeline = guiCtx.uiRenderer->getPipelineSet().text,
+			.viewportScissor = vs,
+			.imageDset = tcv_cache->dset(),
+			.shapeSet = &tcv_shapeSet,
+			.transform = { { }, { 1.0f, 1.0f, 1.0f } } };
+
+		guiCtx.insertDrawJob(job);
 	}
 
 

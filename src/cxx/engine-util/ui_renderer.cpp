@@ -1,9 +1,9 @@
 #include "ui_renderer.hpp"
 
-#include "engine.hpp"
-#include "debug.inl.hpp"
+#include "gui.hpp"
 
-#include <draw-geometry/core.hpp>
+#include <engine/engine.hpp>
+#include <engine/draw-geometry/core.hpp>
 
 #include <vk-util/error.hpp>
 
@@ -107,6 +107,7 @@ namespace SKENGINE_NAME_NS {
 		r.mState.vma = vma;
 		r.mState.pipelines = { };
 		r.mState.fontFilePath = std::move(fontFilePath);
+		r.mState.srcRtarget = idgen::invalidId<RenderTargetId>();
 		r.mState.initialized = true;
 		auto dev = vmaGetAllocatorDevice(r.mState.vma);
 
@@ -185,6 +186,7 @@ namespace SKENGINE_NAME_NS {
 
 	void UiRenderer::forgetSubpasses(const SubpassSetupInfo&) {
 		auto dev = vmaGetAllocatorDevice(mState.vma);
+		forgetTextCacheFences(); // This call should happen between gframes, so text cache fences should be free to be forgotten
 		geom::PipelineSet::destroy(dev, mState.pipelines);
 		mState.pipelines = { };
 	}
@@ -220,7 +222,9 @@ namespace SKENGINE_NAME_NS {
 		gui::DrawContext guiCtx = gui::DrawContext {
 			.magicNumber = gui::DrawContext::magicNumberValue,
 			.engine = &e,
+			.uiRenderer = this,
 			.prepareCmdBuffer = cmd,
+			.drawCmdBuffer = nullptr,
 			.drawJobs = { } };
 		ui::DrawContext uiCtx = { &guiCtx };
 
@@ -228,7 +232,7 @@ namespace SKENGINE_NAME_NS {
 		std::deque<std::tuple<LotId, Lot*, Element*>> repeatListSwap;
 		unsigned repeatCount = 1;
 
-		auto swapchainImg = ca.getSwapchainImages()[drawInfo.gframeIndex];
+		auto swapchainImg = ca.getGframeData(drawInfo.gframeIndex).swapchain_image;
 
 		{ // Barrier the swapchain image for transfer
 			VkImageMemoryBarrier2 imb { };
@@ -260,7 +264,7 @@ namespace SKENGINE_NAME_NS {
 			region.dstOffsets[1] = { int32_t(presentExt.width), int32_t(presentExt.height), 1 };
 			VkBlitImageInfo2 blit = { };
 			blit.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-			blit.srcImage       = ca.getGframeData(drawInfo.gframeIndex).atch_color;
+			blit.srcImage       = ca.getRenderProcess().getRenderTarget(mState.srcRtarget, drawInfo.gframeIndex).devImage;
 			blit.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			blit.dstImage       = swapchainImg;
 			blit.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -310,7 +314,9 @@ namespace SKENGINE_NAME_NS {
 		gui::DrawContext guiCtx = gui::DrawContext {
 			.magicNumber = gui::DrawContext::magicNumberValue,
 			.engine = &ca.engine(),
+			.uiRenderer = this,
 			.prepareCmdBuffer = nullptr,
+			.drawCmdBuffer = cmd,
 			.drawJobs = { } };
 		ui::DrawContext uiCtx = { &guiCtx };
 
@@ -388,7 +394,7 @@ namespace SKENGINE_NAME_NS {
 		imb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		imb.subresourceRange.layerCount = 1;
 		imb.subresourceRange.levelCount = 1;
-		imb.image = *(ca.getSwapchainImages().begin() + drawInfo.gframeIndex);
+		imb.image = ca.getGframeData(drawInfo.gframeIndex).swapchain_image;
 		imb.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		imb.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		imb.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;

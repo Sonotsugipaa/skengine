@@ -1,12 +1,9 @@
 #pragma once
 
-#ifdef VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND
-	#ifndef VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND_ENGINE_HPP
-		#include <engine.hpp>
-		#include <ui_renderer.hpp>
-		#define VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND_ENGINE_HPP
-	#endif
-#endif
+#include <engine/engine.hpp>
+
+#include "ui_renderer.hpp"
+#include "gui.hpp"
 
 
 
@@ -14,7 +11,7 @@ namespace SKENGINE_NAME_NS {
 
 	class GuiManager {
 	public:
-		friend ConcurrentAccess;
+		GuiManager(std::shared_ptr<UiRenderer> e): gm_uiRenderer(e) { }
 
 		ui::Canvas& canvas() noexcept { return *gm_uiRenderer->mState.canvas; }
 
@@ -23,12 +20,8 @@ namespace SKENGINE_NAME_NS {
 		auto createTextLine(ui::Lot&, float depth, const TextInfo&, std::string);
 
 	private:
-		GuiManager(std::shared_ptr<UiRenderer> e): gm_uiRenderer(e) { }
 		std::shared_ptr<UiRenderer> gm_uiRenderer;
 	};
-
-
-	inline GuiManager ConcurrentAccess::gui() const noexcept { return GuiManager(ca_engine->mUiRenderer_TMP_UGLY_NAME); }
 
 
 	inline auto GuiManager::createBasicShape(ui::Lot& lot, ShapeSet shapes, bool doFill) {

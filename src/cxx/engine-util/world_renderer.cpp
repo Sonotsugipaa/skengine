@@ -1,8 +1,7 @@
 #include "world_renderer.hpp"
 
-#include "engine.hpp"
-#include "shader_cache.hpp"
-#include "debug.inl.hpp"
+#include <engine/engine.hpp>
+#include <engine/shader_cache.hpp>
 
 #include <bit>
 #include <cassert>
@@ -91,7 +90,6 @@ namespace SKENGINE_NAME_NS {
 			if(desired != dst->bufferCapacity) {
 				if(dst->bufferCapacity > 0) {
 					dst->buffer.unmap(vma);
-					debug::destroyedBuffer(dst->buffer, "host-writeable light storage");
 					vkutil::ManagedBuffer::destroy(vma, dst->buffer);
 				}
 
@@ -99,7 +97,6 @@ namespace SKENGINE_NAME_NS {
 				auto& ac_info = light_storage_allocate_info;
 				dst->buffer    = vkutil::ManagedBuffer::create(vma, bc_info, ac_info);
 				dst->mappedPtr = dst->buffer.map<dev::Light>(vma);
-				debug::createdBuffer(dst->buffer, "host-writeable light storage");
 
 				dst->bufferCapacity = desired;
 			}
@@ -173,6 +170,7 @@ namespace SKENGINE_NAME_NS {
 		r.mState.logger = std::move(logger);
 		r.mState.objectStorage = std::move(objectStorage);
 		r.mState.sharedState = std::move(sharedState);
+		r.mState.rtargetId = idgen::invalidId<RenderTargetId>();
 		r.mState.viewTransfCacheOod = true;
 		r.mState.lightStorageOod = true;
 		r.mState.lightStorageDsetOod = true;
@@ -195,9 +193,7 @@ namespace SKENGINE_NAME_NS {
 		auto dev = vmaGetAllocatorDevice(vma);
 
 		for(auto& gf : r.mState.gframes) {
-			debug::destroyedBuffer(gf.frameUbo, "gframe UBO");
 			vkutil::BufferDuplex::destroy(vma, gf.frameUbo);
-			debug::destroyedBuffer(gf.frameUbo, "device-readable light storage");
 			vkutil::ManagedBuffer::destroy(vma, gf.lightStorage);
 		}
 		r.mState.gframes.clear();
@@ -207,7 +203,6 @@ namespace SKENGINE_NAME_NS {
 		if(r.mState.lightStorage.bufferCapacity > 0) {
 			r.mState.lightStorage.bufferCapacity = 0;
 			r.mState.lightStorage.buffer.unmap(vma);
-			debug::destroyedBuffer(r.mState.lightStorage.buffer, "host-writeable light storage");
 			vkutil::ManagedBuffer::destroy(vma, r.mState.lightStorage.buffer);
 		}
 
@@ -325,7 +320,6 @@ namespace SKENGINE_NAME_NS {
 					.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 					.qfamSharing = { } };
 				wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, lightStorageBcInfo);
-				debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
 				wgf.lightStorageCapacity = lightCapacity;
 				mState.lightStorageDsetOod = true;
 			}
@@ -336,19 +330,16 @@ namespace SKENGINE_NAME_NS {
 					.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 					.qfamSharing = { } };
 				wgf.frameUbo = vkutil::BufferDuplex::createUniformBuffer(vma, ubo_bc_info);
-				debug::createdBuffer(wgf.frameUbo, "gframe UBO");
 			}
 		};
 
 		auto destroyGframeData = [&](unsigned gfIndex) {
 			GframeData& wgf = mState.gframes[gfIndex];
 
-			debug::destroyedBuffer(wgf.frameUbo, "gframe UBO");
 			vkutil::BufferDuplex::destroy(vma, wgf.frameUbo);
 
 			uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
 			if(lightCapacity > 0) {
-				debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
 				vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
 				wgf.lightStorageCapacity = 0;
 			}
@@ -467,14 +458,12 @@ namespace SKENGINE_NAME_NS {
 		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
 		if(buffer_resized) {
 			mState.logger.trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
-			debug::destroyedBuffer(wgf.lightStorage, "device-readable light storage");
 			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
 
 			vkutil::BufferCreateInfo bc_info = { };
 			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
 			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
-			debug::createdBuffer(wgf.lightStorage, "device-readable light storage");
 
 			mState.lightStorageDsetOod = true;
 			wgf.lightStorageCapacity = ls.bufferCapacity;
@@ -572,7 +561,7 @@ namespace SKENGINE_NAME_NS {
 			imb.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 			imb.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 			imb.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			imb.image = ca.getGframeData(drawInfo.gframeIndex).atch_color;
+			imb.image = ca.getRenderProcess().getRenderTarget(mState.rtargetId, drawInfo.gframeIndex).devImage;
 			VkDependencyInfo imbDep = { };
 			imbDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
 			imbDep.pImageMemoryBarriers = &imb;

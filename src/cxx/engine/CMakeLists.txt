@@ -16,17 +16,9 @@ add_library(engine
 	renderprocess/render_process_rpass.cpp
 	renderprocess/render_target_storage.cpp
 	renderprocess/render_process.cpp
-	world_renderer_pipeline.cpp
-	world_renderer.cpp
-	ui_renderer.cpp
-	object_storage.cpp
 	shader_cache.cpp
-	gui.cpp
 	engine.cpp
-	engine_buffer.cpp
-	engine_asset_supplier.cpp
-	engine_asset_supplier_material.cpp
-	engine_asset_supplier_texture.cpp )
+	engine_buffer.cpp )
 
 target_link_libraries(engine
 	fmamdl

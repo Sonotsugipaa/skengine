@@ -1,8 +1,9 @@
 #include "object_storage.hpp"
 
-#include "engine.hpp"
+#include <engine/engine.hpp>
+#include <engine/debug.inl.hpp>
+
 #include "world_renderer.hpp"
-#include "debug.inl.hpp"
 
 #include <random>
 
@@ -337,10 +338,10 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::destroy(ObjectStorage& r) {
+	void ObjectStorage::destroy(TransferContext transfCtx, ObjectStorage& r) {
 		assert(r.mVma != nullptr);
 
-		r.clearObjects();
+		r.clearObjects(transfCtx);
 		debug::destroyedBuffer(r.mBatchBuffer, "indirect draw commands");
 		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
 		debug::destroyedBuffer(r.mObjectBuffer, "object instances");
@@ -362,14 +363,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ObjectId ObjectStorage::createObject(const NewObject& ins) {
+	ObjectId ObjectStorage::createObject(TransferContext transfCtx, const NewObject& ins) {
 		assert(mVma != nullptr);
 
 		auto new_obj_id = id_generator<ObjectId>.generate();
-		auto model_id   = getModelId(ins.model_locator);
+		auto model_id   = getModelId(transfCtx, ins.model_locator);
 		auto model      = assert_not_nullptr_(getModel(model_id));
-
-		mLogger.trace("Generated Object ID {:x}", object_id_e(new_obj_id));
 
 		++ mModelDepCounters[model_id];
 
@@ -384,7 +383,7 @@ namespace SKENGINE_NAME_NS {
 		bone_instances.reserve(model->bones.size());
 
 		for(bone_id_e i = 0; auto& bone : model->bones) {
-			auto material_id = getMaterialId(bone.material);
+			auto material_id = getMaterialId(transfCtx, bone.material);
 
 			bone_instances.push_back(BoneInstance {
 				.model_id    = model_id,
@@ -423,7 +422,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::removeObject(ObjectId id) noexcept {
+	void ObjectStorage::removeObject(TransferContext transfCtx, ObjectId id) noexcept {
 		assert(mVma != nullptr);
 
 		auto  obj_iter = assert_not_end_(mObjects, id);
@@ -446,7 +445,7 @@ namespace SKENGINE_NAME_NS {
 					if(batch.second.object_refs.size() != 1) return false; }
 				return true;
 			} ());
-			eraseModelNoObjectCheck(obj.first.model_id, model);
+			eraseModelNoObjectCheck(transfCtx, obj.first.model_id, model);
 		} else {
 			// Remove the references from the unbound draw batches
 			assert(obj.second.size() == model.bones.size() /* The Nth object bone instance refers to the model's Nth bone */);
@@ -470,7 +469,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::clearObjects() noexcept {
+	void ObjectStorage::clearObjects(TransferContext transfCtx) noexcept {
 		std::vector<ObjectId> ids;
 		ids.reserve(mObjects.size());
 
@@ -484,7 +483,7 @@ namespace SKENGINE_NAME_NS {
 		} ());
 
 		for(auto&    obj : mObjects) ids.push_back(obj.first);
-		for(ObjectId id  : ids)      removeObject(id);
+		for(ObjectId id  : ids)      removeObject(transfCtx, id);
 	}
 
 
@@ -512,13 +511,13 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ModelId ObjectStorage::getModelId(std::string_view locator) {
+	ModelId ObjectStorage::getModelId(TransferContext transfCtx, std::string_view locator) {
 		auto found_locator = mModelLocators.find(locator);
 
 		if(found_locator != mModelLocators.end()) {
 			return found_locator->second;
 		} else {
-			auto r = setModel(locator, mAssetSupplier->requestModel(locator));
+			auto r = setModel(transfCtx, locator, mAssetSupplier->requestModel(locator, transfCtx));
 			return r;
 		}
 	}
@@ -531,7 +530,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ModelId ObjectStorage::setModel(std::string_view locator, DevModel model) {
+	ModelId ObjectStorage::setModel(TransferContext transfCtx, std::string_view locator, DevModel model) {
 		auto    found_locator = mModelLocators.find(locator);
 		ModelId id;
 
@@ -541,7 +540,7 @@ namespace SKENGINE_NAME_NS {
 			mLogger.debug("ObjectStorage: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
-			eraseModel(found_locator->second);
+			eraseModel(transfCtx, found_locator->second);
 			auto ins = mModels.insert_or_assign(id, ModelData(model, locator_s));
 			locator = ins.first->second.locator; // Again, `locator` was dangling
 		} else {
@@ -568,16 +567,16 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::eraseModel(ModelId id) noexcept {
+	void ObjectStorage::eraseModel(TransferContext transfCtx, ModelId id) noexcept {
 		auto& model_data = assert_not_end_(mModels, id)->second;
 		if(erase_objects_with_model(mObjects, mObjectUpdates, mLogger, id, model_data.locator)) {
 			mBatchesNeedUpdate = true;
 		}
-		eraseModelNoObjectCheck(id, model_data);
+		eraseModelNoObjectCheck(transfCtx, id, model_data);
 	}
 
 
-	void ObjectStorage::eraseModelNoObjectCheck(ModelId id, ModelData& model_data) noexcept {
+	void ObjectStorage::eraseModelNoObjectCheck(TransferContext transfCtx, ModelId id, ModelData& model_data) noexcept {
 		// Move the string out of the models storage, we'll need it later
 		auto model_locator = std::move(model_data.locator);
 
@@ -605,27 +604,27 @@ namespace SKENGINE_NAME_NS {
 
 			for(auto& material : erase_queue) {
 				mLogger.trace("ObjectStorage: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
-				eraseMaterial(material.first);
+				eraseMaterial(transfCtx, material.first);
 			}
 		}
 
 		mModelLocators.erase(model_locator);
 
 		mUnboundDrawBatches.erase(id);
-		mAssetSupplier->releaseModel(model_locator);
+		mAssetSupplier->releaseModel(model_locator, transfCtx);
 		mLogger.trace("ObjectStorage: removed model \"{}\"", model_locator);
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
 		id_generator<ModelId>.recycle(id);
 	}
 
 
-	MaterialId ObjectStorage::getMaterialId(std::string_view locator) {
+	MaterialId ObjectStorage::getMaterialId(TransferContext transfCtx, std::string_view locator) {
 		auto found_locator = mMaterialLocators.find(locator);
 
 		if(found_locator != mMaterialLocators.end()) {
 			return found_locator->second;
 		} else {
-			return setMaterial(locator, mAssetSupplier->requestMaterial(locator));
+			return setMaterial(transfCtx, locator, mAssetSupplier->requestMaterial(locator, transfCtx));
 		}
 	}
 
@@ -637,7 +636,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	MaterialId ObjectStorage::setMaterial(std::string_view locator, Material material) {
+	MaterialId ObjectStorage::setMaterial(TransferContext transfCtx, std::string_view locator, Material material) {
 		auto found_locator = mMaterialLocators.find(locator);
 		MaterialId id;
 
@@ -649,7 +648,7 @@ namespace SKENGINE_NAME_NS {
 			mLogger.debug("ObjectStorage: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
 
 			std::string locator_s = std::string(locator); // Dangling `locator` string_view
-			eraseMaterial(found_locator->second);
+			eraseMaterial(transfCtx, found_locator->second);
 			material_ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, { }, locator_s))).first;
 			locator = material_ins->second.locator; // Again, `locator` was dangling
 		} else {
@@ -668,7 +667,7 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::eraseMaterial(MaterialId id) noexcept {
+	void ObjectStorage::eraseMaterial(TransferContext transfCtx, MaterialId id) noexcept {
 		auto& mat_data = assert_not_end_(mMaterials, id)->second;
 
 		#ifndef NDEBUG
@@ -683,7 +682,7 @@ namespace SKENGINE_NAME_NS {
 
 		mMaterialLocators.erase(mat_data.locator);
 
-		mAssetSupplier->releaseMaterial(mat_data.locator);
+		mAssetSupplier->releaseMaterial(mat_data.locator, transfCtx);
 		mMaterials.erase(id);
 		id_generator<MaterialId>.recycle(id);
 	}

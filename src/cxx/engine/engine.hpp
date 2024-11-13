@@ -1,8 +1,7 @@
 #pragma once
 
 #include "renderprocess/render_process.hpp"
-#include "world_renderer.hpp"
-#include "ui_renderer.hpp"
+#include "renderprocess/interface.hpp"
 #include "shader_cache.hpp"
 
 #include <vk-util/init.hpp>
@@ -73,8 +72,6 @@ namespace SKENGINE_NAME_NS {
 
 	class Engine;
 
-	class GuiManager; // Defined in `engine_gui_manager.hpp`
-
 
 	class EngineRuntimeError : public std::runtime_error {
 	public:
@@ -131,44 +128,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	struct GframeData {
-		vkutil::ManagedImage atch_color;
 		VkImage     swapchain_image;
 		VkImageView swapchain_image_view;
-		VkImageView atch_color_view;
 		tickreg::delta_t frame_delta;
 	};
-
-
-	class SwapchainImageIterator {
-	private: using This = SwapchainImageIterator;
-	public:
-		using difference_type = std::ptrdiff_t;
-		using value_type = decltype(GframeData::swapchain_image);
-		auto operator*() const noexcept { return scii_gframe->swapchain_image; }
-		auto operator[](size_t i) const noexcept { return (scii_gframe + i)->swapchain_image; }
-		auto& operator++() noexcept { ++ scii_gframe; return *this; }
-		auto operator++(int) noexcept { auto cp = *this; ++ *this; return cp; }
-		auto& operator--() noexcept { -- scii_gframe; return *this; }
-		auto operator--(int) noexcept { auto cp = *this; -- *this; return cp; }
-		auto& operator+=(difference_type r) noexcept { scii_gframe += r; return *this; }
-		auto& operator-=(difference_type r) noexcept { scii_gframe -= r; return *this; }
-		This operator+(difference_type r) const noexcept { return scii_gframe + r; }
-		This operator-(difference_type r) const noexcept { return scii_gframe - r; }
-		difference_type operator-(This r) const noexcept { return scii_gframe - r.scii_gframe; }
-
-		auto operator<=>(const This& r) const noexcept { return scii_gframe <=> r.scii_gframe; }
-		bool operator==(const This& r) const noexcept { return (*this <=> r) == (1 <=> 1); }
-
-		SwapchainImageIterator(GframeData* p = nullptr): scii_gframe(p) { }
-		SwapchainImageIterator(const This&) = default;
-
-	private:
-		GframeData* scii_gframe;
-	};
-	inline SwapchainImageIterator operator+(SwapchainImageIterator::difference_type l, SwapchainImageIterator r) noexcept { return r + l; }
-	static_assert(std::ranges::random_access_range<std::ranges::subrange<SwapchainImageIterator>>);
-	static_assert(std::ranges::input_range<std::ranges::subrange<SwapchainImageIterator>>);
-	static_assert(std::ranges::sized_range<std::ranges::subrange<SwapchainImageIterator>>);
 
 
 	class ConcurrentAccess {
@@ -178,18 +141,13 @@ namespace SKENGINE_NAME_NS {
 		ConcurrentAccess() = default;
 		ConcurrentAccess(Engine* e, bool is_thread_local): ca_engine(e), ca_threadLocal(is_thread_local) { }
 
-		ObjectStorage& getObjectStorage() noexcept;
-		WorldRenderer& getWorldRenderer() noexcept;
 		GframeData& getGframeData(unsigned index) noexcept;
+		std::span<GframeData> getGframeData() noexcept;
 		RenderProcess& getRenderProcess() noexcept;
-
-		std::ranges::subrange<SwapchainImageIterator> getSwapchainImages() noexcept;
 
 		void setPresentExtent(VkExtent2D);
 
 		uint_fast32_t currentFrameNumber() const noexcept;
-
-		GuiManager gui() const noexcept; // Defined in `engine_gui_manager.hpp`
 
 		Engine& engine() noexcept { return *ca_engine; }
 
@@ -211,6 +169,8 @@ namespace SKENGINE_NAME_NS {
 			eShouldStop,     ///< The engine should stop running.
 		};
 
+		virtual void      loop_begin() = 0;
+		virtual void      loop_end() noexcept = 0;
 		virtual void      loop_processEvents (tickreg::delta_t delta_avg, tickreg::delta_t delta) = 0;
 		virtual LoopState loop_pollState     () const noexcept = 0;
 		virtual void      loop_async_preRender  (ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_previous) = 0;
@@ -221,7 +181,6 @@ namespace SKENGINE_NAME_NS {
 	class Engine {
 	public:
 		friend ConcurrentAccess;
-		friend gui::DrawContext;
 
 		using signal_e = unsigned;
 		enum class Signal : signal_e { eNone = 0, eReinit = 1 };
@@ -237,10 +196,9 @@ namespace SKENGINE_NAME_NS {
 			const DeviceInitInfo&,
 			const EnginePreferences&,
 			std::shared_ptr<ShaderCacheInterface>,
-			std::shared_ptr<AssetSourceInterface>,
 			const Logger& );
 
-		void run(LoopInterface&);
+		void run(LoopInterface&, std::shared_ptr<RenderProcessInterface>);
 		bool isRunning() const noexcept;
 		void signal(Signal, bool discardDuplicate = false) noexcept;
 
@@ -276,6 +234,7 @@ namespace SKENGINE_NAME_NS {
 		auto& getTransferContext () const noexcept { return mTransferContext; }
 
 		auto& getShaderCache () noexcept { return mShaderCache; }
+		auto& getRenderProcess () noexcept { return mRenderProcess; }
 
 		const auto& getRenderExtent         () const noexcept { return mRenderExtent; }
 		const auto& getPresentExtent        () const noexcept { return mPresentExtent; }
@@ -283,11 +242,13 @@ namespace SKENGINE_NAME_NS {
 		const auto& getPhysDeviceFeatures   () const noexcept { return mDevFeatures; }
 		const auto& getPhysDeviceProperties () const noexcept { return mDevProps; }
 
-		auto& logger(this auto& self) noexcept { return self.mLogger; }
+		template <typename T> auto& logger(this T& self) noexcept { return self.mLogger; }
 
-		auto  frameCount() const noexcept { return mGframeCounter.load(std::memory_order_relaxed); }
-		auto  frameDelta() const noexcept { return mGraphicsReg.estDelta(); }
-		auto  tickDelta() const noexcept { return mLogicReg.estDelta(); }
+		auto surfaceFormat() const noexcept { return mSurfaceFormat; }
+		auto gframeCount() const noexcept { return mGframes.size(); }
+		auto frameCounter() const noexcept { return mGframeCounter.load(std::memory_order_relaxed); }
+		auto frameDelta() const noexcept { return mGraphicsReg.estDelta(); }
+		auto tickDelta() const noexcept { return mLogicReg.estDelta(); }
 
 		MutexAccess<ConcurrentAccess> getConcurrentAccess() noexcept;
 
@@ -335,29 +296,16 @@ namespace SKENGINE_NAME_NS {
 		std::vector<VkFence>      mWaveFencesWaitCache; // Not needed persistently across scopes, but keeping it here prevents frequent reallocations
 		std::thread               mGraphicsThread;
 
-		VkExtent2D            mRenderExtent;
-		VkExtent2D            mPresentExtent;
-		VkPipelineCache       mPipelineCache;
-		RenderProcess         mRenderProcess;
-
-		std::shared_ptr<std::vector<RenderTargetDescription::ImageRef>> mRenderProcessWorldImageRefs_TMP_UGLY_NAME;
-		std::shared_ptr<std::vector<RenderTargetDescription::ImageRef>> mRenderProcessUiImageRefs_TMP_UGLY_NAME;
-
-		std::shared_ptr<WorldRendererSharedState> mWorldRendererSharedState_TMP_UGLY_NAME;
-		std::shared_ptr<ObjectStorage> mObjectStorage;
-		std::shared_ptr<WorldRenderer> mWorldRenderer_TMP_UGLY_NAME; // This is currently needed to reference one specific renderer of the many, but it should be managed by the Engine user in the future
-		std::shared_ptr<UiRenderer>    mUiRenderer_TMP_UGLY_NAME;    // Ditto
-		RenderTargetId mWorldRenderTarget;
-		RenderTargetId mPresentRenderTarget;
+		VkExtent2D      mRenderExtent;
+		VkExtent2D      mPresentExtent;
+		VkPipelineCache mPipelineCache;
+		RenderProcess   mRenderProcess;
 
 		std::mutex mRendererMutex = std::mutex(); // On the graphics thread, this is never locked outside of mGframeMutex lock/unlock periods; on external threads, lock/unlock sequences MUST span the entire lifetime of ConcurrentAccess objects
 		Signal              mSignalGthread;
 		std::atomic<Signal> mSignalXthread;
 		uint_fast64_t mLastResizeTime; // Bandaid fix to drivers not telling me why they fail to vkCreateSwapchainKHR: don't resize twice in less than <TIMESPAN>
 		static_assert(decltype(mSignalXthread)::is_always_lock_free);
-
-		std::shared_ptr<AssetSourceInterface> mAssetSource;
-		AssetSupplier mAssetSupplier;
 
 		EnginePreferences mPrefs;
 		RpassConfig       mRpassConfig;
@@ -378,21 +326,12 @@ namespace SKENGINE_NAME_NS {
 	}}
 
 
-	inline ObjectStorage& ConcurrentAccess::getObjectStorage   ()           noexcept { return * ca_engine->mObjectStorage; }
-	inline WorldRenderer& ConcurrentAccess::getWorldRenderer   ()           noexcept { return * ca_engine->mWorldRenderer_TMP_UGLY_NAME; }
-	inline GframeData&    ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
-	inline RenderProcess& ConcurrentAccess::getRenderProcess   ()           noexcept { return ca_engine->mRenderProcess; }
-	inline uint_fast32_t  ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
-
-	inline std::ranges::subrange<SwapchainImageIterator> ConcurrentAccess::getSwapchainImages() noexcept { return std::ranges::subrange(
-		SwapchainImageIterator(ca_engine->mGframes.data()),
-		SwapchainImageIterator(ca_engine->mGframes.data() + ca_engine->mGframes.size()) ); }
+	inline GframeData&           ConcurrentAccess::getGframeData      (unsigned i) noexcept { return ca_engine->mGframes[i]; }
+	inline std::span<GframeData> ConcurrentAccess::getGframeData      ()           noexcept { return std::span(ca_engine->mGframes); }
+	inline RenderProcess&        ConcurrentAccess::getRenderProcess   ()           noexcept { return ca_engine->mRenderProcess; }
+	inline uint_fast32_t         ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
 
 
 	constexpr VkDevice vmaGetAllocatorDevice(VmaAllocator vma) noexcept { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; }
 
 }
-
-
-
-#include "engine_gui_manager.hpp"

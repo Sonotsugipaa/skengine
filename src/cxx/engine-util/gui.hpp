@@ -1,10 +1,11 @@
 #pragma once
 
+#include "ui_renderer.hpp"
+
 #include <glm/vec3.hpp>
 
-#include "draw-geometry/core.hpp"
-
-#include "ui-structure/ui.hpp"
+#include <engine/draw-geometry/core.hpp>
+#include <engine/ui-structure/ui.hpp>
 
 #include <vk-util/memory.hpp>
 
@@ -19,9 +20,8 @@
 
 namespace SKENGINE_NAME_NS {
 
-	// Forward declaration for gui::DrawContext
+	// Forward declaration for DrawContext
 	class Engine;
-
 
 
 	inline namespace gui {
@@ -91,15 +91,14 @@ namespace SKENGINE_NAME_NS {
 		struct DrawContext {
 			static constexpr uint64_t magicNumberValue = 0xff004cff01020304;
 
-			struct EngineAccess; // Hack to allow tight coupling, without massive headaches nor hundreds of redundant pointers
-
 			const uint64_t magicNumber;
 			Engine* engine;
+			UiRenderer* uiRenderer;
 			VkCommandBuffer prepareCmdBuffer;
+			VkCommandBuffer drawCmdBuffer;
 			DrawJobSet drawJobs;
 
-			void insertDrawJob(VkPipeline, VkDescriptorSet imageDset, const ViewportScissor&, DrawableShapeSet*);
-			void insertDrawJob(VkPipeline, VkDescriptorSet imageDset, const ViewportScissor&, DrawableShapeSet*, glm::vec3 offset, glm::vec3 scale);
+			void insertDrawJob(const DrawJob& job);
 		};
 
 

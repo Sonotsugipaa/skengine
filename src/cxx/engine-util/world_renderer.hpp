@@ -1,9 +1,10 @@
 #pragma once
 
-#include "types.hpp"
+#include <engine/types.hpp>
+#include <engine/shader_cache.hpp>
+#include <engine/renderer.hpp>
+
 #include "object_storage.hpp"
-#include "renderer.hpp"
-#include "shader_cache.hpp"
 
 #include <vk-util/memory.hpp>
 
@@ -140,6 +141,10 @@ namespace SKENGINE_NAME_NS {
 		const glm::vec3& getViewRotation () const noexcept { return mState.viewDirYpr; }
 		const glm::vec3& getAmbientLight () const noexcept { return mState.ambientLight; }
 
+		/// \brief This function serves a temporary yet important role, that must be restructured-out as soon as possible.
+		///
+		void setRtargetId_TMP_UGLY_NAME(RenderTargetId id) { mState.rtargetId = id; }
+
 		/// \brief Sets the 3D projection parameters.
 		///
 		void setProjection(ProjectionInfo pi) noexcept { mState.projInfo = std::move(pi); mState.projTransfOod = true; }
@@ -198,6 +203,7 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 viewDirYpr;
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
+			RenderTargetId rtargetId;
 			bool projTransfOod       : 1;
 			bool viewTransfCacheOod  : 1;
 			bool lightStorageOod     : 1;

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "types.hpp"
-#include "renderer.hpp"
-#include "gui.hpp"
-#include "draw-geometry/core.hpp"
+#include <engine/types.hpp>
+#include <engine/renderer.hpp>
+#include <engine/ui-structure/ui.hpp>
+#include <engine/draw-geometry/core.hpp>
 
 #include <vk-util/memory.hpp>
 
@@ -63,6 +63,10 @@ namespace SKENGINE_NAME_NS {
 		auto getDsetLayout() const noexcept { return mState.dsetLayout; }
 		auto& getPipelineSet() const noexcept { return mState.pipelines; }
 
+		/// \brief This function serves a temporary yet important role, that must be restructured-out as soon as possible.
+		///
+		void setSrcRtargetId_TMP_UGLY_NAME(RenderTargetId id) { mState.srcRtarget = id; }
+
 	private:
 		struct {
 			Logger logger;
@@ -73,6 +77,7 @@ namespace SKENGINE_NAME_NS {
 			VmaAllocator vma;
 			VkDescriptorSetLayout dsetLayout;
 			VkPipelineLayout pipelineLayout;
+			RenderTargetId srcRtarget;
 			geom::PipelineSet pipelines;
 			FT_Library freetype;
 			std::string fontFilePath;

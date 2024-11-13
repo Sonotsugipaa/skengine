@@ -1,7 +1,9 @@
-#include "engine.hpp"
+#include <engine/engine.hpp>
 
 #include <fmamdl/fmamdl.hpp>
 #include <fmamdl/material.hpp>
+
+#include "object_storage.hpp"
 
 #include <vk-util/error.hpp>
 
@@ -15,24 +17,21 @@ namespace SKENGINE_NAME_NS {
 	// but not exposed through any header.
 	void create_fallback_mat(const TransferContext&, Material*, float);
 	void destroy_material(VkDevice, VmaAllocator, Material&);
+																	//create_fallback_mat(as_transferContext, &as_fallbackMaterial, as_maxSamplerAnisotropy);
 
 
 
-	AssetSupplier::AssetSupplier(Engine& e, Logger logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio, float max_sampler_anisotropy):
-			as_transferContext(e.getTransferContext()),
+	AssetSupplier::AssetSupplier(Logger logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio):
 			as_logger(std::move(logger)),
 			as_srcInterface(std::move(asi)),
 			as_maxInactiveRatio(max_inactive_ratio),
-			as_maxSamplerAnisotropy(max_sampler_anisotropy),
-			as_initialized(true)
-	{
-		create_fallback_mat(as_transferContext, &as_fallbackMaterial, as_maxSamplerAnisotropy);
-	}
+			as_initialized(true),
+			as_fallbackMaterialExists(false)
+	{ }
 
 
 	AssetSupplier::AssetSupplier(AssetSupplier&& mv):
 			#define MV_(M_) M_(std::move(mv.M_))
-			MV_(as_transferContext),
 			MV_(as_logger),
 			MV_(as_srcInterface),
 			MV_(as_activeModels),
@@ -42,20 +41,20 @@ namespace SKENGINE_NAME_NS {
 			MV_(as_fallbackMaterial),
 			MV_(as_missingMaterials),
 			MV_(as_maxInactiveRatio),
-			MV_(as_maxSamplerAnisotropy),
-			MV_(as_initialized)
+			MV_(as_initialized),
+			MV_(as_fallbackMaterialExists)
 			#undef MV_
 	{
 		mv.as_initialized = false;
 	}
 
 
-	void AssetSupplier::destroy() {
+	void AssetSupplier::destroy(TransferContext transfCtx) {
 		assert(as_initialized);
-		auto vma = this->vma();
+		auto vma = transfCtx.vma;
 		auto dev = vmaGetAllocatorDevice(vma);
-		releaseAllModels();
-		releaseAllMaterials();
+		releaseAllModels(transfCtx);
+		releaseAllMaterials(transfCtx);
 
 		auto destroy_model = [&](Models::value_type& model) {
 			vkutil::BufferDuplex::destroy(vma, model.second.indices);
@@ -67,13 +66,17 @@ namespace SKENGINE_NAME_NS {
 
 		for(auto& mat : as_inactiveMaterials) destroy_material(dev, vma, mat.second);
 		as_inactiveMaterials.clear();
-		destroy_material(dev, vma, as_fallbackMaterial);
+		if(as_fallbackMaterialExists) destroy_material(dev, vma, as_fallbackMaterial);
 
 		as_initialized = false;
 	}
 
+	#ifndef NDEBUG
+		AssetSupplier::~AssetSupplier() { assert(! as_initialized); }
+	#endif
 
-	DevModel AssetSupplier::requestModel(std::string_view locator) {
+
+	DevModel AssetSupplier::requestModel(std::string_view locator, TransferContext transfCtx) {
 		std::string locator_s = std::string(locator);
 
 		auto existing = as_activeModels.find(locator_s);
@@ -88,7 +91,7 @@ namespace SKENGINE_NAME_NS {
 		}
 		else {
 			DevModel r;
-			auto vma = this->vma();
+			auto vma = transfCtx.vma;
 			auto src = as_srcInterface->asi_requestModelData(locator);
 			auto materials = src.fmaHeader.materials();
 			auto meshes    = src.fmaHeader.meshes();
@@ -117,8 +120,8 @@ namespace SKENGINE_NAME_NS {
 
 				memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
 				memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
-				Engine::pushBuffer(as_transferContext, r.indices);
-				Engine::pushBuffer(as_transferContext, r.vertices);
+				Engine::pushBuffer(transfCtx, r.indices);
+				Engine::pushBuffer(transfCtx, r.vertices);
 			}
 
 			for(auto& bone : bones) {
@@ -145,8 +148,8 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::releaseModel(std::string_view locator) noexcept {
-		auto vma = this->vma();
+	void AssetSupplier::releaseModel(std::string_view locator, TransferContext transfCtx) noexcept {
+		auto vma = transfCtx.vma;
 
 		std::string locator_s = std::string(locator);
 
@@ -168,11 +171,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void AssetSupplier::releaseAllModels() noexcept {
+	void AssetSupplier::releaseAllModels(TransferContext transfCtx) noexcept {
 		std::vector<std::string> queue;
 		queue.reserve(as_activeModels.size());
 		for(auto& model : as_activeModels) queue.push_back(model.first);
-		for(auto& loc   : queue)           releaseModel(loc);
+		for(auto& loc   : queue)           releaseModel(loc, transfCtx);
 	}
 
 }
