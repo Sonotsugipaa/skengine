@@ -1,10 +1,13 @@
-#include "basic_renderprocess.hpp"
+#include "basic_render_process.hpp"
 
 #include <engine/engine.hpp>
 #include <engine/types.hpp>
 
 #include <cassert>
 #include <string_view>
+
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
 
 
 
@@ -99,23 +102,31 @@ namespace SKENGINE_NAME_NS {
 		auto& renderExt = e.getRenderExtent();
 		auto& presentExt = e.getPresentExtent();
 		auto  surfaceFmt = e.surfaceFormat().format;
+		auto  depthFmt = e.depthFormat();
 		auto  gframeCount = e.gframeCount();
 
 		auto renderExt3d  = VkExtent3D { renderExt .width, renderExt .height, 1 };
 		auto presentExt3d = VkExtent3D { presentExt.width, presentExt.height, 1 };
-		auto mRenderProcessUiImageRefs_TMP_UGLY_NAME = std::make_shared<std::vector<ImgRef>>();
-		mRenderProcessUiImageRefs_TMP_UGLY_NAME->reserve(gframeCount);
+		auto depthExt3d   = VkExtent3D { std::max(renderExt.width, presentExt.width), std::max(renderExt.height, presentExt.height), 1 };
+		auto scImgRefs = std::make_shared<std::vector<ImgRef>>();
+		scImgRefs->reserve(gframeCount);
 		for(auto gf : ca.getGframeData()) {
-			mRenderProcessUiImageRefs_TMP_UGLY_NAME->push_back(ImgRef {
+			scImgRefs->push_back(ImgRef {
 				.image = gf.swapchain_image,
 				.imageView = gf.swapchain_image_view });
 		}
-		RtDesc rtDesc[2] = {
-			RtDesc { nullptr,                                 renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, surfaceFmt, false, false, false, true },
-			RtDesc { mRenderProcessUiImageRefs_TMP_UGLY_NAME, presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, surfaceFmt, false, false, false, true } };
+		auto mkRtDesc = [&](auto ref, auto& ext, VkImageUsageFlags usage, bool isDepth) {
+			auto aspect = VkImageAspectFlags(isDepth? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
+			return RtDesc { std::move(ref), ext, usage, isDepth?depthFmt:surfaceFmt, aspect, false, false, false, true };
+		};
+		RtDesc rtDesc[3] = {
+			mkRtDesc(nullptr,              depthExt3d,   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, true),
+			mkRtDesc(nullptr,              renderExt3d,  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, false),
+			mkRtDesc(std::move(scImgRefs), presentExt3d, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, false) };
 		RpDesc worldRpDesc, uiRpDesc;
-		brp_worldRtarget = depGraph.addRtarget(rtDesc[0]);
-		brp_uiRtarget = depGraph.addRtarget(rtDesc[1]);
+		brp_depthRtarget = depGraph.addRtarget(rtDesc[0]);
+		brp_worldRtarget = depGraph.addRtarget(rtDesc[1]);
+		brp_uiRtarget = depGraph.addRtarget(rtDesc[2]);
 
 		// THIS is the point of the circular dependency to cut
 		brp_worldRenderer->setRtargetId_TMP_UGLY_NAME(brp_worldRtarget);
@@ -144,12 +155,14 @@ namespace SKENGINE_NAME_NS {
 			.inputAttachments = { }, .colorAttachments = { worldColAtch0 },
 			.subpassDependencies = { },
 			.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.requiresDepthAttachments = true });
+			.depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.depthRtarget = brp_depthRtarget });
 		worldRpDesc.subpasses.push_back(SpDesc {
 			.inputAttachments = { }, .colorAttachments = { worldColAtch1 },
 			.subpassDependencies = { worldSp1Dep },
 			.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.requiresDepthAttachments = true });
+			.depthInitialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, .depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.depthRtarget = brp_depthRtarget });
 		worldRpDesc.framebufferSize = renderExt3d;
 		uiRpDesc.subpasses.push_back(SpDesc {
 			.inputAttachments = { }, .colorAttachments = { uiColAtch },
@@ -161,7 +174,8 @@ namespace SKENGINE_NAME_NS {
 				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
 				.dependencyFlags = { } }},
 			.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.requiresDepthAttachments = true });
+			.depthInitialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, .depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.depthRtarget = brp_depthRtarget });
 		uiRpDesc.framebufferSize = presentExt3d;
 		const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
 		const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );

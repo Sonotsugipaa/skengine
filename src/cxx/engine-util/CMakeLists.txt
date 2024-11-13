@@ -2,7 +2,7 @@ find_package(posixfio)
 
 add_library(engine-util
 	basic_asset_source.cpp
-	basic_renderprocess.cpp
+	basic_render_process.cpp
 	basic_shader_cache.cpp
 	engine_asset_supplier.cpp
 	engine_asset_supplier_material.cpp

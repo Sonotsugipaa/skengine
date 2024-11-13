@@ -29,6 +29,7 @@ namespace SKENGINE_NAME_NS {
 		VkExtent3D extent;
 		VkImageUsageFlags usage;
 		VkFormat format;
+		VkImageAspectFlags aspect;
 		bool hostReadable         : 1;
 		bool hostWriteable        : 1;
 		bool hostAccessSequential : 1;
@@ -67,7 +68,9 @@ namespace SKENGINE_NAME_NS {
 			TA_<Dependency> subpassDependencies;
 			VkAttachmentLoadOp  depthLoadOp;
 			VkAttachmentStoreOp depthStoreOp;
-			bool requiresDepthAttachments;
+			VkImageLayout depthInitialLayout;
+			VkImageLayout depthFinalLayout;
+			RenderTargetId depthRtarget;
 		};
 		std::vector<Subpass> subpasses;
 		VkExtent3D framebufferSize;
@@ -78,7 +81,6 @@ namespace SKENGINE_NAME_NS {
 	struct RenderPass {
 		struct FramebufferData {
 			VkFramebuffer handle;
-			std::vector<std::pair<vkutil::ManagedImage, VkImageView>> depthImages;
 		};
 		RenderPassDescription description;
 		std::vector<FramebufferData> framebuffers;

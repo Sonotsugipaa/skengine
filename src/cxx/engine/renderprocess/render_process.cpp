@@ -334,7 +334,7 @@ namespace SKENGINE_NAME_NS {
 			auto rprocRpcInfo = RprocRpassCreateInfo { rp_logger, vma, gframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
 			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, gframeCount);
 			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
-				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &seqDesc.rpasses[rpassIdx], rprocRpcInfo, vectors);
+				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &seqDesc.rpasses[rpassIdx], rprocRpcInfo, rp_rtargetStorage, vectors);
 			}
 		}
 
@@ -473,7 +473,7 @@ namespace SKENGINE_NAME_NS {
 			auto rprocRpcInfo = RprocRpassCreateInfo { rp_logger, rp_vkState.vma, newGframeCount, rp_rtargetStorage, rp_vkState.depthImageFormat };
 			auto vectors = RprocRpassCreateVectorCache(maxSubpassCount, newGframeCount);
 			for(size_t rpassIdx = 0; rpassIdx < rp_rpasses.size(); ++ rpassIdx) {
-				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &(*rpassDescs)[rpassIdx], rprocRpcInfo, vectors);
+				createRprocRpass(rp_rpasses.data() + rpassIdx, rpassIdx, &(*rpassDescs)[rpassIdx], rprocRpcInfo, rp_rtargetStorage, vectors);
 			}
 			notifyRenderersOfSwapchainCreation(*this, ca, "recreation", rp_gframeCount);
 		};
@@ -589,45 +589,9 @@ namespace SKENGINE_NAME_NS {
 		r.rpasses    = dg_rpasses;
 		r.renderers  = dg_renderers;
 
-		auto getTargetSizes = [&](RenderTargetId id) {
-			struct R {
-				uint_fast32_t bytes;
-				decltype(VkExtent3D::width ) width ;
-				decltype(VkExtent3D::height) height;
-				decltype(VkExtent3D::depth ) depth ;
-			};
-			auto& target = r.rtsFactory->dst.getDescription(id);
-			return R { imageByteSize<uint_fast32_t>(target.extent, target.format), target.extent.width, target.extent.height, target.extent.depth };
-		};
-
-		auto subpassDepthSizes = [&](
-			VkExtent3D& dstExt,
-			uint_fast32_t& dstSize,
-			uint_fast32_t& dstCount,
-			const std::vector<RenderPassDescription::Subpass>& subpasses
-		) {
-			dstSize = 0;
-			dstExt = { 0, 0, 0 };
-			for(auto& subpass : subpasses) {
-				if(subpass.requiresDepthAttachments) {
-					for(auto& atch : subpass.colorAttachments) {
-						auto sizes = getTargetSizes(atch.rtarget);
-						dstSize = std::max(dstSize, sizes.bytes);
-						dstExt.width  = std::max(dstExt.width , sizes.width );
-						dstExt.height = std::max(dstExt.height, sizes.height);
-						dstExt.depth  = std::max(dstExt.depth , sizes.depth );
-					}
-					++ dstCount;
-				}
-			}
-		};
-
 		while(resolvedSteps.size() < dg_steps.size()) {
 			auto localResolvedSteps = mkStepSet();
 			auto localUnresolvedSteps = unresolvedSteps;
-			uint_fast32_t depthImageSize = 0;
-			uint_fast32_t depthImageCount = 0;
-			VkExtent3D    depthImageExtent = { 0, 0, 0 };
 			size_t resolved = 0;
 			for(auto& stepDeps : unresolvedSteps) {
 				assert(! resolvedSteps.contains(stepDeps.first));
@@ -636,13 +600,8 @@ namespace SKENGINE_NAME_NS {
 					return false;
 				} ();
 				if(! skipDep) {
-					auto  stepIdx  = idToIndex<StepId>(stepDeps.first);
-					auto& stepDesc = dg_steps[stepIdx];
-					if(stepDesc.rpass != idgen::invalidId<RenderPassId>()) { // Scan required depth images
-						auto& rpass = dg_rpasses[idToIndex<RenderPassId>(stepDesc.rpass)];
-						subpassDepthSizes(depthImageExtent, depthImageSize, depthImageCount, rpass.subpasses);
-					}
-					r.steps.push_back(stepDesc);
+					auto stepIdx = idToIndex<StepId>(stepDeps.first);
+					r.steps.push_back(dg_steps[stepIdx]);
 					r.steps.back().seqIndex = SequenceIndex(seq);
 					localResolvedSteps.insert(stepDeps.first);
 					localUnresolvedSteps.erase(stepDeps.first);

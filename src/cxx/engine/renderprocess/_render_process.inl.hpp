@@ -85,6 +85,7 @@ namespace SKENGINE_NAME_NS {
 		size_t rpassIdx,
 		const RenderPassDescription*,
 		const RprocRpassCreateInfo&,
+		const RenderTargetStorage&,
 		RprocRpassCreateVectorCache&
 	);
 

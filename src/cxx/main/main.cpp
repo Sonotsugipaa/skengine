@@ -4,7 +4,7 @@
 
 #include <engine-util/basic_shader_cache.hpp>
 #include <engine-util/basic_asset_source.hpp>
-#include <engine-util/basic_renderprocess.hpp>
+#include <engine-util/basic_render_process.hpp>
 #include <engine-util/gui_manager.hpp>
 
 #include <posixfio_tl.hpp>

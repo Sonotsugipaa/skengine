@@ -245,6 +245,7 @@ namespace SKENGINE_NAME_NS {
 		template <typename T> auto& logger(this T& self) noexcept { return self.mLogger; }
 
 		auto surfaceFormat() const noexcept { return mSurfaceFormat; }
+		auto depthFormat() const noexcept { return mDepthAtchFmt; };
 		auto gframeCount() const noexcept { return mGframes.size(); }
 		auto frameCounter() const noexcept { return mGframeCounter.load(std::memory_order_relaxed); }
 		auto frameDelta() const noexcept { return mGraphicsReg.estDelta(); }

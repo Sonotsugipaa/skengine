@@ -38,6 +38,7 @@ namespace SKENGINE_NAME_NS {
 		std::shared_ptr<ObjectStorage> brp_objStorage;
 		std::shared_ptr<WorldRenderer> brp_worldRenderer;
 		std::shared_ptr<UiRenderer>    brp_uiRenderer;
+		RenderTargetId brp_depthRtarget;
 		RenderTargetId brp_worldRtarget;
 		RenderTargetId brp_uiRtarget;
 	};

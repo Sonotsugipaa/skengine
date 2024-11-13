@@ -35,7 +35,7 @@ namespace SKENGINE_NAME_NS {
 				ivcInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 				ivcInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 				ivcInfo.components = { SWID_, SWID_, SWID_, SWID_ };
-				ivcInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				ivcInfo.subresourceRange.aspectMask = desc.aspect;
 				ivcInfo.subresourceRange.levelCount = 1;
 				ivcInfo.subresourceRange.layerCount = 1;
 				#undef SWID_
