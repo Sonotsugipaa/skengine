@@ -13,11 +13,9 @@
 
 namespace SKENGINE_NAME_NS {
 
-	// These functions are defined in a similarly named translation unit,
+	// This function is defined in a similarly named translation unit,
 	// but not exposed through any header.
-	void create_fallback_mat(const TransferContext&, Material*, float);
 	void destroy_material(VkDevice, VmaAllocator, Material&);
-																	//create_fallback_mat(as_transferContext, &as_fallbackMaterial, as_maxSamplerAnisotropy);
 
 
 
@@ -100,6 +98,8 @@ namespace SKENGINE_NAME_NS {
 			auto indices   = src.fmaHeader.indices();
 			auto vertices  = src.fmaHeader.vertices();
 
+			TransferCmdBarrier transfCmdBars[2];
+
 			if(meshes.empty()) {
 				as_logger.critical(
 					"Attempting to load model \"{}\" without meshes; fallback model logic is not implemented yet",
@@ -120,8 +120,8 @@ namespace SKENGINE_NAME_NS {
 
 				memcpy(r.indices.mappedPtr<void>(),  indices.data(),  indices.size_bytes());
 				memcpy(r.vertices.mappedPtr<void>(), vertices.data(), vertices.size_bytes());
-				Engine::pushBuffer(transfCtx, r.indices);
-				Engine::pushBuffer(transfCtx, r.vertices);
+				transfCmdBars[0] = Engine::pushBufferAsync(transfCtx, r.indices);
+				transfCmdBars[1] = Engine::pushBufferAsync(transfCtx, r.vertices);
 			}
 
 			for(auto& bone : bones) {

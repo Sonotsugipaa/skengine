@@ -100,7 +100,9 @@ namespace SKENGINE_NAME_NS {
 
 			auto load_texture = [&](
 					Material::Texture& dst,
-					const Material::Texture& fallback,
+					Material* fallbackMat,
+					bool&     fallbackMatExists,
+					const Material::Texture* fallbackTex,
 					mf_ec        flag,
 					fmamdl::u8_t fma_value,
 					const char*  name
@@ -134,13 +136,27 @@ namespace SKENGINE_NAME_NS {
 					if(success) {
 						as_logger.trace("Loaded {} texture from \"{}\" ({}x{})", name, texture_name, w, h);
 					} else {
-						dst = fallback;
+						if(! fallbackMatExists) {
+							// Whacky things happen here: the fallback texture to use is given as a parameter,
+							// but if the fallback texture doesn't exist the reference is invalid, and we don't know
+							// which texture from the new fallback material to pick; we can find that out by comparing
+							// the address of the texture relative to its containing material, and "apply" that
+							// offset to the new one.
+							constexpr auto ptrDiff = [](auto* ptrh, auto* ptrl) { return reinterpret_cast<const char*>(ptrh) - reinterpret_cast<const char*>(ptrl); };
+							constexpr auto ptrSum  = [](auto* ptr , auto  off ) { return reinterpret_cast<const char*>(ptr) + off; };
+							auto matTextureOffset = ptrDiff(fallbackTex, fallbackMat); assert(size_t(matTextureOffset) < sizeof(Material));
+							create_fallback_mat(transfCtx, fallbackMat, maxSamplerAnisotropy);
+							fallbackMatExists = true;
+							dst = * reinterpret_cast<const Material::Texture*>(ptrSum(fallbackMat, matTextureOffset));
+						} else {
+							dst = *fallbackTex;
+						}
 						dst.is_copy = true;
 						as_logger.warn("Failed to load {} texture \"{}\", using fallback", name, texture_name);
 					}
 				}
 			};
-			#define LOAD_(T_, F_) load_texture(r.texture_ ## T_, as_fallbackMaterial.texture_ ## T_, F_, src.fmaHeader.T_ ## Texture(), #T_);
+			#define LOAD_(T_, F_) load_texture(r.texture_ ## T_, &as_fallbackMaterial, as_fallbackMaterialExists, &as_fallbackMaterial.texture_ ## T_, F_, src.fmaHeader.T_ ## Texture(), #T_);
 			LOAD_(diffuse,  mf_ec::eDiffuseInlinePixel)
 			LOAD_(normal,   mf_ec::eNormalInlinePixel)
 			LOAD_(specular, mf_ec::eSpecularInlinePixel)

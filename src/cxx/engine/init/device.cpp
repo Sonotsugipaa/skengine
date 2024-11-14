@@ -196,7 +196,6 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::initTransferContext() {
-		#warning "TODO: intialize mTransferContext.cmdFence and use it in pushBuffer and pullBuffer"
 		VkCommandPool pool;
 		VkCommandPoolCreateInfo cpc_info = { };
 		cpc_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -204,6 +203,16 @@ namespace SKENGINE_NAME_NS {
 		cpc_info.queueFamilyIndex = mQueues.families.graphicsIndex;
 		VK_CHECK(vkCreateCommandPool, mDevice, &cpc_info, nullptr, &pool);
 		mTransferContext = { .vma = mVma, .cmdPool = pool, .cmdFence = nullptr, .cmdQueue = mQueues.graphics, .cmdQueueFamily = mQueues.families.graphicsIndex };
+		try {
+			assert(mTransferContext.cmdFence == nullptr); // See the "destroy" twin of this function
+			VkFenceCreateInfo fc_info = { };
+			fc_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			fc_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+			VK_CHECK(vkCreateFence, mDevice, &fc_info, nullptr, &mTransferContext.cmdFence);
+		} catch(...) {
+			vkDestroyCommandPool(mDevice, pool, nullptr);
+			std::rethrow_exception(std::current_exception());
+		}
 	}
 
 
@@ -218,7 +227,9 @@ namespace SKENGINE_NAME_NS {
 
 
 	void Engine::DeviceInitializer::destroyTransferContext() {
-		vkDestroyCommandPool(mDevice, mTransferContext.cmdPool, nullptr);
+		auto& trCtx = mTransferContext;
+		if(trCtx.cmdFence) vkDestroyFence(mDevice, trCtx.cmdFence, nullptr);
+		vkDestroyCommandPool(mDevice, trCtx.cmdPool, nullptr);
 	}
 
 

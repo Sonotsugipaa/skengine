@@ -120,6 +120,19 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	struct TransferCmdBarrier {
+		VkDevice vkDevice;
+		VkCommandPool cmdPool;
+		VkCommandBuffer cmdBuffer;
+		VkFence cmdFence;
+
+		TransferCmdBarrier(): vkDevice(nullptr), cmdPool(nullptr), cmdBuffer(nullptr), cmdFence(nullptr) { }
+		TransferCmdBarrier(VkDevice, VkCommandPool, VkCommandBuffer, VkFence);
+		~TransferCmdBarrier();
+		void wait();
+	};
+
+
 	struct DeviceInitInfo {
 		std::string window_title;
 		std::string application_name;
@@ -224,6 +237,8 @@ namespace SKENGINE_NAME_NS {
 
 		static void pushBuffer(const TransferContext&, vkutil::BufferDuplex&);
 		static void pullBuffer(const TransferContext&, vkutil::BufferDuplex&);
+		static auto pushBufferAsync(const TransferContext&, vkutil::BufferDuplex&) -> TransferCmdBarrier;
+		static auto pullBufferAsync(const TransferContext&, vkutil::BufferDuplex&) -> TransferCmdBarrier;
 
 		auto getVmaAllocator  () noexcept { return mVma; }
 		auto getDevice        () noexcept { return mDevice; }
