@@ -313,6 +313,7 @@ namespace SKENGINE_NAME_NS {
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mModelLocators.     max_load_factor(MODEL_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
+		r.mDpool         = nullptr;
 		r.mDpoolCapacity = 0;
 		r.mDpoolSize     = 0;
 		r.mBatchesNeedUpdate  = true;
@@ -347,7 +348,10 @@ namespace SKENGINE_NAME_NS {
 		debug::destroyedBuffer(r.mObjectBuffer, "object instances");
 		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
 
-		vkDestroyDescriptorPool(vmaGetAllocatorDevice(r.mVma), r.mDpool, nullptr);
+		if(r.mDpool != nullptr) {
+			vkDestroyDescriptorPool(vmaGetAllocatorDevice(r.mVma), r.mDpool, nullptr);
+			r.mDpool = nullptr;
+		}
 
 		{
 			for(auto& worker : r.mMatrixAssembler->workers) {
