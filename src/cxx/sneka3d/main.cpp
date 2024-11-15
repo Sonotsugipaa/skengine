@@ -99,6 +99,7 @@ namespace sneka {
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
 		std::mutex inputManMutex;
+		ske::ObjectId light;
 		ske::CommandId cmdForward;
 		ske::CommandId cmdBackward;
 		ske::CommandId cmdLeft;
@@ -117,7 +118,7 @@ namespace sneka {
 			T_(0, 4) T_(1, 4) T_(2, 4) T_(3, 4) T_(4, 4)
 			T_(0, 3) T_(1, 3)                   T_(4, 3)
 			T_(0, 2)                            T_(4, 2)
-			T_(0, 1)          T_(2, 1)          T_(4, 1)
+			T_(0, 1)          T_(2, 1) T_(3, 1) T_(4, 1)
 			T_(0, 0) T_(1, 0) T_(2, 0) T_(3, 0) T_(4, 0)
 			#undef T_
 		}
@@ -162,7 +163,12 @@ namespace sneka {
 			}
 			wr.setViewRotation({ 0.0f, 0.4f, 0.0f });
 			wr.setViewPosition({ 2.0f, 1.1f, 0.0f });
-			wr.setAmbientLight({ 0.7f, 0.7f, 0.7f });
+			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
+			light = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+				.position = { 2.0f, 1.4f, -2.0f },
+				.color = { 0.9f, 0.9f, 1.0f },
+				.intensity = 4.0f,
+				.falloffExponent = 1.0f });
 
 			sharedState->quit = false;
 		}
@@ -245,7 +251,7 @@ int main(int argn, char** argv) {
 		prefs.max_render_extent     = { 0, 0 };
 		prefs.asset_filename_prefix = "assets/";
 		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
-		prefs.target_framerate      = 60.0f;
+		prefs.target_framerate      = 72.0f;
 		prefs.target_tickrate       = 60.0f;
 		prefs.fov_y                 = glm::radians(80.0f);
 		prefs.shade_step_count      = 12;
