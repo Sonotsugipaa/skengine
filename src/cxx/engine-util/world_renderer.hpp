@@ -93,8 +93,9 @@ namespace SKENGINE_NAME_NS {
 			vkutil::ManagedBuffer lightStorage;
 			vkutil::BufferDuplex frameUbo;
 			VkDescriptorSet frameDset;
-			uint32_t lightStorageCapacity;
 			VkExtent2D lastRenderExtent;
+			uint32_t lightStorageCapacity;
+			bool frameDsetOod;
 		};
 
 		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
@@ -204,11 +205,11 @@ namespace SKENGINE_NAME_NS {
 			glm::vec3 ambientLight;
 			VkDescriptorPool gframeDpool;
 			RenderTargetId rtargetId;
-			bool projTransfOod       : 1;
-			bool viewTransfCacheOod  : 1;
-			bool lightStorageOod     : 1;
-			bool lightStorageDsetOod : 1;
-			bool initialized         : 1;
+			bool projTransfOod        : 1;
+			bool viewTransfCacheOod   : 1;
+			bool lightStorageOod      : 1;
+			bool lightStorageDsetsOod : 1;
+			bool initialized          : 1;
 		} mState;
 	};
 

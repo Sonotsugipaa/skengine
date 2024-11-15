@@ -173,7 +173,7 @@ namespace SKENGINE_NAME_NS {
 		r.mState.rtargetId = idgen::invalidId<RenderTargetId>();
 		r.mState.viewTransfCacheOod = true;
 		r.mState.lightStorageOod = true;
-		r.mState.lightStorageDsetOod = true;
+		r.mState.lightStorageDsetsOod = true;
 		r.mState.initialized = true;
 
 		r.mState.pipelineParams = plParams;
@@ -321,7 +321,7 @@ namespace SKENGINE_NAME_NS {
 					.qfamSharing = { } };
 				wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, lightStorageBcInfo);
 				wgf.lightStorageCapacity = lightCapacity;
-				mState.lightStorageDsetOod = true;
+				mState.lightStorageDsetsOod = true;
 			}
 
 			{ // Create the frame UBO
@@ -422,7 +422,7 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			mState.lightStorage.buffer.flush(vma);
-			mState.lightStorageDsetOod = true;
+			mState.lightStorageDsetsOod = true;
 			mState.lightStorageOod = false;
 		}
 
@@ -465,13 +465,18 @@ namespace SKENGINE_NAME_NS {
 			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
 			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
 
-			mState.lightStorageDsetOod = true;
+			mState.lightStorageDsetsOod = true;
 			wgf.lightStorageCapacity = ls.bufferCapacity;
 		}
 
-		if(mState.lightStorageDsetOod) {
+		if(mState.lightStorageDsetsOod) {
+			for(auto& wgf : mState.gframes) wgf.frameDsetOod = true;
+			mState.lightStorageDsetsOod = false;
+		}
+
+		if(wgf.frameDsetOod) {
 			world::update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, wgf.frameDset);
-			mState.lightStorageDsetOod = false;
+			wgf.frameDsetOod = false;
 		}
 
 		if(true /* Optimizable, but not worth the effort */) {
@@ -635,7 +640,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	[[nodiscard]]
 	ObjectId WorldRenderer::createRayLight(const NewRayLight& nrl) {
 		auto r = id_generator<ObjectId>.generate();
 		RayLight rl = { };
@@ -649,7 +653,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	[[nodiscard]]
 	ObjectId WorldRenderer::createPointLight(const NewPointLight& npl) {
 		auto r = id_generator<ObjectId>.generate();
 		PointLight pl = { };
