@@ -96,11 +96,6 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	EventFeedback DrawablePolygon::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
-		return EventFeedback::ePropagateUpwards;
-	}
-
-
 	BasicPolygon::BasicPolygon(VmaAllocator vma, ShapeSet shapes, bool doFill):
 		DrawablePolygon(doFill),
 		basic_elem_vma(vma)
@@ -290,11 +285,6 @@ namespace SKENGINE_NAME_NS::gui {
 	}
 
 
-	EventFeedback TextLine::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
-		return EventFeedback::ePropagateUpwards;
-	}
-
-
 	void TextLine::textInfo(const TextInfo& ti) noexcept {
 		bool eq = true;
 		eq = (txt_info.alignment == ti.alignment)? eq : false;
@@ -382,11 +372,6 @@ namespace SKENGINE_NAME_NS::gui {
 
 	ComputedBounds PlaceholderTextCacheView::ui_elem_getBounds(const Lot& lot) const noexcept {
 		return lot.getBounds();
-	}
-
-
-	EventFeedback PlaceholderTextCacheView::ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) {
-		return EventFeedback::ePropagateUpwards;
 	}
 
 }

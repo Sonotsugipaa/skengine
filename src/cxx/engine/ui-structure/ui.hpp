@@ -2,8 +2,6 @@
 
 #include <skengine_fwd.hpp>
 
-#include <input/input.hpp>
-
 #include <idgen.hpp>
 
 #include <glm/mat3x3.hpp>
@@ -195,47 +193,6 @@ inline namespace ui {
 	};
 
 
-	struct InputActionParameters {
-		Input input;
-	};
-
-	struct MouseHoverParameters {
-		Position position;
-	};
-
-	struct FocusParameters {
-		Lot* subject;
-	};
-
-
-	class EventData {
-	public:
-		EventType eventType() const noexcept { return event_data_eventType; }
-
-		/* Note that *Params functions allow the caller to modify the event parameters:
-		** this is intended behavior, as events are predictably propagated between elements. */
-		#ifdef NDEBUG
-			#define CT_CAST_(ET_, R_) noexcept { return event_data_params.R_; }
-		#else
-			#define CT_CAST_(ET_, R_) { if(event_data_eventType != EventType::ET_) throw std::logic_error("UI event type mismatch"); return event_data_params.R_; }
-		#endif
-		auto& inputActionParams() CT_CAST_(eInputAction, inputAction)
-		auto& mouseHoverParams()  CT_CAST_(eMouseHover,  mouseHover)
-		auto& focusParams()       CT_CAST_(eFocus,       focus)
-		#undef CT_CAST_
-
-	private:
-		union params_u {
-			InputActionParameters inputAction;
-			MouseHoverParameters  mouseHover;
-			FocusParameters       focus;
-		};
-
-		params_u  event_data_params;
-		EventType event_data_eventType;
-	};
-
-
 	class Element {
 	public:
 		// DOCUMENTATION HINT:
@@ -246,7 +203,6 @@ inline namespace ui {
 		enum class PrepareState { eReady, eDefer };
 
 		virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept = 0;
-		virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) = 0;
 		virtual PrepareState   ui_elem_prepareForDraw(LotId, Lot&, unsigned repeatCount, DrawContext&) = 0;
 		virtual void           ui_elem_draw(LotId, Lot&, DrawContext&) = 0;
 	};

@@ -15,6 +15,10 @@
 #include "config/config.hpp"
 #include "config/number_parser.inl.hpp"
 
+#include <SDL2/SDL_keyboard.h>
+#include <SDL2/SDL_mouse.h>
+#include <SDL2/SDL_events.h>
+
 
 
 inline namespace main_ns {

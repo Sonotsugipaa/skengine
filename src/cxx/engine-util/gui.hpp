@@ -112,7 +112,6 @@ namespace SKENGINE_NAME_NS {
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
-			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
 			auto& shapes() noexcept { return dpoly_shapeSet; }
 
@@ -150,7 +149,6 @@ namespace SKENGINE_NAME_NS {
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
-			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
 			auto& textInfo() const noexcept { return txt_info; }
 			void  textInfo(const TextInfo&) noexcept;
@@ -188,7 +186,6 @@ namespace SKENGINE_NAME_NS {
 			void ui_elem_draw(LotId, Lot&, ui::DrawContext&) override;
 
 			virtual ComputedBounds ui_elem_getBounds(const Lot&) const noexcept override;
-			virtual EventFeedback  ui_elem_onEvent(LotId, Lot&, EventData&, propagation_offset_t) override;
 
 			auto& shapes() noexcept { return tcv_shapeSet; }
 

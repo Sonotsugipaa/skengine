@@ -7,8 +7,6 @@
 #include <vk-util/init.hpp>
 #include <vk-util/memory.hpp>
 
-#include <input/input.hpp>
-
 #include <tick-regulator.hpp>
 
 #include <stdexcept>

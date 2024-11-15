@@ -1,5 +1,7 @@
 #include "ui.hpp"
 
+#include <cstring>
+
 
 
 #ifdef NDEBUG

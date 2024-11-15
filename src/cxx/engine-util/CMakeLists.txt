@@ -18,4 +18,4 @@ target_link_libraries(engine-util
 	fmamdl )
 
 # Enable unity builds
-set_property(TARGET engine PROPERTY UNITY_BUILD false)
+set_property(TARGET engine-util PROPERTY UNITY_BUILD false)

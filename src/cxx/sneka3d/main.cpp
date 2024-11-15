@@ -9,6 +9,8 @@
 #include <engine-util/basic_render_process.hpp>
 #include <engine-util/gui_manager.hpp>
 
+#include <input/input.hpp>
+
 #include <posixfio_tl.hpp>
 
 #include <vk-util/error.hpp>
@@ -88,14 +90,26 @@ namespace sneka {
 
 	class Loop : public ske::LoopInterface {
 	public:
+		struct CallbackSharedState {
+			bool quit = false;
+		};
+
 		ske::Engine* engine;
 		std::shared_ptr<ske::BasicRenderProcess> rproc;
+		std::shared_ptr<CallbackSharedState> sharedState;
+		ske::InputManager inputMan;
+		std::mutex inputManMutex;
+		ske::CommandId cmdForward;
+		ske::CommandId cmdBackward;
+		ske::CommandId cmdLeft;
+		ske::CommandId cmdRight;
 		World world;
 
 
 		Loop(ske::Engine& e, decltype(rproc) rproc):
 			engine(&e),
-			rproc(std::move(rproc))
+			rproc(std::move(rproc)),
+			sharedState(std::make_shared<CallbackSharedState>())
 		{
 			using enum GridObjectClass;
 			world = World::initEmpty(5, 5);
@@ -105,49 +119,101 @@ namespace sneka {
 			T_(0, 2)                            T_(4, 2)
 			T_(0, 1)          T_(2, 1)          T_(4, 1)
 			T_(0, 0) T_(1, 0) T_(2, 0) T_(3, 0) T_(4, 0)
+			#undef T_
 		}
 
 
 		void loop_begin() override {
+			auto ca = engine->getConcurrentAccess();
 			ske::ObjectStorage& os = * rproc->objectStorage();
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
+
+			{
+				std::shared_ptr<ske::WorldRenderer> wrPtr = rproc->worldRenderer();
+				auto inputLock = std::unique_lock(inputManMutex);
+				auto sharedState = this->sharedState;
+				auto bindKeyCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunction auto cb) {
+					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActivated };
+					auto cbPtr = std::make_shared<ske::CommandCallbackWrapper<decltype(cb)>>(std::move(cb));
+					return inputMan.bindNewCommand(
+						ske::Binding { key, std::move(ctx) },
+						std::move(cbPtr) );
+				};
+				auto bindKey = [&](SDL_KeyCode kc, std::string ctx) {
+					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActive };
+					return inputMan.bindNewCommand(ske::Binding { key, std::move(ctx) }, nullptr);
+				};
+				cmdForward  = bindKey(SDLK_w, "general");
+				cmdBackward = bindKey(SDLK_s, "general");
+				cmdLeft     = bindKey(SDLK_a, "general");
+				cmdRight    = bindKey(SDLK_d, "general");
+				bindKeyCb(SDLK_q, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->quit = true; });
+			}
+
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
-				"gold-bars.fma", { }, { }, { 1.0f, 1.0f, 1.0f }, false };
-			for(ssize_t y = 0; y < world.height(); ++ y)
-			for(ssize_t x = 0; x < world.width();  ++ x) {
+				"gold-bars.fma", { }, { }, { 0.95f, 0.95f, 0.95f }, false };
+			for(size_t y = 0; y < world.height(); ++ y)
+			for(size_t x = 0; x < world.width();  ++ x) {
 				if(world.tile(x, y) == GridObjectClass::eWall) {
-					newObject.position_xyz = { x, 0, -y };
+					newObject.position_xyz = { + float(x), 0.0f, - float(y) };
 					(void) os.createObject(tc, newObject);
 				}
 			}
-			wr.setViewPosition({ 2.0f, 8.0f, -2.0f });
-			wr.setViewRotation({ 0.0f, std::numbers::pi_v<float> / -2.0f, 0.0f });
+			wr.setViewRotation({ 0.0f, 0.4f, 0.0f });
+			wr.setViewPosition({ 2.0f, 1.1f, 0.0f });
 			wr.setAmbientLight({ 0.7f, 0.7f, 0.7f });
+
+			sharedState->quit = false;
 		}
 
 
 		void loop_end() noexcept override {
-			;
+			sharedState->quit = false;
+			inputMan.clear();
 		}
 
 
 		void loop_processEvents(tickreg::delta_t delta_avg, tickreg::delta_t delta) override {
-			;
+			(void) delta_avg;
+			(void) delta;
+
+			auto ca = engine->getConcurrentAccess();
+
+			SDL_Event ev;
+			while(1 == SDL_PollEvent(&ev)) {
+				auto inputLock = std::unique_lock(inputManMutex);
+				inputMan.feedSdlEvent("general", ev);
+			}
 		}
 
 		LoopState loop_pollState() const noexcept override {
-			static unsigned counter = 0;
-			return (++counter) <= 600? LoopState::eShouldContinue : LoopState::eShouldStop;
+			return sharedState->quit? LoopState::eShouldStop : LoopState::eShouldContinue;
 		}
 
 
 		void loop_async_preRender(ske::ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_previous) override {
-			;
+			(void) delta_previous;
+
+			delta_avg = std::min(tickreg::delta_t(0.5), delta_avg);
+
+			{
+				ske::WorldRenderer& wr = * rproc->worldRenderer();
+				auto inputLock = std::unique_lock(inputManMutex);
+				auto activeCmds = inputMan.getActiveCommands();
+				for(const auto& [cmd, key] : activeCmds) {
+					if     (cmd == cmdForward ) { auto pos = wr.getViewPosition(); pos.z -= delta_avg; wr.setViewPosition(pos); }
+					else if(cmd == cmdBackward) { auto pos = wr.getViewPosition(); pos.z += delta_avg; wr.setViewPosition(pos); }
+					else if(cmd == cmdLeft    ) { auto pos = wr.getViewPosition(); pos.x -= delta_avg; wr.setViewPosition(pos); }
+					else if(cmd == cmdRight   ) { auto pos = wr.getViewPosition(); pos.x += delta_avg; wr.setViewPosition(pos); }
+				}
+			}
 		}
 
 
 		virtual void loop_async_postRender(ske::ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_current) {
+			(void) delta_avg;
+			(void) delta_current;
 			;
 		}
 
@@ -167,7 +233,7 @@ int main(int argn, char** argv) {
 		std::make_shared<posixfio::OutputBuffer>(STDOUT_FILENO, 512),
 		sflog::Level::eInfo,
 		sflog::OptionBit::eUseAnsiSgr | sflog::OptionBit::eAutoFlush,
-		"["sv, SKENGINE_NAME_CSTR " Demo : "sv, ""sv, "]  "sv );
+		"["sv, SKENGINE_NAME_CSTR " Sneka : "sv, ""sv, "]  "sv );
 
 	#ifndef NDEBUG
 		logger.setLevel(sflog::Level::eDebug);
@@ -200,13 +266,9 @@ int main(int argn, char** argv) {
 
 		auto engine = ske::Engine(
 			ske::DeviceInitInfo {
-				.window_title     = SKENGINE_NAME_CSTR " Test Window",
-				.application_name = SKENGINE_NAME_PC_CSTR,
-				.app_version = VK_MAKE_API_VERSION(
-					0,
-					SKENGINE_VERSION_MAJOR,
-					SKENGINE_VERSION_MINOR,
-					SKENGINE_VERSION_PATCH ) },
+				.window_title     = "Sneka 3D",
+				.application_name = "Sneka 3D",
+				.app_version = VK_MAKE_API_VERSION(0, 0, 1, 0) },
 			enginePrefs,
 			std::move(shader_cache),
 			logger );
