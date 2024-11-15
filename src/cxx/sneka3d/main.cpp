@@ -30,6 +30,7 @@ namespace sneka {
 		struct CallbackSharedState {
 			signed char lastDir[2] = { 0, -1 };
 			float       yawTarget  = 0.0f;
+			float       speed      = 0.0f;
 			bool        quit       = false;
 		};
 
@@ -52,7 +53,7 @@ namespace sneka {
 			sharedState(std::make_shared<CallbackSharedState>())
 		{
 			using enum GridObjectClass;
-			world = World::initEmpty(100, 100);
+			world = World::initEmpty(99, 99);
 			ske::Logger& logger = engine->logger();
 			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
 			generateWorldNoise(logger, world, std::minstd_rand(NOW_));
@@ -86,6 +87,7 @@ namespace sneka {
 					state.lastDir[0] = -dir * state.lastDir[1];
 					state.lastDir[1] = +dir * lastDir0;
 					state.yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
+					state.speed = std::min(0.4f, state.speed * 0.7f);
 				};
 				auto bindKey = [&](SDL_KeyCode kc, std::string ctx) {
 					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActive };
@@ -103,7 +105,7 @@ namespace sneka {
 			float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
-				"gold-bars.fma", { }, { }, { 1.0f, 1.0f, 1.0f }, false };
+				"gold-bars.fma", { }, { }, { 0.95f, 0.95f, 0.95f }, false };
 			for(size_t y = 0; y < world.height(); ++ y)
 			for(size_t x = 0; x < world.width();  ++ x) {
 				if(world.tile(x, y) == GridObjectClass::eWall) {
@@ -153,34 +155,54 @@ namespace sneka {
 
 			delta_avg = std::min(tickreg::delta_t(0.5), delta_avg);
 
-			float speed = 4.0f * delta_avg;
+			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
+				return (src + (target * bias)) / (1.0f + bias); };
+
+			const auto accelerate = [delta_avg](float value, float delta, float accel) -> float {
+				return value + (delta * delta_avg) + (2.0f * accel * delta_avg);
+			};
 
 			{
 				ske::WorldRenderer& wr = * rproc->worldRenderer();
+				auto state = *sharedState;
 				auto inputLock = std::unique_lock(inputManMutex);
 				auto activeCmds = inputMan.getActiveCommands();
-				signed char shift = 0;
+				signed char cmdShift = 0;
 				for(const auto& [cmd, key] : activeCmds) {
-					if     (cmd == cmdForward ) { shift -= 1; }
-					else if(cmd == cmdBackward) { shift += 1; }
+					if     (cmd == cmdForward ) { cmdShift -= 1; }
+					else if(cmd == cmdBackward) { cmdShift += 1; }
 				}
 				auto rot = wr.getViewRotation();
-				auto* vec = sharedState->lastDir;
-				auto yawDiff = sharedState->yawTarget - rot.x;
-				if(yawDiff < +0.001f || yawDiff > -0.001f) {
-					constexpr float rotBias = 0.1f;
+				auto* direction = state.lastDir;
+				auto yawDiff = state.yawTarget - rot.x;
+				if(std::abs(yawDiff) > 0.0001f) {
+					constexpr float rotBias = 8.0f;
 					constexpr float pi = std::numbers::pi_v<float>;
-					if     (yawDiff > +pi) rot.x += pi*2.0f;
-					else if(yawDiff < -pi) rot.x -= pi*2.0f;
-					rot.x = (rot.x + (sharedState->yawTarget * rotBias)) / (1.0f + rotBias);
-					wr.setViewRotation(rot);
+					if(std::abs(yawDiff) < 0.001) {
+						wr.setViewRotation({ state.yawTarget, rot.y, rot.z });
+					} else {
+						if     (yawDiff > +pi) rot.x += pi*2.0f;
+						else if(yawDiff < -pi) rot.x -= pi*2.0f;
+						rot.x = biasedAverage(rot.x, state.yawTarget, rotBias * delta_avg);
+						wr.setViewRotation(rot);
+					}
 				}
-				if(shift != 0) {
+				if(cmdShift == 0) {
+					state.speed = 0.0f;
+				} else {
+					constexpr float speedBias = 4.0f;
+					constexpr float maxSpeed = 6.0f;
+					const auto cmdShiftf = float(cmdShift);
+					auto speedTarget = biasedAverage(state.speed, maxSpeed, speedBias * delta_avg);
+					auto accel = (speedTarget - state.speed) * cmdShiftf;
+					auto vel = state.speed * cmdShiftf;
 					auto pos = wr.getViewPosition();
-					pos.x += float(vec[0] * shift) * speed;
-					pos.z -= float(vec[1] * shift) * speed;
+					pos.x = accelerate(pos.x, +direction[0] * vel, +direction[0] * accel);
+					pos.z = accelerate(pos.z, -direction[1] * vel, -direction[1] * accel);
 					wr.setViewPosition(pos);
+					state.speed = speedTarget;
 				}
+				*sharedState = state;
 			}
 		}
 

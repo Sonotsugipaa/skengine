@@ -32,7 +32,7 @@ namespace sneka {
 		auto w = dst.width();
 		auto h = dst.height();
 		assert(w * h > 0);
-		float objCountRel = genFloat(0.6f, 0.9f);
+		float objCountRel = genFloat(0.4f, 0.7f);
 		unsigned objCount = float(w * h) * objCountRel;
 		const unsigned attemptLimitInit = objCount * (1.0f / (1.0f - objCountRel));
 		unsigned attemptLimit = attemptLimitInit;
