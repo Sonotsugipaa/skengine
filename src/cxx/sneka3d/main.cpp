@@ -52,17 +52,25 @@ namespace sneka {
 			rproc(std::move(rproc)),
 			sharedState(std::make_shared<CallbackSharedState>())
 		{
+			constexpr const char* worldFilename = "world.wrd";
 			using enum GridObjectClass;
-			world = World::initEmpty(99, 99);
-			ske::Logger& logger = engine->logger();
-			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-			generateWorldNoise(logger, world, std::minstd_rand(NOW_));
-			generateWorldPath(logger, world, std::minstd_rand(NOW_), UINT_MAX);
-			generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
-			generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
-			for(unsigned i = 0; i < 10; ++i) {
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), 10); }
-			#undef NOW_
+			try {
+				world = World::fromFile(worldFilename);
+			} catch(posixfio::Errcode& e) {
+				ske::Logger& logger = engine->logger();
+				if(e.errcode == ENOENT) logger.error("World \"{}\" does not exist, creating a new one", worldFilename);
+				else                    logger.error("Failed to read world file \"{}\" (errno {}), creating a new one", worldFilename, e.errcode);
+				world = World::initEmpty(99, 99);
+				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
+				generateWorldNoise(logger, world, std::minstd_rand(NOW_));
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), UINT_MAX);
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
+				for(unsigned i = 0; i < 10; ++i) {
+					generateWorldPath(logger, world, std::minstd_rand(NOW_), 10); }
+				#undef NOW_
+				world.toFile(worldFilename);
+			}
 		}
 
 
@@ -120,7 +128,7 @@ namespace sneka {
 				.position = { xGridCenter, 10.0f, yGridCenter },
 				.color = { 0.9f, 0.9f, 1.0f },
 				.intensity = 4.0f,
-				.falloffExponent = 0.2f });
+				.falloffExponent = 0.5f });
 
 			sharedState->quit = false;
 		}
@@ -138,11 +146,24 @@ namespace sneka {
 
 			auto ca = engine->getConcurrentAccess();
 
+			struct ResizeEvent {
+				Sint32 width;
+				Sint32 height;
+				bool triggered;
+			} resizeEvent = { 0, 0, false };
+
 			SDL_Event ev;
 			while(1 == SDL_PollEvent(&ev)) {
 				auto inputLock = std::unique_lock(inputManMutex);
 				inputMan.feedSdlEvent("general", ev);
+				if(ev.type == SDL_WINDOWEVENT) {
+					if(ev.window.event == SDL_WINDOWEVENT_RESIZED) {
+						resizeEvent = { ev.window.data1, ev.window.data2, true };
+					}
+				}
 			}
+
+			if(resizeEvent.triggered) ca->setPresentExtent(VkExtent2D { uint32_t(resizeEvent.width), uint32_t(resizeEvent.height) });
 		}
 
 		LoopState loop_pollState() const noexcept override {

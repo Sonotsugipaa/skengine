@@ -5,7 +5,7 @@
 
 #include <timer.tpp>
 
-#include "world.inl.hpp"
+#include "world.hpp"
 
 
 
