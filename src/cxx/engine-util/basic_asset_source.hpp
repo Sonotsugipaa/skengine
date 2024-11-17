@@ -10,10 +10,10 @@
 
 namespace SKENGINE_NAME_NS {
 
-	class AssetSourceError : public posixfio::FileError {
+	class AssetSourceError : public posixfio::Errcode {
 	public:
 		template <typename... Args>
-		AssetSourceError(Args... args): posixfio::FileError::FileError(args...) { }
+		AssetSourceError(Args... args): posixfio::Errcode::Errcode(args...) { }
 	};
 
 	#define DEFINE_ERROR_(NAME_, BASE_) class NAME_ : public BASE_ { public: template <typename... Args> NAME_(Args... args): BASE_::BASE_(args...) { } }

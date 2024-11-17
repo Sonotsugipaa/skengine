@@ -35,7 +35,7 @@ namespace SKENGINE_NAME_NS {
 		posixfio::File file;
 		try {
 			file = posixfio::File::open(locator_s.c_str(), posixfio::OpenFlags::eRdonly);
-		} catch(posixfio::FileError& ex) {
+		} catch(posixfio::Errcode& ex) {
 			throw ModelLoadError(ex);
 		}
 
@@ -68,7 +68,7 @@ namespace SKENGINE_NAME_NS {
 		posixfio::File file;
 		try {
 			file = posixfio::File::open(locator_s.c_str(), posixfio::OpenFlags::eRdonly);
-		} catch(posixfio::FileError& ex) {
+		} catch(posixfio::Errcode& ex) {
 			bas_logger.error("Material file not found: {}", locator_s);
 			std::rethrow_exception(std::current_exception());
 		}

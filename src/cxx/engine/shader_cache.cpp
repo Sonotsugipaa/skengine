@@ -51,7 +51,7 @@ namespace SKENGINE_NAME_NS {
 			size_t rd = posixfio::readAll(file, buffer.get(), lsize);
 			if(rd != lsize) throw ShaderModuleReadError("Shader file partially read");
 			sm_info.codeSize = uint32_t(lsize);
-		} catch(posixfio::FileError& e) {
+		} catch(posixfio::Errcode& e) {
 			switch(e.errcode) {
 				using namespace std::string_literals;
 				case ENOENT: throw ShaderModuleReadError("Shader file not found: \""s      + file_path + "\""s); break;

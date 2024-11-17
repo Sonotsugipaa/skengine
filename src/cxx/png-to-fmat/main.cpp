@@ -53,7 +53,7 @@ namespace {
 			auto end = file.lseek(0, posixfio::Whence::eEnd);
 			file.lseek(cur, posixfio::Whence::eSet);
 			return size_t(end);
-		} catch(posixfio::FileError& err) {
+		} catch(posixfio::Errcode& err) {
 			if(err.errcode == ESPIPE) { /* NOP */ }
 			else std::rethrow_exception(std::current_exception());
 			return 0;
@@ -119,7 +119,7 @@ int main(int argn, char** argv) {
 		dst.reserve(dst.size() + 6 /* dot + "fmat" + null character */);
 		try {
 			convert(arg, dst);
-		} catch(posixfio::FileError err) {
+		} catch(posixfio::Errcode err) {
 			auto output = posixfio::ArrayOutputBuffer<>(STDERR_FILENO);
 			auto msg = StringView(strerror(err.errcode));
 			output.writeAll("Error: ", sizeof("Error: ")-1);
