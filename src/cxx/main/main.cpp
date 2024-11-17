@@ -266,7 +266,7 @@ namespace {
 			std::vector<std::string> nameList;
 			try {
 				nameList = readObjectNameList(posixfio::File::open("assets/object-list.txt", OpenFlags::eRdonly));
-			} catch(posixfio::FileError& err) {
+			} catch(posixfio::Errcode& err) {
 				engine->logger().error("File \"assets/object-list.txt\" not found");
 				std::rethrow_exception(std::current_exception());
 			}

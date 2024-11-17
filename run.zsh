@@ -21,7 +21,7 @@ fi
 
 binpath="$dstpath/${config}-pack"
 
-cmd+=('./sketch-sim' $@)
+cmd+=($@)
 
 if [[ -v WAYLAND_DISPLAY && ! -v SDL_VIDEODRIVER ]]; then export SDL_VIDEODRIVER=wayland; fi
 
