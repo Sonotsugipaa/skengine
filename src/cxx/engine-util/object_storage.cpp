@@ -41,6 +41,7 @@ namespace SKENGINE_NAME_NS {
 		constexpr float  UNBOUND_BATCH_LEVEL_1_LOAD_FAC = 0.8;
 		constexpr size_t UNBOUND_BATCH_LEVEL_2_INIT_CAP = 2;
 		constexpr float  UNBOUND_BATCH_LEVEL_2_LOAD_FAC = 4.0;
+		constexpr float  UNBOUND_DRAW_BATCH_LOAD_FAC    = 8.0;
 
 
 		[[nodiscard]]
@@ -403,13 +404,15 @@ namespace SKENGINE_NAME_NS {
 			auto  material_batch_iter = bone_slot.find(material_id);
 			if(material_batch_iter == bone_slot.end()) {
 				auto ins = UnboundDrawBatch {
-					.object_refs = { new_obj_id },
+					.object_refs = decltype(UnboundDrawBatch::object_refs)(8),
 					.material_id = material_id,
 					.model_bone_index = i };
+				ins.object_refs.max_load_factor(UNBOUND_DRAW_BATCH_LOAD_FAC);
+				ins.object_refs.insert(new_obj_id);
 				bone_slot.insert(UnboundBatchMap::mapped_type::mapped_type::value_type(material_id, ins));
 			} else {
 				auto& batch = material_batch_iter->second;
-				batch.object_refs.push_back(new_obj_id);
+				batch.object_refs.insert(new_obj_id);
 				assert(batch.material_id == material_id);
 			}
 
@@ -460,7 +463,7 @@ namespace SKENGINE_NAME_NS {
 				auto  batch_iter      = assert_not_end_(bone_iter->second, material_id);
 				auto& obj_refs        = batch_iter->second.object_refs;
 				[[maybe_unused]]
-				std::size_t erased = std::erase(obj_refs, id);
+				std::size_t erased = obj_refs.erase(id);
 				assert(erased == 1);
 				assert(! obj_refs.empty() /* The model still has objects refering to it, so it *must* have at least one object for this material */);
 				++ i;

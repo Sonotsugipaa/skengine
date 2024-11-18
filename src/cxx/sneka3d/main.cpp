@@ -25,6 +25,18 @@ extern "C" {
 
 namespace sneka {
 
+	std::string getenv(const char* nameCstr) {
+		static std::mutex mtx;
+		mtx.lock();
+		char* env = std::getenv(nameCstr);
+		if(env == nullptr) return "";
+		auto len = strlen(env);
+		std::string r;
+		r.resize_and_overwrite(len, [&](auto* p, auto n) { assert(n == len); memcpy(p, env, n); return n; });
+		return r;
+	}
+
+
 	class Loop : public ske::LoopInterface {
 	public:
 		struct CallbackSharedState {
@@ -57,8 +69,11 @@ namespace sneka {
 			using enum GridObjectClass;
 			ske::Logger& logger = engine->logger();
 			const auto onError = [&]() {
-				uint64_t sideLength = 51;
-				world = World::initEmpty(51, 51);
+				auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
+				auto* sideLengthEnvvarEnd = sideLengthEnvvar.data() + sideLengthEnvvar.size();
+				uint64_t sideLength = std::strtoull(sideLengthEnvvar.data(), &sideLengthEnvvarEnd, 10);
+				if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
+				world = World::initEmpty(sideLength, sideLength);
 				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
 				generateWorldNoise(logger, world, std::minstd_rand(NOW_));
 				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength);

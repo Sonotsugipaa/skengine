@@ -34,7 +34,7 @@ namespace SKENGINE_NAME_NS {
 
 	// A draw batch, without object-specific data in favor of lists of references to them.
 	struct UnboundDrawBatch {
-		std::vector<ObjectId> object_refs;
+		std::unordered_set<ObjectId> object_refs;
 		MaterialId material_id;
 		bone_id_e  model_bone_index;
 	};
