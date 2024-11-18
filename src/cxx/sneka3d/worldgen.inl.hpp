@@ -33,6 +33,7 @@ namespace sneka {
 		auto h = dst.height();
 		assert(w * h > 0);
 		float objCountRel = genFloat(0.4f, 0.7f);
+		float wallToObstRatio = genFloat(0.5f, 2.0f);
 		unsigned objCount = float(w * h) * objCountRel;
 		const unsigned attemptLimitInit = objCount * (1.0f / (1.0f - objCountRel));
 		unsigned attemptLimit = attemptLimitInit;
@@ -51,7 +52,9 @@ namespace sneka {
 					return;
 				}
 			} else {
-				tile = GridObjectClass::eWall;
+				float typeRoll = genFloat(0.0f, 1.0f + wallToObstRatio);
+				if(typeRoll > 1.0f) tile = GridObjectClass::eWall;
+				else                tile = GridObjectClass::eObstacle;
 			}
 		}
 		logger.info(

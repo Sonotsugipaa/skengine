@@ -14,7 +14,8 @@ namespace sneka {
 
 	using std::byte;
 
-	enum class GridObjectClass : uint8_t {
+	using grid_object_class_e = uint8_t;
+	enum class GridObjectClass : grid_object_class_e {
 		eNoObject = 0,
 		eBoost    = 1,
 		ePoint    = 2,
@@ -31,7 +32,8 @@ namespace sneka {
 				eUnexpectedEof = 1,
 				eBadMagicNo    = 2,
 				eBadVersion    = 3,
-				eBadString     = 4
+				eBadString     = 4,
+				eBadAttribData = 4
 			}; using enum Reason;
 			Reason reason;
 			size_t errorOffset;
@@ -52,10 +54,26 @@ namespace sneka {
 		};
 
 
+		Attribute createAttrib(AttributeType type, size_t contentSize, const void* contentPtr);
+		Attribute createAttrib(AttributeType type, std::string_view str) { return createAttrib(type, str.size(), str.data()); }
+
 		static World fromFile(const char* filename);
 		static World initEmpty(uint64_t width, uint64_t height);
 		void toFile(const char* filename);
 
+
+		const auto& getSceneryModel() const noexcept { return world_models.scenery; }
+		const auto& getPlayerHeadModel() const noexcept { return world_models.playerHead; }
+		const auto& getObjBoostModel() const noexcept { return world_models.objBoost; }
+		const auto& getObjPointModel() const noexcept { return world_models.objPoint; }
+		const auto& getObjWallModel() const noexcept { return world_models.objWall; }
+		const auto& getObjObstacleModel() const noexcept { return world_models.objObstacle; }
+		void setSceneryModel(std::string_view name) { world_models.scenery = std::string(name); }
+		void setPlayerHeadModel(std::string_view name) { world_models.playerHead = std::string(name); }
+		void setObjBoostModel(std::string_view name) { world_models.objBoost = std::string(name); }
+		void setObjPointModel(std::string_view name) { world_models.objPoint = std::string(name); }
+		void setObjWallModel(std::string_view name) { world_models.objWall = std::string(name); }
+		void setObjObstacleModel(std::string_view name) { world_models.objObstacle = std::string(name); }
 
 		auto  width () const { return world_width ; }
 		auto  height() const { return world_height; }
@@ -64,9 +82,12 @@ namespace sneka {
 
 	private:
 		struct ModelStrings {
-			Attribute scenery;
-			Attribute playerHead;
-			Attribute objWall;
+			std::string scenery;
+			std::string playerHead;
+			std::string objBoost;
+			std::string objPoint;
+			std::string objObstacle;
+			std::string objWall;
 		} world_models;
 		MemoryRange world_mem;
 		byte* world_rawGrid;

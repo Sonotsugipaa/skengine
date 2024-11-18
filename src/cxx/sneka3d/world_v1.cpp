@@ -131,6 +131,22 @@ namespace sneka {
 			}
 		}
 
+		static void objModelFromAttrib(World::ModelStrings* dst, const GenericAttribute& src, size_t fileCursorAtAttrib) {
+			using enum GridObjectClass;
+			assert(src.type == uint32_t(v1::AttributeType::eObjectClassModel));
+			if(src.length < 2) throw BadFile { BadFile::eBadAttribData, fileCursorAtAttrib + sizeof(uint8_t) };
+			auto const * const& dataPtr = reinterpret_cast<const char*>(src.data.get());
+			auto r = std::string_view(dataPtr + 1, dataPtr + src.length);
+			switch(GridObjectClass(src.data[0])) {
+				default: throw BadFile { BadFile::eBadAttribData, fileCursorAtAttrib + sizeof(uint8_t) }; break;
+				case eNoObject: return;
+				case eBoost   : dst->objBoost    = std::move(r); break;
+				case ePoint   : dst->objPoint    = std::move(r); break;
+				case eObstacle: dst->objObstacle = std::move(r); break;
+				case eWall    : dst->objWall     = std::move(r); break;
+			}
+		}
+
 
 		static World readFile(posixfio::File file) {
 			size_t fileCursor = 2 * sizeof(uint64_t);
@@ -147,19 +163,22 @@ namespace sneka {
 			}
 
 			GenericAttribute attrib;
-			while((attrib = readAttribute(file, fileCursor)).type != uint32_t(v1::AttributeType::eEndOfAttribs))
-			switch(v1::AttributeType(attrib.type)) {
-				case v1::AttributeType::eSceneryModel:
-					r.world_models.scenery = translateAttribToWorld(std::move(attrib)); break;
-				case v1::AttributeType::eObjectClassModel:
-					r.world_models.objWall = translateAttribToWorld(std::move(attrib)); break;
-				case v1::AttributeType::ePlayerHeadModel:
-					r.world_models.playerHead = translateAttribToWorld(std::move(attrib)); break;
-				default: break;
+			auto oldFileCursor = fileCursor;
+			while((attrib = readAttribute(file, fileCursor)).type != uint32_t(v1::AttributeType::eEndOfAttribs)) {
+				switch(v1::AttributeType(attrib.type)) {
+					case v1::AttributeType::eSceneryModel:
+						r.world_models.scenery = translateAttribToWorld(std::move(attrib)); break;
+					case v1::AttributeType::eObjectClassModel:
+						objModelFromAttrib(&r.world_models, attrib, oldFileCursor); break;
+					case v1::AttributeType::ePlayerHeadModel:
+						r.world_models.playerHead = translateAttribToWorld(std::move(attrib)); break;
+					default: break;
+				}
+				oldFileCursor = fileCursor;
 			}
 
 			{ // Skip to the next 4096-byte block and mmap/read the grid
-				const size_t gridBytes = r.world_width * r.world_height * sizeof(GridObjectClass);
+				const size_t gridBytes = r.world_width * r.world_height * sizeof(uint8_t);
 				size_t padding = (4096 - (fileCursor % 4096)) % 4096; // 0->0, 1->4095, 4095->1, 4096->0
 				bool mrSet = false;
 
@@ -211,7 +230,7 @@ namespace sneka {
 
 		static void writeFile(posixfio::File file, World& src) {
 			auto fb = posixfio::ArrayOutputBuffer<256>(file);
-			const size_t gridBytes = src.world_width * src.world_height * sizeof(GridObjectClass);
+			const size_t gridBytes = src.world_width * src.world_height * sizeof(uint8_t);
 			size_t fileCursor = 0;
 			const auto write = [&]<std::integral T>(T v) {
 				v = serialize(v);
@@ -219,10 +238,31 @@ namespace sneka {
 				fileCursor += sizeof(auto(v));
 				assert(rd == sizeof(auto(v))); (void) rd;
 			};
+			const auto writeAttrib = [&](AttributeType type, const std::string& attrib) {
+				write(uint32_t(mapAttribType(type)));
+				write(uint32_t(attrib.size()));
+				if(attrib.size() > 0) {
+					fb.writeAll(attrib.c_str(), attrib.size() + /* null-term */ 1);
+				}
+			};
+			const auto writeObjMdlAttrib = [&](GridObjectClass objClass, const std::string& attrib) {
+				write(uint32_t(mapAttribType(AttributeType::eObjectClassModel)));
+				write(uint32_t(sizeof(uint8_t) + attrib.size()));
+				if(attrib.size() > 0) {
+					write(uint8_t(objClass));
+					fb.writeAll(attrib.c_str(), attrib.size() + /* null-term */ 1);
+				}
+			};
 			write(uint64_t(magicNo));
 			write(uint64_t(src.world_version));
 			write(uint64_t(src.world_width));
 			write(uint64_t(src.world_height));
+			writeAttrib(AttributeType::eSceneryModel,     src.world_models.scenery);
+			writeAttrib(AttributeType::ePlayerHeadModel,  src.world_models.playerHead);
+			writeObjMdlAttrib(GridObjectClass::eBoost,    src.world_models.objBoost);
+			writeObjMdlAttrib(GridObjectClass::ePoint,    src.world_models.objPoint);
+			writeObjMdlAttrib(GridObjectClass::eObstacle, src.world_models.objObstacle);
+			writeObjMdlAttrib(GridObjectClass::eWall,     src.world_models.objWall);
 			write(uint32_t(v1::AttributeType::eEndOfAttribs));
 			write(uint32_t(0));
 			size_t padding = (4096 - (fileCursor % 4096)) % 4096; // 0->0, 1->4095, 4095->1, 4096->0
@@ -237,12 +277,22 @@ namespace sneka {
 				fileCursor += sizeof(zero);
 			}
 			auto rd = fb.writeAll(src.world_rawGrid, gridBytes);
-			assert(rd >= 0 && rd == gridBytes);
+			assert(rd >= 0 && size_t(rd) == gridBytes);
 			fileCursor += rd;
 		}
 
 	};
 
+
+
+	World::Attribute World::createAttrib(AttributeType type, size_t contentSize, const void* contentPtr) {
+		Attribute r = {
+			.type = type,
+			.length = decltype(Attribute::length)(contentSize),
+			.data = contentSize < 1 ? nullptr : std::make_unique_for_overwrite<std::byte[]>(contentSize) };
+		if(contentSize > 0) memcpy(r.data.get(), contentPtr, contentSize);
+		return r;
+	}
 
 
 	World World::fromFile(const char* filename) {

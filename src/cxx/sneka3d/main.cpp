@@ -40,6 +40,7 @@ namespace sneka {
 		ske::InputManager inputMan;
 		std::mutex inputManMutex;
 		ske::ObjectId light;
+		ske::ObjectId scenery;
 		ske::CommandId cmdForward;
 		ske::CommandId cmdBackward;
 		ske::CommandId cmdLeft;
@@ -54,22 +55,35 @@ namespace sneka {
 		{
 			constexpr const char* worldFilename = "world.wrd";
 			using enum GridObjectClass;
+			ske::Logger& logger = engine->logger();
+			const auto onError = [&]() {
+				uint64_t sideLength = 51;
+				world = World::initEmpty(51, 51);
+				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
+				generateWorldNoise(logger, world, std::minstd_rand(NOW_));
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength);
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 2);
+				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 2);
+				for(unsigned i = 0; i < sideLength / 5; ++i) {
+					generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 4); }
+				#undef NOW_
+				world.setSceneryModel("world1-scenery.fma");
+				world.setPlayerHeadModel("world1-player-head.fma");
+				world.setObjBoostModel("default-boost.fma");
+				world.setObjPointModel("default-point.fma");
+				world.setObjObstacleModel("default-obstacle.fma");
+				world.setObjWallModel("default-wall.fma");
+				world.toFile(worldFilename);
+			};
 			try {
 				world = World::fromFile(worldFilename);
 			} catch(posixfio::Errcode& e) {
-				ske::Logger& logger = engine->logger();
 				if(e.errcode == ENOENT) logger.error("World \"{}\" does not exist, creating a new one", worldFilename);
 				else                    logger.error("Failed to read world file \"{}\" (errno {}), creating a new one", worldFilename, e.errcode);
-				world = World::initEmpty(99, 99);
-				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				generateWorldNoise(logger, world, std::minstd_rand(NOW_));
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), UINT_MAX);
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), 100);
-				for(unsigned i = 0; i < 10; ++i) {
-					generateWorldPath(logger, world, std::minstd_rand(NOW_), 10); }
-				#undef NOW_
-				world.toFile(worldFilename);
+				onError();
+			} catch(World::BadFile& e) {
+				logger.error("Bad world file at byte {0}, 0x{0:x}: reason {1}", e.errorOffset, size_t(e.reason));
+				onError();
 			}
 		}
 
@@ -113,19 +127,43 @@ namespace sneka {
 			float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
-				"gold-bars.fma", { }, { }, { 0.95f, 0.95f, 0.95f }, false };
+				{ }, { }, { }, { 0.95f, 0.95f, 0.95f }, false };
 			for(size_t y = 0; y < world.height(); ++ y)
 			for(size_t x = 0; x < world.width();  ++ x) {
-				if(world.tile(x, y) == GridObjectClass::eWall) {
-					newObject.position_xyz = { + float(x), 0.0f, - float(y) };
-					(void) os.createObject(tc, newObject);
+				newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
+				auto tryCreate = [&](std::string_view mdl) {
+					newObject.model_locator = mdl;
+					try { return os.createObject(tc, newObject); }
+					catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", newObject.model_locator, e.errcode); }
+					return idgen::invalidId<ske::ObjectId>();
+				};
+				switch(world.tile(x, y)) {
+					case GridObjectClass::eBoost: tryCreate(world.getObjBoostModel()); break;
+					case GridObjectClass::ePoint: tryCreate(world.getObjPointModel()); break;
+					case GridObjectClass::eObstacle: tryCreate(world.getObjObstacleModel()); break;
+					case GridObjectClass::eWall: tryCreate(world.getObjWallModel()); break;
+					default:
+						engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
+						[[fallthrough]];
+					case GridObjectClass::eNoObject: break;
 				}
 			}
-			wr.setViewRotation({ 0.0f, 0.7f, 0.0f });
-			wr.setViewPosition({ xGridCenter, 1.5f, 0.0f });
+			try {
+				auto obj = ske::ObjectStorage::NewObject {
+					.model_locator = world.getSceneryModel(),
+					.position_xyz = { },
+					.direction_ypr = { },
+					.scale_xyz = { 1.0f, 1.0f, 1.0f },
+					.hidden = false };
+				scenery = os.createObject(engine->getTransferContext(), obj);
+			} catch(posixfio::Errcode& e) {
+				engine->logger().error("Failed to load file for model \"{}\" (errno {})", world.getSceneryModel(), e.errcode);
+			}
+			wr.setViewRotation({ 0.0f, 0.65f, 0.0f });
+			wr.setViewPosition({ 0.0f, 1.6f, 0.0f });
 			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 			light = wr.createPointLight(ske::WorldRenderer::NewPointLight {
-				.position = { xGridCenter, 10.0f, yGridCenter },
+				.position = { 1.4f * xGridCenter, 10.0f, 1.1f * yGridCenter },
 				.color = { 0.9f, 0.9f, 1.0f },
 				.intensity = 4.0f,
 				.falloffExponent = 0.5f });
