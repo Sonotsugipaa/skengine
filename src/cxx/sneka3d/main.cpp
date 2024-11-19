@@ -4,6 +4,8 @@
 
 #include <engine/types.hpp>
 
+#include <glm/ext/matrix_transform.hpp>
+
 #include <engine-util/basic_shader_cache.hpp>
 #include <engine-util/basic_asset_source.hpp>
 #include <engine-util/basic_render_process.hpp>
@@ -39,6 +41,9 @@ namespace sneka {
 
 	class Loop : public ske::LoopInterface {
 	public:
+		static constexpr float cameraDistance = 2.0f;
+		static constexpr float cameraPitch = 0.75f;
+
 		struct CallbackSharedState {
 			signed char lastDir[2] = { 0, -1 };
 			float       yawTarget  = 0.0f;
@@ -51,8 +56,10 @@ namespace sneka {
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
 		std::mutex inputManMutex;
+		glm::vec3 playerHeadPos;
 		ske::ObjectId light;
 		ske::ObjectId scenery;
+		ske::ObjectId playerHead;
 		ske::CommandId cmdForward;
 		ske::CommandId cmdBackward;
 		ske::CommandId cmdLeft;
@@ -60,10 +67,80 @@ namespace sneka {
 		World world;
 
 
+		void updateViewPosRot(tickreg::delta_t deltaAvg, bool forceAllUpdates = false) {
+			auto& wr = * rproc->worldRenderer();
+			auto& os = * rproc->objectStorage();
+
+			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
+				return (src + (target * bias)) / (1.0f + bias); };
+
+			const auto accelerate = [deltaAvg](float value, float delta, float accel) -> float {
+				return value + (delta * deltaAvg) + (2.0f * accel * deltaAvg);
+			};
+
+			{
+				auto state = *sharedState;
+				auto inputLock = std::unique_lock(inputManMutex);
+				auto activeCmds = inputMan.getActiveCommands();
+				signed char cmdShift = 0;
+				bool doUpdateViewPos = forceAllUpdates;
+				for(const auto& [cmd, key] : activeCmds) {
+					if     (cmd == cmdForward ) { cmdShift -= 1; }
+					else if(cmd == cmdBackward) { cmdShift += 1; }
+				}
+				auto viewRot = wr.getViewRotation();
+				auto* direction = state.lastDir;
+				auto yawDiff = state.yawTarget - viewRot.x;
+				if(std::abs(yawDiff) > 0.0001f) {
+					constexpr float rotBias = 8.0f;
+					constexpr float pi = std::numbers::pi_v<float>;
+					if(std::abs(yawDiff) < 0.001) {
+						wr.setViewRotation({ state.yawTarget, viewRot.y, viewRot.z });
+					} else {
+						if     (yawDiff > +pi) viewRot.x += pi*2.0f;
+						else if(yawDiff < -pi) viewRot.x -= pi*2.0f;
+						viewRot.x = biasedAverage(viewRot.x, state.yawTarget, rotBias * deltaAvg);
+						wr.setViewRotation(viewRot);
+					}
+					doUpdateViewPos = doUpdateViewPos || true;
+				}
+				doUpdateViewPos = doUpdateViewPos || cmdShift != 0;
+				if(cmdShift == 0) {
+					state.speed = 0.0f;
+				}
+				if(doUpdateViewPos) {
+					constexpr float speedBias = 4.0f;
+					constexpr float maxSpeed = 4.0f;
+					const auto cmdShiftf = float(cmdShift);
+					glm::mat4 viewRotTransf = glm::mat4(1.0f);
+					viewRotTransf = glm::rotate(viewRotTransf,  viewRot.x, { 0.0f, 1.0f, 0.0f });
+					viewRotTransf = glm::rotate(viewRotTransf, -viewRot.y, { 1.0f, 0.0f, 0.0f });
+					auto speedTarget = biasedAverage(state.speed, maxSpeed, speedBias * deltaAvg);
+					auto accel = (speedTarget - state.speed) * cmdShiftf;
+					auto vel = state.speed * cmdShiftf;
+					playerHeadPos.x = accelerate(playerHeadPos.x, +direction[0] * vel, +direction[0] * accel);
+					playerHeadPos.z = accelerate(playerHeadPos.z, -direction[1] * vel, -direction[1] * accel);
+					auto viewPos = playerHeadPos;
+					auto viewPosOff4 = viewRotTransf * glm::vec4 { 0.0f, 0.0f, -cameraDistance, 1.0f };
+					viewPos -= glm::vec3(viewPosOff4);
+					wr.setViewPosition(viewPos);
+					state.speed = speedTarget;
+				}
+				*sharedState = state;
+				if(playerHead != idgen::invalidId<ske::ObjectId>()) {
+					auto mod = os.modifyObject(playerHead);
+					mod->position_xyz = playerHeadPos;
+					mod->direction_ypr.x = viewRot.x;
+				}
+			}
+		}
+
+
 		Loop(ske::Engine& e, decltype(rproc) rproc):
 			engine(&e),
 			rproc(std::move(rproc)),
-			sharedState(std::make_shared<CallbackSharedState>())
+			sharedState(std::make_shared<CallbackSharedState>()),
+			playerHeadPos { }
 		{
 			constexpr const char* worldFilename = "world.wrd";
 			using enum GridObjectClass;
@@ -83,7 +160,7 @@ namespace sneka {
 					generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 4); }
 				#undef NOW_
 				world.setSceneryModel("world1-scenery.fma");
-				world.setPlayerHeadModel("world1-player-head.fma");
+				world.setPlayerHeadModel("default-player-head.fma");
 				world.setObjBoostModel("default-boost.fma");
 				world.setObjPointModel("default-point.fma");
 				world.setObjObstacleModel("default-obstacle.fma");
@@ -143,15 +220,15 @@ namespace sneka {
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
 				{ }, { }, { }, { 0.95f, 0.95f, 0.95f }, false };
+			auto tryCreate = [&](std::string_view mdl) {
+				newObject.model_locator = mdl;
+				try { return os.createObject(tc, newObject); }
+				catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", newObject.model_locator, e.errcode); }
+				return idgen::invalidId<ske::ObjectId>();
+			};
 			for(size_t y = 0; y < world.height(); ++ y)
 			for(size_t x = 0; x < world.width();  ++ x) {
 				newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
-				auto tryCreate = [&](std::string_view mdl) {
-					newObject.model_locator = mdl;
-					try { return os.createObject(tc, newObject); }
-					catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", newObject.model_locator, e.errcode); }
-					return idgen::invalidId<ske::ObjectId>();
-				};
 				switch(world.tile(x, y)) {
 					case GridObjectClass::eBoost: tryCreate(world.getObjBoostModel()); break;
 					case GridObjectClass::ePoint: tryCreate(world.getObjPointModel()); break;
@@ -163,6 +240,9 @@ namespace sneka {
 					case GridObjectClass::eNoObject: break;
 				}
 			}
+			newObject.position_xyz = playerHeadPos;
+			newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
+			playerHead = tryCreate(world.getPlayerHeadModel());
 			try {
 				auto obj = ske::ObjectStorage::NewObject {
 					.model_locator = world.getSceneryModel(),
@@ -174,8 +254,8 @@ namespace sneka {
 			} catch(posixfio::Errcode& e) {
 				engine->logger().error("Failed to load file for model \"{}\" (errno {})", world.getSceneryModel(), e.errcode);
 			}
-			wr.setViewRotation({ 0.0f, 0.65f, 0.0f });
-			wr.setViewPosition({ 0.0f, 1.6f, 0.0f });
+			wr.setViewRotation({ 0.0f, cameraPitch, 0.0f });
+			updateViewPosRot(0.0, true);
 			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 			light = wr.createPointLight(ske::WorldRenderer::NewPointLight {
 				.position = { 1.4f * xGridCenter, 10.0f, 1.1f * yGridCenter },
@@ -193,8 +273,8 @@ namespace sneka {
 		}
 
 
-		void loop_processEvents(tickreg::delta_t delta_avg, tickreg::delta_t delta) override {
-			(void) delta_avg;
+		void loop_processEvents(tickreg::delta_t deltaAvg, tickreg::delta_t delta) override {
+			(void) deltaAvg;
 			(void) delta;
 
 			auto ca = engine->getConcurrentAccess();
@@ -224,66 +304,18 @@ namespace sneka {
 		}
 
 
-		void loop_async_preRender(ske::ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_previous) override {
-			(void) delta_previous;
+		void loop_async_preRender(ske::ConcurrentAccess, tickreg::delta_t deltaAvg, tickreg::delta_t deltaPrevious) override {
+			(void) deltaPrevious;
 
-			delta_avg = std::min(tickreg::delta_t(0.5), delta_avg);
+			deltaAvg = std::min(tickreg::delta_t(0.5), deltaAvg);
 
-			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
-				return (src + (target * bias)) / (1.0f + bias); };
-
-			const auto accelerate = [delta_avg](float value, float delta, float accel) -> float {
-				return value + (delta * delta_avg) + (2.0f * accel * delta_avg);
-			};
-
-			{
-				ske::WorldRenderer& wr = * rproc->worldRenderer();
-				auto state = *sharedState;
-				auto inputLock = std::unique_lock(inputManMutex);
-				auto activeCmds = inputMan.getActiveCommands();
-				signed char cmdShift = 0;
-				for(const auto& [cmd, key] : activeCmds) {
-					if     (cmd == cmdForward ) { cmdShift -= 1; }
-					else if(cmd == cmdBackward) { cmdShift += 1; }
-				}
-				auto rot = wr.getViewRotation();
-				auto* direction = state.lastDir;
-				auto yawDiff = state.yawTarget - rot.x;
-				if(std::abs(yawDiff) > 0.0001f) {
-					constexpr float rotBias = 8.0f;
-					constexpr float pi = std::numbers::pi_v<float>;
-					if(std::abs(yawDiff) < 0.001) {
-						wr.setViewRotation({ state.yawTarget, rot.y, rot.z });
-					} else {
-						if     (yawDiff > +pi) rot.x += pi*2.0f;
-						else if(yawDiff < -pi) rot.x -= pi*2.0f;
-						rot.x = biasedAverage(rot.x, state.yawTarget, rotBias * delta_avg);
-						wr.setViewRotation(rot);
-					}
-				}
-				if(cmdShift == 0) {
-					state.speed = 0.0f;
-				} else {
-					constexpr float speedBias = 4.0f;
-					constexpr float maxSpeed = 6.0f;
-					const auto cmdShiftf = float(cmdShift);
-					auto speedTarget = biasedAverage(state.speed, maxSpeed, speedBias * delta_avg);
-					auto accel = (speedTarget - state.speed) * cmdShiftf;
-					auto vel = state.speed * cmdShiftf;
-					auto pos = wr.getViewPosition();
-					pos.x = accelerate(pos.x, +direction[0] * vel, +direction[0] * accel);
-					pos.z = accelerate(pos.z, -direction[1] * vel, -direction[1] * accel);
-					wr.setViewPosition(pos);
-					state.speed = speedTarget;
-				}
-				*sharedState = state;
-			}
+			updateViewPosRot(deltaAvg);
 		}
 
 
-		virtual void loop_async_postRender(ske::ConcurrentAccess, tickreg::delta_t delta_avg, tickreg::delta_t delta_current) {
-			(void) delta_avg;
-			(void) delta_current;
+		virtual void loop_async_postRender(ske::ConcurrentAccess, tickreg::delta_t deltaAvg, tickreg::delta_t deltaCurrent) {
+			(void) deltaAvg;
+			(void) deltaCurrent;
 			;
 		}
 

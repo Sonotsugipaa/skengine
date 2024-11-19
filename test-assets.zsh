@@ -28,8 +28,8 @@ function link_assets {
 }
 
 function test_assets {
-	local cfg=${1:-Release};
-	echo -ne "\e[H\e[2J\e[3J";
+	local cfg=Release
+	echo -ne "\e[H\e[2J\e[3J"
 	config=$cfg ./build.zsh
 	config=$cfg ./pack.zsh
 	pushd src/cxx/vendored-libraries/fmamdl/
@@ -38,7 +38,7 @@ function test_assets {
 	popd
 	cfg=$cfg convert_images
 	cfg=$cfg link_assets
-	config=$cfg skip_build= ./run.zsh
+	config=$cfg skip_build= ./run.zsh $@
 }
 
 if [[ ! -d /tmp/fmamdl-targets ]]; then mkdir /tmp/fmamdl-targets; fi
