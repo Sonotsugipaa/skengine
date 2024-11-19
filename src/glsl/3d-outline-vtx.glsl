@@ -39,7 +39,7 @@ void main() {
 
 	//viewspace_pos.xyz -= normalize(viewspace_nrm.xyz) * 0.1;
 
-	gl_Position = frame_ubo.proj_transf4 * viewspace_pos;
+	gl_Position = vec4(0, 0, 0, 1);
 	//gl_Position.xy += normalize(viewspace_nrm.xy) * 0.1;
 	//gl_Position.z *= 1.1;
 	//gl_Position.w *= 1.1;
