@@ -9,7 +9,8 @@
 #mit.normal  .set(False, "ground.1.fmat.rgba8u")
 #mit.specular.set(True , 0xFF)
 #mit.emissive.set(True , 0xFF)
-#mi.comment = "[Comment]"
+#mit.specular_exponent = 0.7
+#mi.comment = "[    Free space here: feel free to replace anything within these parentheses (or the parentheses themselves) with miscellaneous information about the file.    ]"
 #with open("/tmp/AAAA.mtl.fma", "wb") as file: fma.write_material(file, mi)
 #
 #

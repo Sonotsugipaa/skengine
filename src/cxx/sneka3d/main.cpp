@@ -45,10 +45,11 @@ namespace sneka {
 		static constexpr float cameraPitch = 0.75f;
 
 		struct CallbackSharedState {
-			signed char lastDir[2] = { 0, -1 };
-			float       yawTarget  = 0.0f;
-			float       speed      = 0.0f;
-			bool        quit       = false;
+			signed char lastDir[2]  = { 0, -1 };
+			float       yawTarget   = 0.0f;
+			float       speed       = 0.0f;
+			float       speedTarget = 0.0f;
+			bool        quit        = false;
 		};
 
 		ske::Engine* engine;
@@ -60,8 +61,6 @@ namespace sneka {
 		ske::ObjectId light;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
-		ske::CommandId cmdForward;
-		ske::CommandId cmdBackward;
 		ske::CommandId cmdLeft;
 		ske::CommandId cmdRight;
 		World world;
@@ -81,13 +80,7 @@ namespace sneka {
 			{
 				auto state = *sharedState;
 				auto inputLock = std::unique_lock(inputManMutex);
-				auto activeCmds = inputMan.getActiveCommands();
-				signed char cmdShift = 0;
 				bool doUpdateViewPos = forceAllUpdates;
-				for(const auto& [cmd, key] : activeCmds) {
-					if     (cmd == cmdForward ) { cmdShift -= 1; }
-					else if(cmd == cmdBackward) { cmdShift += 1; }
-				}
 				auto viewRot = wr.getViewRotation();
 				auto* direction = state.lastDir;
 				auto yawDiff = state.yawTarget - viewRot.x;
@@ -104,20 +97,15 @@ namespace sneka {
 					}
 					doUpdateViewPos = doUpdateViewPos || true;
 				}
-				doUpdateViewPos = doUpdateViewPos || cmdShift != 0;
-				if(cmdShift == 0) {
-					state.speed = 0.0f;
-				}
+				doUpdateViewPos = doUpdateViewPos || state.speedTarget > 0.0f;
 				if(doUpdateViewPos) {
 					constexpr float speedBias = 4.0f;
-					constexpr float maxSpeed = 4.0f;
-					const auto cmdShiftf = float(cmdShift);
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
 					viewRotTransf = glm::rotate(viewRotTransf,  viewRot.x, { 0.0f, 1.0f, 0.0f });
 					viewRotTransf = glm::rotate(viewRotTransf, -viewRot.y, { 1.0f, 0.0f, 0.0f });
-					auto speedTarget = biasedAverage(state.speed, maxSpeed, speedBias * deltaAvg);
-					auto accel = (speedTarget - state.speed) * cmdShiftf;
-					auto vel = state.speed * cmdShiftf;
+					auto speedTarget = biasedAverage(state.speed, -state.speedTarget, speedBias * deltaAvg); // -state.speedTarget: "Forward" is z<0
+					auto accel = (speedTarget - state.speed);
+					auto vel = state.speed;
 					playerHeadPos.x = accelerate(playerHeadPos.x, +direction[0] * vel, +direction[0] * accel);
 					playerHeadPos.z = accelerate(playerHeadPos.z, -direction[1] * vel, -direction[1] * accel);
 					auto viewPos = playerHeadPos;
@@ -152,13 +140,7 @@ namespace sneka {
 				if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
 				world = World::initEmpty(sideLength, sideLength);
 				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				generateWorldNoise(logger, world, std::minstd_rand(NOW_));
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength);
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 2);
-				generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 2);
-				for(unsigned i = 0; i < sideLength / 5; ++i) {
-					generateWorldPath(logger, world, std::minstd_rand(NOW_), sideLength / 4); }
-				#undef NOW_
+				generateWorld(logger, world, std::minstd_rand(NOW_));
 				world.setSceneryModel("world1-scenery.fma");
 				world.setPlayerHeadModel("default-player-head.fma");
 				world.setObjBoostModel("default-boost.fma");
@@ -201,14 +183,10 @@ namespace sneka {
 					state.lastDir[0] = -dir * state.lastDir[1];
 					state.lastDir[1] = +dir * lastDir0;
 					state.yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
-					state.speed = std::min(0.4f, state.speed * 0.7f);
+					state.speed = std::min(0.2f, state.speed * 0.5f);
 				};
-				auto bindKey = [&](SDL_KeyCode kc, std::string ctx) {
-					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActive };
-					return inputMan.bindNewCommand(ske::Binding { key, std::move(ctx) }, nullptr);
-				};
-				cmdForward  = bindKey(SDLK_w, "general");
-				cmdBackward = bindKey(SDLK_s, "general");
+				bindKeyCb(SDLK_w, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->speedTarget += 0.50000f; });
+				bindKeyCb(SDLK_s, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->speedTarget = std::max<float>(0.0f, sharedState->speedTarget - 0.50001f); });
 				bindKeyCb(SDLK_a, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, +1); });
 				bindKeyCb(SDLK_d, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, -1); });
 				bindKeyCb(SDLK_q, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->quit = true; });
@@ -219,7 +197,7 @@ namespace sneka {
 			float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
-				{ }, { }, { }, { 0.95f, 0.95f, 0.95f }, false };
+				{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
 			auto tryCreate = [&](std::string_view mdl) {
 				newObject.model_locator = mdl;
 				try { return os.createObject(tc, newObject); }
@@ -228,7 +206,15 @@ namespace sneka {
 			};
 			for(size_t y = 0; y < world.height(); ++ y)
 			for(size_t x = 0; x < world.width();  ++ x) {
+				auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
+				bool invert = std::uniform_int_distribution<unsigned>(0, 1)(rng) == 1;
 				newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
+				newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
+				newObject.scale_xyz.z *= invert? -1.0f : +1.0f;
+				newObject.direction_ypr = {
+					0.5f * std::numbers::pi_v<float> * float(std::uniform_int_distribution<unsigned>(0, 3)(rng)),
+					0.0f,
+					0.0f };
 				switch(world.tile(x, y)) {
 					case GridObjectClass::eBoost: tryCreate(world.getObjBoostModel()); break;
 					case GridObjectClass::ePoint: tryCreate(world.getObjPointModel()); break;
