@@ -78,25 +78,37 @@ namespace sneka {
 			};
 
 			{
+				constexpr float viewRotBias = 8.0f;
+				constexpr float headRotBias = 9.0f;
 				auto state = *sharedState;
 				auto inputLock = std::unique_lock(inputManMutex);
 				bool doUpdateViewPos = forceAllUpdates;
 				auto viewRot = wr.getViewRotation();
+				auto playerHead = [&]() { auto r = os.getObject(this->playerHead); return (r.has_value()? *r.value() : ske::Object { }); } ();
+				auto newHeadRot = playerHead.direction_ypr;
 				auto* direction = state.lastDir;
-				auto yawDiff = state.yawTarget - viewRot.x;
-				if(std::abs(yawDiff) > 0.0001f) {
-					constexpr float rotBias = 8.0f;
-					constexpr float pi = std::numbers::pi_v<float>;
-					if(std::abs(yawDiff) < 0.001) {
-						wr.setViewRotation({ state.yawTarget, viewRot.y, viewRot.z });
-					} else {
-						if     (yawDiff > +pi) viewRot.x += pi*2.0f;
-						else if(yawDiff < -pi) viewRot.x -= pi*2.0f;
-						viewRot.x = biasedAverage(viewRot.x, state.yawTarget, rotBias * deltaAvg);
-						wr.setViewRotation(viewRot);
+				auto recomputeYawTowards =
+					[&]
+					<typename Fn>
+					(float from, float to, float bias, bool* setToTrue, Fn&& fn)
+				{
+					auto yawDiff = to - from;
+					auto yawDiffAbs = std::abs(yawDiff);
+					if(yawDiffAbs > 0.0001f) {
+						constexpr float pi = std::numbers::pi_v<float>;
+						if(yawDiffAbs < 0.001) {
+							std::forward<Fn>(fn)({ state.yawTarget });
+						} else {
+							if     (yawDiff > +pi) from += pi*2.0f;
+							else if(yawDiff < -pi) from -= pi*2.0f;
+							from = biasedAverage(from, state.yawTarget, bias * deltaAvg);
+							std::forward<Fn>(fn)(from);
+						}
+						if(setToTrue != nullptr) *setToTrue = true;
 					}
-					doUpdateViewPos = doUpdateViewPos || true;
-				}
+				};
+				recomputeYawTowards(viewRot.x   , state.yawTarget, viewRotBias, &doUpdateViewPos, [&](float v) { wr.setViewRotation({ v, viewRot.y, viewRot.z }); });
+				recomputeYawTowards(newHeadRot.x, state.yawTarget, headRotBias, &doUpdateViewPos, [&](float v) { newHeadRot.x = v; });
 				doUpdateViewPos = doUpdateViewPos || state.speedTarget > 0.0f;
 				if(doUpdateViewPos) {
 					constexpr float speedBias = 4.0f;
@@ -115,10 +127,11 @@ namespace sneka {
 					state.speed = speedTarget;
 				}
 				*sharedState = state;
-				if(playerHead != idgen::invalidId<ske::ObjectId>()) {
-					auto mod = os.modifyObject(playerHead);
+				if(this->playerHead != idgen::invalidId<ske::ObjectId>())
+				if(playerHead.position_xyz != playerHeadPos || playerHead.direction_ypr != newHeadRot) {
+					auto mod = os.modifyObject(this->playerHead);
 					mod->position_xyz = playerHeadPos;
-					mod->direction_ypr.x = viewRot.x;
+					mod->direction_ypr = newHeadRot;
 				}
 			}
 		}
