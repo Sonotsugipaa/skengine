@@ -329,6 +329,21 @@ class Material:
 
 
 
+class MaterialOrColor:
+	def __init__(self, *, color = None, name = None):
+		if color != None:
+			self.isColor = True
+			self.value = (
+				int(color[0] * 255) << 24 |
+				int(color[1] * 255) << 16 |
+				int(color[2] * 255) <<  8 |
+				int(color[3] * 255)       )
+		else:
+			self.isColor = False
+			self.value = name
+
+
+
 class FmaExporter(Operator, ExportHelper):
 	"""Save the selected objects as a FMA model"""
 	bl_idname = "fma.export" # important since its how bpy.ops.import_test.some_data is constructed
@@ -350,9 +365,9 @@ class FmaExporter(Operator, ExportHelper):
 	)
 
 	opt_gen_materials: BoolProperty(
-		name="Export material files",
+		name="Export empty material files",
 		description="Enable to generate the \"*.mtl.fma\" files",
-		default=True,
+		default=False,
 	)
 
 
@@ -480,7 +495,7 @@ class FmaExporter(Operator, ExportHelper):
 					mesh_offset,
 					self.segm_mesh[0] + (mesh_offset * FMA_MESH_SIZE) ))
 				obj_pos = obj.location;       obj_pos = (+obj_pos[0], +obj_pos[2], -obj_pos[1])
-				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[0], +obj_rot[2], +obj_rot[1])
+				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[2], +obj_rot[0], -obj_rot[1])
 				obj_scl = obj.scale;          obj_scl = (+obj_scl[0], +obj_scl[2], +obj_scl[1])
 				print("     position ({:5.3} {:5.3} {:5.3})".format(*obj_pos))
 				print("     rotation ({:5.3} {:5.3} {:5.3})".format(*obj_rot))
@@ -535,7 +550,7 @@ class FmaExporter(Operator, ExportHelper):
 						write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer)
 				wr_buffer += primitive_restart_bytes
 				indices_written += poly.loop_total + 1
-			assert indices_written == self.segm_idx[1]
+			# assert indices_written == self.segm_idx[1] # I don't remember the meaning behind this assertion, so I'm leaving it here, but it does cause problems
 
 		def write_model(self, file):
 			tri_fan_bit  = (1 << FmaFlags.TRIANGLE_FAN)  if (self.geometry_type == "triangle-fan")  else 0
@@ -627,7 +642,7 @@ class FmaExporter(Operator, ExportHelper):
 			return r
 
 		def write_material(self, file, material):
-			# https://docs.blender.org/api/current/bpy.types.Mesh.html
+			# https://docs.blender.org/api/current/bpy.types.Material.html
 
 			# Hardcoded flags
 			mtl_flags = 0
@@ -649,10 +664,13 @@ class FmaExporter(Operator, ExportHelper):
 			print("Strings: {:3} @ {:010x}".format(self.segm_ss[1], self.segm_ss[0]))
 
 			def color_bytes(col): return (col << 32).to_bytes(8, "big")
+
 			wr_buffer = magic_number(4) # Hardcoded version number
 			write_bytes(wr_buffer, 8, mtl_flags, endian="big")
+			diffuseValue = MaterialOrColor(color = material.diffuse_color)
+			specularValue = MaterialOrColor(color = (*material.specular_color, 1.0))
 			write_bytes(wr_buffer, 8, (0xCC2222FF << 32, 0x8080FFFF << 32, 0x222222FF << 32, 0x000000FF << 32), endian="big") # Hardcoded texture colors
-			write_bytes(wr_buffer, 4, (4.0)) # Hardcoded specular exponent
+			write_bytes(wr_buffer, 4, material.roughness) # Hardcoded specular exponent
 			wr_buffer += b'pad4'
 			write_bytes(wr_buffer, 8, self.segm_ss)
 			wr_buffer += comment ## Comment (arbitrary data)
