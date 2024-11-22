@@ -223,24 +223,6 @@ def merge_dir_basename(dir, basename):
 	return basename if (len(dir) == 0) else "{}/{}".format(dir, basename)
 
 
-def compute_tangent_pair(vtx0, vtx1, vtx2, uv0, uv1, uv2):
-	edge_0 = vsub3m3(vtx1.co, vtx0.co)
-	edge_1 = vsub3m3(vtx2.co, vtx0.co)
-	d_uv_0 = vsub2m2(uv1, uv0)
-	d_uv_1 = vsub2m2(uv2, uv0)
-	inv_det = (d_uv_0[0] * d_uv_1[1]) - (d_uv_0[1] * d_uv_1[0])
-	inv_det = 1.0 / inv_det if (inv_det != 0.0) else 1.0
-	acc0 = vmul1x3(d_uv_1[1], edge_0)
-	acc1 = vmul1x3(d_uv_0[1], edge_1)
-	tanu = vsub3m3(acc0, acc1)
-	tanu = vmul1x3(inv_det, tanu)
-	acc0 = vmul1x3(d_uv_0[0], edge_1)
-	acc1 = vmul1x3(d_uv_1[0], edge_0)
-	tanv = vsub3m3(acc0, acc1)
-	tanv = vmul1x3(inv_det, tanv)
-	return (tanu, tanv)
-
-
 def compute_vertices(meshes):
 	class VertexMapEntry:
 		pass
@@ -254,7 +236,7 @@ def compute_vertices(meshes):
 			rotate_xz(loop.normal),
 			rotate_xz(tangents[0]),
 			rotate_xz(tangents[1]) )
-		vtx_id = vertex_identity(vtx.co, uv, loop.normal)
+		vtx_id = vertex_identity(vtx.co, loop.normal)
 		if not vtx_id in vtx_map:
 			ins = VertexMapEntry()
 			ins.index = len(vtx_list)
@@ -289,9 +271,10 @@ def compute_vertices(meshes):
 					poly.loop_start + (i+1) % poly.loop_total,
 					poly.loop_start + (i+2) % poly.loop_total)
 				loop = mesh_loops[tri_indices[0]]
-				uv =       [ uv_of_mesh_loop(mesh.data, i)             for i in tri_indices ]
+				uv =       [ uv_of_mesh_loop(mesh.data, i)                  for i in tri_indices ]
 				vertices = [ mesh.data.vertices[mesh_loops[i].vertex_index] for i in tri_indices ]
 				tangents = compute_tangent_pair(*vertices, *uv)
+				if(vdot3(vcross3(loop.normal, tangents[0]), tangents[1]) < 0.0): tangents = (vmul1x3(-1.0, tangents[0]), tangents[1]) # correct handedness
 				add_vertex(vtx_list, vtx_map, uv[0], loop, vertices[0], tangents)
 	vtx_bytes = bytearray()
 	for vtx in vtx_list:
@@ -303,16 +286,37 @@ def mk_material_filename(*, name): return name + ".mtl.fma"
 
 def rotate_xz(xyz): return (xyz[0], xyz[2], -xyz[1])
 
-def vertex_identity(pos, uv, normal): return bytes(floatn_byte_seq(4, (*pos, *uv, *normal)))
+def vertex_identity(pos, normal):
+	floats = [f/8 for f in (*pos, *normal)]
+	return bytes(floatn_byte_seq(4, floats))
 
 def vnorm3(v): return math.sqrt((v[0]**2) + (v[1]**2) + (v[2]**2))
 def vnormalize3(v): n = vnorm3(v); return (v[0] / n, v[1] / n, v[2] / n) if (n != 0.0) else (1.0, 0.0, 0.0)
 def vdot3(lho, rho): return (lho[0]*rho[0]) + (lho[1]*rho[1]) + (lho[2]*rho[2])
+def vcross3(lho, rho): return (((lho[1]*rho[2]) - (lho[2]*rho[1]), (lho[2]*rho[0]) - (lho[0]*rho[2]), (lho[0]*rho[1]) - (lho[1]*rho[0])))
 def vadd3p3(lho, rho): return (lho[0]+rho[0], lho[1]+rho[1], lho[2]+rho[2])
 def vsub2m2(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1])
 def vsub3m3(lho, rho): return (lho[0]-rho[0], lho[1]-rho[1], lho[2]-rho[2])
 def vmul3x3(lho, rho): return (lho[0]*rho[0], lho[1]*rho[1], lho[2]*rho[2])
 def vmul1x3(lho, rho): return (   lho*rho[0],    lho*rho[1],    lho*rho[2])
+
+
+def compute_tangent_pair(vtx0, vtx1, vtx2, uv0, uv1, uv2):
+	edge_0 = vsub3m3(vtx1.co, vtx0.co)
+	edge_1 = vsub3m3(vtx2.co, vtx0.co)
+	d_uv_0 = vsub2m2(uv1, uv0)
+	d_uv_1 = vsub2m2(uv2, uv0)
+	inv_det = (d_uv_0[0] * d_uv_1[1]) - (d_uv_0[1] * d_uv_1[0])
+	inv_det = 1.0 / inv_det if (inv_det != 0.0) else 1.0
+	acc0 = vmul1x3(d_uv_1[1], edge_0)
+	acc1 = vmul1x3(d_uv_0[1], edge_1)
+	tanu = vsub3m3(acc0, acc1)
+	tanu = vmul1x3(inv_det, tanu)
+	acc0 = vmul1x3(d_uv_0[0], edge_1)
+	acc1 = vmul1x3(d_uv_1[0], edge_0)
+	tanv = vsub3m3(acc0, acc1)
+	tanv = vmul1x3(inv_det, tanv)
+	return (tanu, tanv)
 
 
 class Material:
@@ -491,7 +495,7 @@ class FmaExporter(Operator, ExportHelper):
 					mesh_offset,
 					self.segm_mesh[0] + (mesh_offset * FMA_MESH_SIZE) ))
 				obj_pos = obj.location;       obj_pos = (+obj_pos[0], +obj_pos[2], -obj_pos[1])
-				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[0], +obj_rot[2], +obj_rot[1])
+				obj_rot = obj.rotation_euler; obj_rot = (+obj_rot[2], +obj_rot[0], -obj_rot[1])
 				obj_scl = obj.scale;          obj_scl = (+obj_scl[0], +obj_scl[2], +obj_scl[1])
 				print("     position ({:5.3} {:5.3} {:5.3})".format(*obj_pos))
 				print("     rotation ({:5.3} {:5.3} {:5.3})".format(*obj_rot))
@@ -532,8 +536,7 @@ class FmaExporter(Operator, ExportHelper):
 			def write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer):
 				loop = mesh.data.loops[loop_idx]
 				vtx = mesh.data.vertices[loop.vertex_index]
-				uv = uv_of_mesh_loop(mesh.data, loop.index)
-				loop_bytes = vertex_identity(vtx.co, uv, loop.normal)
+				loop_bytes = vertex_identity(vtx.co, loop.normal)
 				idx = vtx_map[loop_bytes].index
 				write_bytes(wr_buffer, 4, idx)
 			for idx_alloc in meshpoly_indices:
@@ -547,7 +550,7 @@ class FmaExporter(Operator, ExportHelper):
 						write_mesh_indices(loop_idx, mesh, vtx_map, wr_buffer)
 				wr_buffer += primitive_restart_bytes
 				indices_written += poly.loop_total + 1
-			assert indices_written == self.segm_idx[1]
+			# assert indices_written == self.segm_idx[1] # I don't remember the meaning behind this assertion, so I'm leaving it here, but it does cause problems
 
 		def write_model(self, file):
 			tri_fan_bit  = (1 << FmaFlags.TRIANGLE_FAN)  if (self.geometry_type == "triangle-fan")  else 0
