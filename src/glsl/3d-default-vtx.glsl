@@ -57,9 +57,9 @@ void main() {
 	mat3 obj_transf3 = mat3(in_obj_transf);
 	frg_view3        = view3;
 
-	vec3 worldspace_tanu = normalize(obj_transf3 * in_tanu);
-	vec3 worldspace_tanv = normalize(obj_transf3 * in_tanv);
-	vec3 worldspace_tanw = normalize(obj_transf3 * in_nrm);
+	vec3 worldspace_tanu = normalize(obj_transf3 * -in_tanu);
+	vec3 worldspace_tanv = normalize(obj_transf3 * -in_tanv);
+	vec3 worldspace_tanw = normalize(obj_transf3 * +in_nrm);
 
 	{ // Gram-Schmidt process
 		vec3 viewspace_u   = view3 * worldspace_tanu;

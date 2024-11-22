@@ -84,7 +84,7 @@ namespace sneka {
 		auto w = dst.width();
 		auto h = dst.height();
 		assert(w * h > 0);
-		float objCountRel = genFloat(0.4f, 0.7f);
+		float objCountRel = genFloat(0.4f, 0.95f);
 		float wallToObstRatio = genFloat(0.5f, 2.0f);
 		unsigned objCount = float(w * h) * objCountRel;
 		const unsigned attemptLimitInit = objCount * (1.0f / (1.0f - objCountRel));
@@ -135,9 +135,10 @@ namespace sneka {
 		comp_t minPathTiles = genInt(comp_t(4), std::min(w, h) / comp_t(2));
 		comp_t maxPathTiles = fcomp_t(w) * fcomp_t(h) / fcomp_t(2);
 
-		float tJunctionProb = genFloat(0.05f, 0.3f);
+		float tJunctionProb = genFloat(0.3l, 0.6l) / (((long double)(minPathTiles) + (long double)(maxPathTiles)) / 2.0l);
 		float xJunctionProb = genFloat(0.4f, 0.9f);
-		float targetJunctionProb = genFloat(0.1f, 0.9f);
+		float targetJunctionProb = genFloat(0.05f, 0.3f);
+		float deadEndProb = genFloat(0.005f, 0.3f);
 		float diagonalCompBias = genFloat(0.4f, 0.6f);
 		comp_t stopAtTilesLeft = genInt(w / comp_t(2), (w * comp_t(3)) / comp_t(2));
 
@@ -146,10 +147,16 @@ namespace sneka {
 		};
 
 		auto randomJunction = [&]() -> auto {
+			assert(! junctionMap.empty() /* Not *necessary*, but it likely results in unreachable path tiles */);
 			if(junctionMap.empty()) [[unlikely]] return randomPos();
 			auto rndIdx = genInt(0, junctionMap.size() - 1);
 			assert(junctionMap.contains(rndIdx));
 			return junctionMap.find(rndIdx)->second;
+		};
+
+		auto addJunction = [&](const Pos& p) {
+			junctionMap.insert({ junctionSet.size(), p });
+			junctionSet.insert(p);
 		};
 
 		auto carveAxisAligned = [&](Pos curPos, const Pos& endPos, bool vertical, GridObjectClass obj) {
@@ -171,11 +178,11 @@ namespace sneka {
 				move();
 			}
 			while(cond()) {
-				if(rollProb(tJunctionProb)) junctionSet.insert(curPos);
+				if(rollProb(tJunctionProb)) addJunction(curPos);
 				move();
 			}
 			dst.tile(curPos.x, curPos.y) = obj;
-			if(rollProb(xJunctionProb)) junctionSet.insert(curPos);
+			if(rollProb(xJunctionProb)) addJunction(curPos);
 			return curPos;
 		};
 
@@ -190,10 +197,12 @@ namespace sneka {
 		generateWorldNoise(std::forward<Logger>(logger), dst, std::forward<Rng>(rng));
 		util::SteadyTimer<> timer;
 		auto startingPoint = randomPos();
+		addJunction(startingPoint);
 		while((minPathTiles < stopAtTilesLeft) && (maxPathTiles > stopAtTilesLeft)) {
 			bool targetJunction = rollProb(targetJunctionProb);
 			auto target = targetJunction? randomJunction() : randomPos();
 			startingPoint = carveDiagonal(startingPoint, target, GridObjectClass::eNoObject);
+			if(rollProb(deadEndProb)) { startingPoint = randomJunction(); }
 		}
 		logger.info(
 			"Generated world paths [{}ms]",

@@ -58,7 +58,9 @@ namespace sneka {
 		ske::InputManager inputMan;
 		std::mutex inputManMutex;
 		glm::vec3 playerHeadPos;
-		ske::ObjectId light;
+		ske::ObjectId light0;
+		ske::ObjectId light1;
+		ske::ObjectId skyLight;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
 		ske::CommandId cmdLeft;
@@ -111,7 +113,7 @@ namespace sneka {
 				recomputeYawTowards(newHeadRot.x, state.yawTarget, headRotBias, &doUpdateViewPos, [&](float v) { newHeadRot.x = v; });
 				doUpdateViewPos = doUpdateViewPos || state.speedTarget > 0.0f;
 				if(doUpdateViewPos) {
-					constexpr float speedBias = 4.0f;
+					constexpr float speedBias = 2.0f;
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
 					viewRotTransf = glm::rotate(viewRotTransf,  viewRot.x, { 0.0f, 1.0f, 0.0f });
 					viewRotTransf = glm::rotate(viewRotTransf, -viewRot.y, { 1.0f, 0.0f, 0.0f });
@@ -129,10 +131,14 @@ namespace sneka {
 				*sharedState = state;
 				if(this->playerHead != idgen::invalidId<ske::ObjectId>())
 				if(playerHead.position_xyz != playerHeadPos || playerHead.direction_ypr != newHeadRot) {
-					auto mod = os.modifyObject(this->playerHead);
-					mod->position_xyz = playerHeadPos;
-					mod->direction_ypr = newHeadRot;
+					{ auto mod = os.modifyObject(this->playerHead);
+						mod->position_xyz = playerHeadPos;
+						mod->direction_ypr = newHeadRot; }
 				}
+				{ auto& mod = wr.modifyPointLight(this->light0);
+					mod.position.x = playerHeadPos.x;
+					mod.position.y = playerHeadPos.y + 0.7f;
+					mod.position.z = playerHeadPos.z; }
 			}
 		}
 
@@ -158,8 +164,8 @@ namespace sneka {
 				world.setPlayerHeadModel("default-player-head.fma");
 				world.setObjBoostModel("default-boost.fma");
 				world.setObjPointModel("default-point.fma");
-				world.setObjObstacleModel("default-obstacle.fma");
-				world.setObjWallModel("default-wall.fma");
+				world.setObjObstacleModel("crate-obstacle.fma");
+				world.setObjWallModel("crate-wall.fma");
 				world.toFile(worldFilename);
 			};
 			try {
@@ -254,13 +260,23 @@ namespace sneka {
 				engine->logger().error("Failed to load file for model \"{}\" (errno {})", world.getSceneryModel(), e.errcode);
 			}
 			wr.setViewRotation({ 0.0f, cameraPitch, 0.0f });
-			updateViewPosRot(0.0, true);
 			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
-			light = wr.createPointLight(ske::WorldRenderer::NewPointLight {
-				.position = { 1.4f * xGridCenter, 10.0f, 1.1f * yGridCenter },
+			light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+				.position = { },
+				.color = { 0.4f, 0.4f, 1.0f },
+				.intensity = 0.8f,
+				.falloffExponent = 0.8f });
+			light1 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+				.position = { -0.9f * xGridCenter, 10.0f, -0.8f * yGridCenter },
 				.color = { 0.9f, 0.9f, 1.0f },
-				.intensity = 4.0f,
-				.falloffExponent = 0.5f });
+				.intensity = 12.0f,
+				.falloffExponent = 0.9f });
+			skyLight = wr.createRayLight(ske::WorldRenderer::NewRayLight {
+				.direction = { 0.0f, -1.0f, 0.0f },
+				.color = { 0.9f, 0.9f, 1.0f },
+				.intensity = 0.7f,
+				.aoaThreshold = 0.3f });
+			updateViewPosRot(0.0, true);
 
 			sharedState->quit = false;
 		}
@@ -348,7 +364,7 @@ int main(int argn, char** argv) {
 		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
 		prefs.target_framerate      = 72.0f;
 		prefs.target_tickrate       = 60.0f;
-		prefs.fov_y                 = glm::radians(80.0f);
+		prefs.fov_y                 = glm::radians(90.0f);
 		prefs.shade_step_count      = 12;
 		prefs.shade_step_smoothness = 0.3f;
 		prefs.shade_step_exponent   = 4.0f;
