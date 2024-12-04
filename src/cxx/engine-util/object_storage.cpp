@@ -33,8 +33,6 @@ namespace SKENGINE_NAME_NS {
 
 		constexpr size_t OBJECT_MAP_INITIAL_CAPACITY_KB = 32;
 		constexpr float  OBJECT_MAP_MAX_LOAD_FACTOR     = 2;
-		constexpr size_t MODEL_MAP_INITIAL_CAPACITY_KB  = 2;
-		constexpr float  MODEL_MAP_MAX_LOAD_FACTOR      = 0.8;
 		constexpr size_t BATCH_MAP_INITIAL_CAPACITY_KB  = 16;
 		constexpr float  BATCH_MAP_MAX_LOAD_FACTOR      = 0.8;
 		constexpr size_t UNBOUND_BATCH_LEVEL_1_INIT_CAP = 16;
@@ -227,15 +225,15 @@ namespace SKENGINE_NAME_NS {
 				ObjectStorage::Objects& objects,
 				ObjectStorage::ObjectUpdates& object_updates,
 				Logger& log,
-				ModelId id,
-				std::string_view locator
+				ModelId id
 		) {
 			std::vector<ObjectId> rm_objects;
 			for(auto& obj : objects) {
 				if(obj.second.first.model_id == id) [[unlikely]] {
+					// This is not an error, but ideally this shouldn't happen
 					log.warn(
-						"Renderer: removing model \"{}\", still in use for object {}",
-						locator,
+						"Renderer: removing model {}, still in use for object {}",
+						model_id_e(id),
 						object_id_e(obj.first) );
 					rm_objects.push_back(obj.first);
 				}
@@ -308,11 +306,9 @@ namespace SKENGINE_NAME_NS {
 		r.mLogger = std::move(logger);
 		r.mWrSharedState = std::move(wrSharedState);
 		r.mAssetSupplier = &asset_supplier;
-		r.mObjects             = decltype(mObjects)            (1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(decltype(mObjects)::value_type));
-		r.mModelLocators       = decltype(mModelLocators)      (1024 * MODEL_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mModelLocators)::value_type));
-		r.mUnboundDrawBatches  = decltype(mUnboundDrawBatches) (1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mUnboundDrawBatches)::value_type));
+		r.mObjects            = decltype(mObjects)            (1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(decltype(mObjects)::value_type));
+		r.mUnboundDrawBatches = decltype(mUnboundDrawBatches) (1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mUnboundDrawBatches)::value_type));
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
-		r.mModelLocators.     max_load_factor(MODEL_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
 		r.mDpool         = nullptr;
 		r.mDpoolCapacity = 0;
@@ -372,13 +368,19 @@ namespace SKENGINE_NAME_NS {
 		assert(mVma != nullptr);
 
 		auto new_obj_id = id_generator<ObjectId>.generate();
-		auto model_id   = getModelId(transfCtx, ins.model_locator);
-		auto model      = assert_not_nullptr_(getModel(model_id));
+		auto model = getModel(ins.model_id);
+		if(model == nullptr) model = & setModel(ins.model_id, mAssetSupplier->requestModel(ins.model_id, transfCtx));
 
-		++ mModelDepCounters[model_id];
+		// Create needed device materials if they don't exist yet
+		for(auto& bone : model->bones)
+		if(nullptr == getMaterial(bone.material_id)) {
+			setMaterial(bone.material_id, mAssetSupplier->requestMaterial(bone.material_id, transfCtx));
+		}
+
+		++ mModelDepCounters[ins.model_id];
 
 		Object new_obj = {
-			.model_id = model_id,
+			.model_id = ins.model_id,
 			.position_xyz  = ins.position_xyz,
 			.direction_ypr = ins.direction_ypr,
 			.scale_xyz     = ins.scale_xyz,
@@ -388,32 +390,30 @@ namespace SKENGINE_NAME_NS {
 		bone_instances.reserve(model->bones.size());
 
 		for(bone_id_e i = 0; auto& bone : model->bones) {
-			auto material_id = getMaterialId(transfCtx, bone.material);
-
 			bone_instances.push_back(BoneInstance {
-				.model_id    = model_id,
-				.material_id = material_id,
+				.model_id    = ins.model_id,
+				.material_id = bone.material_id,
 				.object_id   = new_obj_id,
 				.color_rgba    = { 1.0f, 1.0f, 1.0f, 1.0f },
 				.position_xyz  = { 0.0f, 0.0f, 0.0f },
 				.direction_ypr = { 0.0f, 0.0f, 0.0f },
 				.scale_xyz     = { 1.0f, 1.0f, 1.0f } });
 
-			auto& model_slot          = assert_not_end_(mUnboundDrawBatches, model_id)->second;
+			auto& model_slot          = assert_not_end_(mUnboundDrawBatches, ins.model_id)->second;
 			auto& bone_slot           = assert_not_end_(model_slot, i)->second;
-			auto  material_batch_iter = bone_slot.find(material_id);
+			auto  material_batch_iter = bone_slot.find(bone.material_id);
 			if(material_batch_iter == bone_slot.end()) {
 				auto ins = UnboundDrawBatch {
 					.object_refs = decltype(UnboundDrawBatch::object_refs)(8),
-					.material_id = material_id,
+					.material_id = bone.material_id,
 					.model_bone_index = i };
 				ins.object_refs.max_load_factor(UNBOUND_DRAW_BATCH_LOAD_FAC);
 				ins.object_refs.insert(new_obj_id);
-				bone_slot.insert(UnboundBatchMap::mapped_type::mapped_type::value_type(material_id, ins));
+				bone_slot.insert(UnboundBatchMap::mapped_type::mapped_type::value_type(bone.material_id, ins));
 			} else {
 				auto& batch = material_batch_iter->second;
 				batch.object_refs.insert(new_obj_id);
-				assert(batch.material_id == material_id);
+				assert(batch.material_id == bone.material_id);
 			}
 
 			++ i;
@@ -441,7 +441,6 @@ namespace SKENGINE_NAME_NS {
 		-- model_dep_counter_iter->second;
 		mObjects.erase(obj_iter);
 		mObjectUpdates.erase(id);
-		id_generator<ObjectId>.recycle(id);
 
 		if(model_dep_counter_iter->second == 0) {
 			mModelDepCounters.erase(model_dep_counter_iter);
@@ -457,10 +456,9 @@ namespace SKENGINE_NAME_NS {
 			// Remove the references from the unbound draw batches
 			assert(obj.second.size() == model.bones.size() /* The Nth object bone instance refers to the model's Nth bone */);
 			for(bone_id_e i = 0; auto& bone : model.bones) {
-				auto& material_id     = assert_not_end_(mMaterialLocators, bone.material)->second;
 				auto  model_slot_iter = assert_not_end_(mUnboundDrawBatches, obj.first.model_id);
 				auto  bone_iter       = assert_not_end_(model_slot_iter->second, i);
-				auto  batch_iter      = assert_not_end_(bone_iter->second, material_id);
+				auto  batch_iter      = assert_not_end_(bone_iter->second, bone.material_id);
 				auto& obj_refs        = batch_iter->second.object_refs;
 				[[maybe_unused]]
 				std::size_t erased = obj_refs.erase(id);
@@ -518,18 +516,6 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ModelId ObjectStorage::getModelId(TransferContext transfCtx, std::string_view locator) {
-		auto found_locator = mModelLocators.find(locator);
-
-		if(found_locator != mModelLocators.end()) {
-			return found_locator->second;
-		} else {
-			auto r = setModel(transfCtx, locator, mAssetSupplier->requestModel(locator, transfCtx));
-			return r;
-		}
-	}
-
-
 	const ObjectStorage::ModelData* ObjectStorage::getModel(ModelId id) const noexcept {
 		auto found = mModels.find(id);
 		if(found == mModels.end()) return nullptr;
@@ -537,28 +523,11 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	ModelId ObjectStorage::setModel(TransferContext transfCtx, std::string_view locator, DevModel model) {
-		auto    found_locator = mModelLocators.find(locator);
-		ModelId id;
-
-		// Generate a new ID, or remove the existing one and reassign it
-		if(found_locator != mModelLocators.end()) { // Remove the existing ID and reassign it
-			id = found_locator->second;
-			mLogger.debug("ObjectStorage: reassigning model \"{}\" with ID {}", locator, model_id_e(id));
-
-			std::string locator_s = std::string(locator); // Dangling `locator` string_view
-			eraseModel(transfCtx, found_locator->second);
-			auto ins = mModels.insert_or_assign(id, ModelData(model, locator_s));
-			locator = ins.first->second.locator; // Again, `locator` was dangling
-		} else {
-			id = id_generator<ModelId>.generate();
-			mLogger.trace("ObjectStorage: associating model \"{}\" with ID {}", locator, model_id_e(id));
-		}
+	ObjectStorage::ModelData& ObjectStorage::setModel(ModelId id, DevModel model) {
+		mLogger.trace("ObjectStorage: creating model device data for ID {}", model_id_e(id));
 
 		// Insert the model data (with the backing string) first
-		auto  model_ins = mModels.insert(ModelMap::value_type(id, { model, std::string(locator) }));
-		auto& locator_r = model_ins.first->second.locator;
-		mModelLocators.insert(ModelLookup::value_type(locator_r, id));
+		auto model_ins = mModels.insert(ModelMap::value_type(id, { model, id }));
 		auto batch_ins = mUnboundDrawBatches.insert(UnboundBatchMap::value_type(id, UnboundBatchMap::mapped_type(UNBOUND_BATCH_LEVEL_1_INIT_CAP)));
 		batch_ins.first->second.max_load_factor(UNBOUND_BATCH_LEVEL_1_LOAD_FAC);
 
@@ -570,13 +539,13 @@ namespace SKENGINE_NAME_NS {
 			bone_ins.first->second.max_load_factor(UNBOUND_BATCH_LEVEL_2_LOAD_FAC);
 		}
 
-		return id;
+		return model_ins.first->second;
 	}
 
 
 	void ObjectStorage::eraseModel(TransferContext transfCtx, ModelId id) noexcept {
 		auto& model_data = assert_not_end_(mModels, id)->second;
-		if(erase_objects_with_model(mObjects, mObjectUpdates, mLogger, id, model_data.locator)) {
+		if(erase_objects_with_model(mObjects, mObjectUpdates, mLogger, id)) {
 			mBatchesNeedUpdate = true;
 		}
 		eraseModelNoObjectCheck(transfCtx, id, model_data);
@@ -584,14 +553,10 @@ namespace SKENGINE_NAME_NS {
 
 
 	void ObjectStorage::eraseModelNoObjectCheck(TransferContext transfCtx, ModelId id, ModelData& model_data) noexcept {
-		// Move the string out of the models storage, we'll need it later
-		auto model_locator = std::move(model_data.locator);
-
 		{ // Seek materials to release
-			auto candidates = std::unordered_map<MaterialId, std::string_view>(model_data.bones.size());
+			auto candidates = std::unordered_set<MaterialId>(model_data.bones.size());
 			for(auto& bone : model_data.bones) {
-				auto material_id = assert_not_end_(mMaterialLocators, bone.material)->second;
-				candidates.insert(decltype(candidates)::value_type(material_id, std::string_view(bone.material)));
+				candidates.insert(decltype(candidates)::value_type(bone.material_id));
 			}
 
 			std::vector<decltype(candidates)::value_type> erase_queue;
@@ -601,7 +566,7 @@ namespace SKENGINE_NAME_NS {
 				for(auto& model : mModels)
 				if(model.first != id) [[likely]]
 				for(auto& bone : model.second.bones) {
-					if(bone.material == candidate.second) return;
+					if(bone.material_id == candidate) return;
 				}
 				erase_queue.push_back(candidate);
 			};
@@ -610,29 +575,15 @@ namespace SKENGINE_NAME_NS {
 			candidates = { };
 
 			for(auto& material : erase_queue) {
-				mLogger.trace("ObjectStorage: removed unused material {}, \"{}\"", material_id_e(material.first), material.second);
-				eraseMaterial(transfCtx, material.first);
+				mLogger.trace("ObjectStorage: removed unused material {}", material_id_e(material));
+				eraseMaterial(transfCtx, material);
 			}
 		}
 
-		mModelLocators.erase(model_locator);
-
 		mUnboundDrawBatches.erase(id);
-		mAssetSupplier->releaseModel(model_locator, transfCtx);
-		mLogger.trace("ObjectStorage: removed model \"{}\"", model_locator);
+		mAssetSupplier->releaseModel(id, transfCtx);
+		mLogger.trace("ObjectStorage: removed model {}", model_id_e(id));
 		mModels.erase(id); // Moving this line upward has already caused me some dangling string problems, I'll just leave this warning here
-		id_generator<ModelId>.recycle(id);
-	}
-
-
-	MaterialId ObjectStorage::getMaterialId(TransferContext transfCtx, std::string_view locator) {
-		auto found_locator = mMaterialLocators.find(locator);
-
-		if(found_locator != mMaterialLocators.end()) {
-			return found_locator->second;
-		} else {
-			return setMaterial(transfCtx, locator, mAssetSupplier->requestMaterial(locator, transfCtx));
-		}
 	}
 
 
@@ -643,34 +594,15 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	MaterialId ObjectStorage::setMaterial(TransferContext transfCtx, std::string_view locator, Material material) {
-		auto found_locator = mMaterialLocators.find(locator);
-		MaterialId id;
-
+	ObjectStorage::MaterialData& ObjectStorage::setMaterial(MaterialId id, Material material) {
 		MaterialMap::iterator material_ins;
 
-		// Generate a new ID, or remove the existing one and reassign it
-		if(found_locator != mMaterialLocators.end()) {
-			id = found_locator->second;
-			mLogger.debug("ObjectStorage: reassigning material \"{}\" with ID {}", locator, material_id_e(id));
+		mLogger.trace("ObjectStorage: creating material device data for ID {}", material_id_e(id));
+		material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, id, { } })).first;
 
-			std::string locator_s = std::string(locator); // Dangling `locator` string_view
-			eraseMaterial(transfCtx, found_locator->second);
-			material_ins = mMaterials.insert(MaterialMap::value_type(id, MaterialData(material, { }, locator_s))).first;
-			locator = material_ins->second.locator; // Again, `locator` was dangling
-		} else {
-			id = id_generator<MaterialId>.generate();
-			mLogger.trace("ObjectStorage: associating material \"{}\" with ID {}", locator, material_id_e(id));
-			material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, { }, std::string(locator) })).first;
-		}
-
-		// Insert the material data (with the backing string) first
-		auto& locator_r = material_ins->second.locator;
 		create_mat_dset(vmaGetAllocatorDevice(mVma), &mDpool, mWrSharedState->materialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
 
-		mMaterialLocators.insert(MaterialLookup::value_type(locator_r, id));
-
-		return id;
+		return material_ins->second;
 	}
 
 
@@ -687,11 +619,8 @@ namespace SKENGINE_NAME_NS {
 
 		VK_CHECK(vkFreeDescriptorSets, vmaGetAllocatorDevice(mVma), mDpool, 1, &mat_data.dset);
 
-		mMaterialLocators.erase(mat_data.locator);
-
-		mAssetSupplier->releaseMaterial(mat_data.locator, transfCtx);
+		mAssetSupplier->releaseMaterial(mat_data.id, transfCtx);
 		mMaterials.erase(id);
-		id_generator<MaterialId>.recycle(id);
 	}
 
 

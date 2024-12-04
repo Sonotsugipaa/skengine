@@ -75,7 +75,7 @@ namespace SKENGINE_NAME_NS {
 
 	struct Bone {
 		Mesh mesh;
-		std::string material;
+		MaterialId material_id;
 		glm::vec3 position_xyz;
 		glm::vec3 direction_ypr;
 		glm::vec3 scale_xyz;

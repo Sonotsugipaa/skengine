@@ -16,11 +16,11 @@ namespace SKENGINE_NAME_NS {
 	void BasicRenderProcess::setup(
 		BasicRenderProcess& brp,
 		Logger logger,
-		std::shared_ptr<AssetSourceInterface> asi,
+		std::shared_ptr<AssetCacheInterface> aci,
 		float max_sampler_anisotropy
 	) {
 		assert(! brp.brp_assetSupplier.isInitialized());
-		brp.brp_assetSupplier = AssetSupplier(std::move(logger), std::move(asi), max_sampler_anisotropy);
+		brp.brp_assetSupplier = AssetSupplier(std::move(logger), std::move(aci), max_sampler_anisotropy);
 	}
 
 

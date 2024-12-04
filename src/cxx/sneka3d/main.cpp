@@ -7,7 +7,7 @@
 #include <glm/ext/matrix_transform.hpp>
 
 #include <engine-util/basic_shader_cache.hpp>
-#include <engine-util/basic_asset_source.hpp>
+#include <engine-util/basic_asset_cache.hpp>
 #include <engine-util/basic_render_process.hpp>
 #include <engine-util/gui_manager.hpp>
 
@@ -53,6 +53,7 @@ namespace sneka {
 		};
 
 		ske::Engine* engine;
+		std::shared_ptr<ske::BasicAssetCache> assetCache;
 		std::shared_ptr<ske::BasicRenderProcess> rproc;
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
@@ -63,6 +64,12 @@ namespace sneka {
 		ske::ObjectId skyLight;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
+		ske::ModelId sceneryMdl;
+		ske::ModelId playerHeadMdl;
+		ske::ModelId boostMdl;
+		ske::ModelId pointMdl;
+		ske::ModelId obstacleMdl;
+		ske::ModelId wallMdl;
 		ske::CommandId cmdLeft;
 		ske::CommandId cmdRight;
 		World world;
@@ -130,7 +137,11 @@ namespace sneka {
 				}
 				*sharedState = state;
 				if(this->playerHead != idgen::invalidId<ske::ObjectId>())
-				if(playerHead.position_xyz != playerHeadPos || playerHead.direction_ypr != newHeadRot) {
+				if(
+					playerHead.model_id != idgen::invalidId<ske::ModelId>() && (
+						playerHead.position_xyz != playerHeadPos ||
+						playerHead.direction_ypr != newHeadRot )
+				) {
 					{ auto mod = os.modifyObject(this->playerHead);
 						mod->position_xyz = playerHeadPos;
 						mod->direction_ypr = newHeadRot; }
@@ -143,8 +154,9 @@ namespace sneka {
 		}
 
 
-		Loop(ske::Engine& e, decltype(rproc) rproc):
+		Loop(ske::Engine& e, decltype(assetCache) assetCache, decltype(rproc) rproc):
 			engine(&e),
+			assetCache(std::move(assetCache)),
 			rproc(std::move(rproc)),
 			sharedState(std::make_shared<CallbackSharedState>()),
 			playerHeadPos { }
@@ -186,8 +198,7 @@ namespace sneka {
 			ske::ObjectStorage& os = * rproc->objectStorage();
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 
-			{
-				std::shared_ptr<ske::WorldRenderer> wrPtr = rproc->worldRenderer();
+			{ // Input management
 				auto inputLock = std::unique_lock(inputManMutex);
 				auto sharedState = this->sharedState;
 				auto bindKeyCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunction auto cb) {
@@ -211,16 +222,30 @@ namespace sneka {
 				bindKeyCb(SDLK_q, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->quit = true; });
 			}
 
+			{ // Load models
+				auto trySetModel = [&](std::string_view filename) {
+					try { return assetCache->setModelFromFile(filename); }
+					catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
+					return idgen::invalidId<ske::ModelId>();
+				};
+				sceneryMdl    = trySetModel(world.getSceneryModel());
+				playerHeadMdl = trySetModel(world.getPlayerHeadModel());
+				boostMdl      = trySetModel(world.getObjBoostModel());
+				pointMdl      = trySetModel(world.getObjPointModel());
+				obstacleMdl   = trySetModel(world.getObjObstacleModel());
+				wallMdl       = trySetModel(world.getObjWallModel());
+			}
+
 			assert(world.width() * world.height() > 0);
 			float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
 			float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
 			auto& tc = engine->getTransferContext();
 			auto newObject = ske::ObjectStorage::NewObject {
 				{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
-			auto tryCreate = [&](std::string_view mdl) {
-				newObject.model_locator = mdl;
-				try { return os.createObject(tc, newObject); }
-				catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", newObject.model_locator, e.errcode); }
+			auto tryCreate = [&](ske::ModelId mdl) {
+				if(mdl == idgen::invalidId<ske::ModelId>()) return idgen::invalidId<ske::ObjectId>();
+				newObject.model_id = mdl;
+				return os.createObject(tc, newObject);
 				return idgen::invalidId<ske::ObjectId>();
 			};
 			for(size_t y = 0; y < world.height(); ++ y)
@@ -235,10 +260,10 @@ namespace sneka {
 					0.0f,
 					0.0f };
 				switch(world.tile(x, y)) {
-					case GridObjectClass::eBoost: tryCreate(world.getObjBoostModel()); break;
-					case GridObjectClass::ePoint: tryCreate(world.getObjPointModel()); break;
-					case GridObjectClass::eObstacle: tryCreate(world.getObjObstacleModel()); break;
-					case GridObjectClass::eWall: tryCreate(world.getObjWallModel()); break;
+					case GridObjectClass::eBoost:    tryCreate(boostMdl); break;
+					case GridObjectClass::ePoint:    tryCreate(pointMdl); break;
+					case GridObjectClass::eObstacle: tryCreate(obstacleMdl); break;
+					case GridObjectClass::eWall:     tryCreate(wallMdl); break;
 					default:
 						engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 						[[fallthrough]];
@@ -247,18 +272,11 @@ namespace sneka {
 			}
 			newObject.position_xyz = playerHeadPos;
 			newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-			playerHead = tryCreate(world.getPlayerHeadModel());
-			try {
-				auto obj = ske::ObjectStorage::NewObject {
-					.model_locator = world.getSceneryModel(),
-					.position_xyz = { },
-					.direction_ypr = { },
-					.scale_xyz = { 1.0f, 1.0f, 1.0f },
-					.hidden = false };
-				scenery = os.createObject(engine->getTransferContext(), obj);
-			} catch(posixfio::Errcode& e) {
-				engine->logger().error("Failed to load file for model \"{}\" (errno {})", world.getSceneryModel(), e.errcode);
-			}
+			playerHead = tryCreate(playerHeadMdl);
+			newObject.position_xyz = { };
+			newObject.direction_ypr = { };
+			newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
+			tryCreate(sceneryMdl);
 			wr.setViewRotation({ 0.0f, cameraPitch, 0.0f });
 			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 			light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
@@ -377,9 +395,9 @@ int main(int argn, char** argv) {
 
 	try {
 		auto shader_cache   = std::make_shared<ske::BasicShaderCache>("assets/", logger);
-		auto asset_source   = std::make_shared<ske::BasicAssetSource>("assets/", logger);
+		auto asset_cache   = std::make_shared<ske::BasicAssetCache>("assets/", logger);
 		auto basic_rprocess = std::make_shared<ske::BasicRenderProcess>();
-		BasicRenderProcess::setup(*basic_rprocess, logger, asset_source, 0.125);
+		BasicRenderProcess::setup(*basic_rprocess, logger, asset_cache, 0.125);
 
 		auto engine = ske::Engine(
 			ske::DeviceInitInfo {
@@ -390,7 +408,7 @@ int main(int argn, char** argv) {
 			std::move(shader_cache),
 			logger );
 
-		auto loop = sneka::Loop(engine, basic_rprocess);
+		auto loop = sneka::Loop(engine, asset_cache, basic_rprocess);
 
 		engine.run(loop, basic_rprocess);
 

@@ -75,14 +75,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	Material AssetSupplier::requestMaterial(std::string_view locator, TransferContext transfCtx) {
-		std::string locator_s = std::string(locator);
-
-		auto existing = as_activeMaterials.find(locator_s);
+	Material AssetSupplier::requestMaterial(MaterialId id, TransferContext transfCtx) {
+		auto existing = as_activeMaterials.find(id);
 		if(existing != as_activeMaterials.end()) {
 			return existing->second;
 		}
-		else if((existing = as_inactiveMaterials.find(locator_s)) != as_inactiveMaterials.end()) {
+		else if((existing = as_inactiveMaterials.find(id)) != as_inactiveMaterials.end()) {
 			auto ins = as_activeMaterials.insert(*existing);
 			assert(ins.second);
 			as_inactiveMaterials.erase(existing);
@@ -94,7 +92,7 @@ namespace SKENGINE_NAME_NS {
 
 			Material r;
 
-			auto src   = as_srcInterface->asi_requestMaterialData(locator);
+			auto src   = as_cacheInterface->aci_requestMaterialData(id);
 			auto flags = std::byteswap(mf_e(src.fmaHeader.flags()));
 			auto maxSamplerAnisotropy = 1.0f;
 
@@ -174,7 +172,7 @@ namespace SKENGINE_NAME_NS {
 				uni.shininess = src.fmaHeader.specularExponent();
 			} (* r.mat_uniform.mappedPtr<dev::MaterialUniform>());
 
-			as_activeMaterials.insert(Materials::value_type(std::move(locator_s), r));
+			as_activeMaterials.insert(Materials::value_type(id, r));
 			double sizes_b[4] = {
 				double(texture_size_bytes(r.texture_diffuse)),
 				double(texture_size_bytes(r.texture_normal)),
@@ -186,23 +184,21 @@ namespace SKENGINE_NAME_NS {
 				size /= 1024.0*1024.0; unit = "GiB";
 				if(size > 5'000.0) [[unlikely]] { size /= 1024.0; unit = "TiB"; }
 			}
-			as_logger.info(
-				"Loaded material \"{}\" ({:.3f} {})",
-				locator,
+			as_logger.trace(
+				"Loaded material {} ({:.3f} {})",
+				material_id_e(id),
 				size, unit );
 			return r;
 		}
 	}
 
 
-	void AssetSupplier::releaseMaterial(std::string_view locator, TransferContext transfCtx) noexcept {
+	void AssetSupplier::releaseMaterial(MaterialId id, TransferContext transfCtx) noexcept {
 		auto missing = decltype(as_missingMaterials)::iterator();
 		auto vma     = transfCtx.vma;
 		auto dev     = vmaGetAllocatorDevice(vma);
 
-		std::string locator_s = std::string(locator);
-
-		auto existing = as_activeMaterials.find(locator_s);
+		auto existing = as_activeMaterials.find(id);
 		if(existing != as_activeMaterials.end()) {
 			// Move to the inactive map
 			as_inactiveMaterials.insert(*existing);
@@ -212,20 +208,20 @@ namespace SKENGINE_NAME_NS {
 				destroy_material(dev, vma, victim->second);
 				as_inactiveMaterials.erase(victim);
 			}
-			as_logger.info("Released material \"{}\"", locator);
+			as_logger.trace("Released material {}", material_id_e(id));
 		}
-		else if(as_missingMaterials.end() != (missing = as_missingMaterials.find(locator_s))) {
-			as_logger.trace("Releasing missing material \"{}\"", locator);
+		else if(as_missingMaterials.end() != (missing = as_missingMaterials.find(id))) {
+			as_logger.trace("Releasing missing material {}", material_id_e(id));
 			as_missingMaterials.erase(missing);
 		}
 		else {
-			as_logger.debug("Tried to release material \"{}\", but it's not loaded", locator);
+			as_logger.warn("Tried to release material {}, but it's not loaded", material_id_e(id));
 		}
 	}
 
 
 	void AssetSupplier::releaseAllMaterials(TransferContext transfCtx) noexcept {
-		std::vector<std::string> queue;
+		std::vector<MaterialId> queue;
 		queue.reserve(as_activeMaterials.size());
 		for(auto& mat : as_activeMaterials)  queue.push_back(mat.first);
 		for(auto& mat : as_missingMaterials) queue.push_back(mat);

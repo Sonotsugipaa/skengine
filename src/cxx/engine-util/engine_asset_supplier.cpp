@@ -19,9 +19,9 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	AssetSupplier::AssetSupplier(Logger logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio):
+	AssetSupplier::AssetSupplier(Logger logger, std::shared_ptr<AssetCacheInterface> aci, float max_inactive_ratio):
 			as_logger(std::move(logger)),
-			as_srcInterface(std::move(asi)),
+			as_cacheInterface(std::move(aci)),
 			as_maxInactiveRatio(max_inactive_ratio),
 			as_initialized(true),
 			as_fallbackMaterialExists(false)
@@ -31,7 +31,7 @@ namespace SKENGINE_NAME_NS {
 	AssetSupplier::AssetSupplier(AssetSupplier&& mv):
 			#define MV_(M_) M_(std::move(mv.M_))
 			MV_(as_logger),
-			MV_(as_srcInterface),
+			MV_(as_cacheInterface),
 			MV_(as_activeModels),
 			MV_(as_inactiveModels),
 			MV_(as_activeMaterials),
@@ -74,14 +74,12 @@ namespace SKENGINE_NAME_NS {
 	#endif
 
 
-	DevModel AssetSupplier::requestModel(std::string_view locator, TransferContext transfCtx) {
-		std::string locator_s = std::string(locator);
-
-		auto existing = as_activeModels.find(locator_s);
+	DevModel AssetSupplier::requestModel(ModelId id, TransferContext transfCtx) {
+		auto existing = as_activeModels.find(id);
 		if(existing != as_activeModels.end()) {
 			return existing->second;
 		}
-		else if((existing = as_inactiveModels.find(locator_s)) != as_inactiveModels.end()) {
+		else if((existing = as_inactiveModels.find(id)) != as_inactiveModels.end()) {
 			auto ins = as_activeModels.insert(*existing);
 			assert(ins.second);
 			as_inactiveModels.erase(existing);
@@ -90,20 +88,20 @@ namespace SKENGINE_NAME_NS {
 		else {
 			DevModel r;
 			auto vma = transfCtx.vma;
-			auto src = as_srcInterface->asi_requestModelData(locator);
-			auto materials = src.fmaHeader.materials();
-			auto meshes    = src.fmaHeader.meshes();
-			auto bones     = src.fmaHeader.bones();
-			auto faces     = src.fmaHeader.faces();
-			auto indices   = src.fmaHeader.indices();
-			auto vertices  = src.fmaHeader.vertices();
+			auto cache = as_cacheInterface->aci_requestModelData(id);
+			auto materials = cache.fmaHeader.materials();
+			auto meshes    = cache.fmaHeader.meshes();
+			auto bones     = cache.fmaHeader.bones();
+			auto faces     = cache.fmaHeader.faces();
+			auto indices   = cache.fmaHeader.indices();
+			auto vertices  = cache.fmaHeader.vertices();
 
 			TransferCmdBarrier transfCmdBars[2];
 
 			if(meshes.empty()) {
 				as_logger.critical(
-					"Attempting to load model \"{}\" without meshes; fallback model logic is not implemented yet",
-					locator );
+					"Attempting to load model {} without meshes; panicking",
+					model_id_e(id) );
 				abort();
 			}
 
@@ -124,36 +122,43 @@ namespace SKENGINE_NAME_NS {
 				transfCmdBars[1] = Engine::pushBufferAsync(transfCtx, r.vertices);
 			}
 
+			std::vector<Bone> insBones;
 			for(auto& bone : bones) {
-				auto& mesh       = meshes[bone.meshIndex];
-				auto& first_face = faces[mesh.firstFace];
-				auto  ins = Bone {
+				auto& mesh          = meshes[bone.meshIndex];
+				auto& first_face    = faces[mesh.firstFace];
+				auto  material_name = cache.fmaHeader.getStringView(materials[mesh.materialIndex].name);
+				auto  material_id   = idgen::invalidId<MaterialId>();
+				try {
+					material_id = as_cacheInterface->aci_materialIdFromName(material_name); }
+				catch(...) {
+					as_logger.error("Failed to associate the name \"{}\" to a material ref", material_name); }
+				auto ins = Bone {
 					.mesh = Mesh {
 						.index_count = uint32_t(mesh.indexCount),
 						.first_index = uint32_t(first_face.firstIndex) },
-					.material = std::string(src.fmaHeader.getStringView(materials[mesh.materialIndex].name)),
+					.material_id = material_id,
 					.position_xyz  = { bone.relPosition[0], bone.relPosition[1], bone.relPosition[2] },
 					.direction_ypr = { bone.relRotation[0], bone.relRotation[1], bone.relRotation[2] },
 					.scale_xyz     = { bone.relScale   [0], bone.relScale   [1], bone.relScale   [2] } };
-				r.bones.push_back(std::move(ins));
+				insBones.push_back(std::move(ins));
 			}
 
-			as_activeModels.insert(Models::value_type(std::move(locator_s), r));
-			double size_kib = indices.size_bytes() + vertices.size_bytes();
-			as_logger.info("Loaded model \"{}\" ({:.3f} KiB)", locator, size_kib / 1000.0);
+			r.bones.insert(r.bones.end(), insBones.begin(), insBones.end());
 
-			as_srcInterface->asi_releaseModelData(locator);
+			as_activeModels.insert(Models::value_type(id, r));
+			double size_kib = indices.size_bytes() + vertices.size_bytes();
+			as_logger.trace("Loaded model {} ({:.3f} KiB)", model_id_e(id), size_kib / 1000.0);
+
+			as_cacheInterface->aci_releaseModelData(id);
 			return r;
 		}
 	}
 
 
-	void AssetSupplier::releaseModel(std::string_view locator, TransferContext transfCtx) noexcept {
+	void AssetSupplier::releaseModel(ModelId id, TransferContext transfCtx) noexcept {
 		auto vma = transfCtx.vma;
 
-		std::string locator_s = std::string(locator);
-
-		auto existing = as_activeModels.find(locator_s);
+		auto existing = as_activeModels.find(id);
 		if(existing != as_activeModels.end()) {
 			// Move to the inactive map
 			as_inactiveModels.insert(*existing);
@@ -164,18 +169,18 @@ namespace SKENGINE_NAME_NS {
 				vkutil::BufferDuplex::destroy(vma, victim->second.vertices);
 				as_inactiveModels.erase(victim);
 			}
-			as_logger.info("Released model \"{}\"", locator);
+			as_logger.trace("Released model {}", model_id_e(id));
 		} else {
-			as_logger.debug("Tried to release model \"{}\", but it's not loaded", locator);
+			as_logger.warn("Tried to release model {}, but it's not loaded", model_id_e(id));
 		}
 	}
 
 
 	void AssetSupplier::releaseAllModels(TransferContext transfCtx) noexcept {
-		std::vector<std::string> queue;
+		std::vector<ModelId> queue;
 		queue.reserve(as_activeModels.size());
 		for(auto& model : as_activeModels) queue.push_back(model.first);
-		for(auto& loc   : queue)           releaseModel(loc, transfCtx);
+		for(auto& id    : queue)           releaseModel(id, transfCtx);
 	}
 
 }

@@ -23,6 +23,9 @@ namespace SKENGINE_NAME_NS {
 	struct WorldRendererSharedState;
 
 
+	struct BadObjectModelRefError { ModelId modelId; };
+
+
 	struct DevModel {
 		vkutil::BufferDuplex indices;
 		vkutil::BufferDuplex vertices;
@@ -56,32 +59,33 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	class AssetSourceInterface {
+	class AssetCacheInterface {
 	public:
-		struct ModelSource {
+		struct ModelDescription {
 			fmamdl::HeaderView fmaHeader;
 		};
 
-		struct MaterialSource {
+		struct MaterialDescription {
 			fmamdl::MaterialView fmaHeader;
 			std::string texturePathPrefix;
 		};
 
-		virtual ModelSource asi_requestModelData(std::string_view locator) = 0;
-		virtual MaterialSource asi_requestMaterialData(std::string_view locator) = 0;
-		virtual void asi_releaseModelData(std::string_view locator) = 0;
-		virtual void asi_releaseMaterialData(std::string_view locator) = 0;
+		virtual ModelDescription aci_requestModelData(ModelId) = 0;
+		virtual MaterialDescription aci_requestMaterialData(MaterialId) = 0;
+		virtual void aci_releaseModelData(ModelId) = 0;
+		virtual void aci_releaseMaterialData(MaterialId) = 0;
+		virtual MaterialId aci_materialIdFromName(std::string_view) = 0;
 	};
 
 
 	class AssetSupplier {
 	public:
-		using Models           = std::unordered_map<std::string, DevModel>;
-		using Materials        = std::unordered_map<std::string, Material>;
-		using MissingMaterials = std::unordered_set<std::string>;
+		using Models           = std::unordered_map<ModelId,    DevModel>;
+		using Materials        = std::unordered_map<MaterialId, Material>;
+		using MissingMaterials = std::unordered_set<MaterialId>;
 
 		AssetSupplier(): as_initialized(false) { }
-		AssetSupplier(Logger, std::shared_ptr<AssetSourceInterface> asi, float max_inactive_ratio);
+		AssetSupplier(Logger, std::shared_ptr<AssetCacheInterface>, float max_inactive_ratio);
 		AssetSupplier(AssetSupplier&&);
 		AssetSupplier& operator=(AssetSupplier&& mv) { this->~AssetSupplier(); return * new (this) AssetSupplier(std::move(mv)); }
 		void destroy(TransferContext);
@@ -90,19 +94,19 @@ namespace SKENGINE_NAME_NS {
 			~AssetSupplier(); // Only asserts whether it has already been destroyed
 		#endif
 
-		DevModel requestModel(std::string_view locator, TransferContext);
-		void     releaseModel(std::string_view locator, TransferContext) noexcept;
+		DevModel requestModel(ModelId, TransferContext);
+		void     releaseModel(ModelId, TransferContext) noexcept;
 		void releaseAllModels(TransferContext) noexcept;
 
-		Material requestMaterial(std::string_view locator, TransferContext);
-		void     releaseMaterial(std::string_view locator, TransferContext) noexcept;
+		Material requestMaterial(MaterialId, TransferContext);
+		void     releaseMaterial(MaterialId, TransferContext) noexcept;
 		void releaseAllMaterials(TransferContext) noexcept;
 
 		bool isInitialized() const noexcept { return as_initialized; }
 
 	private:
 		Logger as_logger;
-		std::shared_ptr<AssetSourceInterface> as_srcInterface;
+		std::shared_ptr<AssetCacheInterface> as_cacheInterface;
 		Models    as_activeModels;
 		Models    as_inactiveModels;
 		Materials as_activeMaterials;
@@ -129,7 +133,7 @@ namespace SKENGINE_NAME_NS {
 	public:
 		// This type should only be used for function parameters
 		struct NewObject {
-			std::string_view model_locator;
+			ModelId   model_id;
 			glm::vec3 position_xyz;
 			glm::vec3 direction_ypr;
 			glm::vec3 scale_xyz;
@@ -137,12 +141,12 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct ModelData : DevModel {
-			std::string locator;
+			ModelId id;
 		};
 
 		struct MaterialData : Material {
+			MaterialId id;
 			VkDescriptorSet dset;
-			std::string locator;
 		};
 
 		struct ModifiableObject {
@@ -212,12 +216,10 @@ namespace SKENGINE_NAME_NS {
 		std::optional<ModifiableObject> modifyObject (ObjectId) noexcept;
 		std::optional<const Object*>    getObject    (ObjectId) const noexcept;
 
-		ModelId          getModelId (TransferContext, std::string_view locator);
-		const ModelData* getModel   (ModelId) const noexcept;
-		void             eraseModel (TransferContext, ModelId) noexcept;
+		const ModelData* getModel  (ModelId) const noexcept;
+		void             eraseModel(TransferContext, ModelId) noexcept;
 
-		MaterialId          getMaterialId (TransferContext, std::string_view locator);
-		const MaterialData* getMaterial   (MaterialId) const noexcept;
+		const MaterialData* getMaterial(MaterialId) const noexcept;
 
 		VmaAllocator vma() const noexcept { return mVma; }
 
@@ -243,8 +245,6 @@ namespace SKENGINE_NAME_NS {
 		std::shared_ptr<WorldRendererSharedState> mWrSharedState;
 		AssetSupplier* mAssetSupplier;
 
-		ModelLookup      mModelLocators;
-		MaterialLookup   mMaterialLocators;
 		ModelMap         mModels;
 		MaterialMap      mMaterials;
 		Objects          mObjects;
@@ -265,10 +265,10 @@ namespace SKENGINE_NAME_NS {
 		bool mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
 		bool mObjectsNeedFlush   : 1; // `true` when the object buffer needs to be uploaded, but all objects already exist in it
 
-		ModelId    setModel      (TransferContext, std::string_view locator, DevModel);
-		MaterialId setMaterial   (TransferContext, std::string_view locator, Material);
-		void       eraseMaterial (TransferContext, MaterialId) noexcept;
-		void       eraseModelNoObjectCheck (TransferContext, ModelId, ModelData&) noexcept;
+		ModelData&    setModel      (ModelId,    DevModel);
+		MaterialData& setMaterial   (MaterialId, Material);
+		void          eraseMaterial (TransferContext, MaterialId) noexcept;
+		void eraseModelNoObjectCheck (TransferContext, ModelId, ModelData&) noexcept;
 	};
 
 }

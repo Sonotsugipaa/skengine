@@ -40,7 +40,6 @@ create_pkgpath
 function copybin {
 	# These files are relative to the binary directory, not the source
 	local copyfiles=(
-		"cxx/main/sketch-sim"
 		"cxx/sneka3d/sneka3d"
 	)
 

@@ -14,7 +14,7 @@ namespace SKENGINE_NAME_NS {
 
 	class BasicRenderProcess : public RenderProcessInterface {
 	public:
-		static void setup(BasicRenderProcess&, Logger, std::shared_ptr<AssetSourceInterface>, float max_sampler_anisotropy);
+		static void setup(BasicRenderProcess&, Logger, std::shared_ptr<AssetCacheInterface>, float max_sampler_anisotropy);
 		static void destroy(BasicRenderProcess&, TransferContext);
 
 		#ifndef NDEBUG
