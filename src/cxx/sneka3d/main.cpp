@@ -98,11 +98,21 @@ namespace sneka {
 			bool        quit          = false;
 		};
 
+		struct ModelIdStorage {
+			ske::ModelId scenery;
+			ske::ModelId playerHead;
+			ske::ModelId boost;
+			ske::ModelId point;
+			ske::ModelId obstacle;
+			ske::ModelId wall;
+		};
+
 		ske::Engine* engine;
 		std::shared_ptr<ske::BasicAssetCache> assetCache;
 		std::shared_ptr<ske::BasicRenderProcess> rproc;
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
+		ModelIdStorage mdlIds;
 		std::mutex inputManMutex;
 		std::mutex macrotickMutex;
 		ske::AnimId playerHeadPosAnimId;
@@ -111,12 +121,6 @@ namespace sneka {
 		ske::ObjectId skyLight;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
-		ske::ModelId sceneryMdl;
-		ske::ModelId playerHeadMdl;
-		ske::ModelId boostMdl;
-		ske::ModelId pointMdl;
-		ske::ModelId obstacleMdl;
-		ske::ModelId wallMdl;
 		ske::CommandId cmdLeft;
 		ske::CommandId cmdRight;
 		float macrotickProgress;
@@ -254,12 +258,12 @@ namespace sneka {
 					catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
 					return idgen::invalidId<ske::ModelId>();
 				};
-				sceneryMdl    = trySetModel(world.getSceneryModel());
-				playerHeadMdl = trySetModel(world.getPlayerHeadModel());
-				boostMdl      = trySetModel(world.getObjBoostModel());
-				pointMdl      = trySetModel(world.getObjPointModel());
-				obstacleMdl   = trySetModel(world.getObjObstacleModel());
-				wallMdl       = trySetModel(world.getObjWallModel());
+				mdlIds.scenery    = trySetModel(world.getSceneryModel());
+				mdlIds.playerHead = trySetModel(world.getPlayerHeadModel());
+				mdlIds.boost      = trySetModel(world.getObjBoostModel());
+				mdlIds.point      = trySetModel(world.getObjPointModel());
+				mdlIds.obstacle   = trySetModel(world.getObjObstacleModel());
+				mdlIds.wall       = trySetModel(world.getObjWallModel());
 			}
 
 			{ // Setup animations
@@ -295,10 +299,10 @@ namespace sneka {
 						0.0f,
 						0.0f };
 					switch(world.tile(x, y)) {
-						case GridObjectClass::eBoost:    tryCreate(boostMdl); break;
-						case GridObjectClass::ePoint:    tryCreate(pointMdl); break;
-						case GridObjectClass::eObstacle: tryCreate(obstacleMdl); break;
-						case GridObjectClass::eWall:     tryCreate(wallMdl); break;
+						case GridObjectClass::eBoost:    tryCreate(mdlIds.boost); break;
+						case GridObjectClass::ePoint:    tryCreate(mdlIds.point); break;
+						case GridObjectClass::eObstacle: tryCreate(mdlIds.obstacle); break;
+						case GridObjectClass::eWall:     tryCreate(mdlIds.wall); break;
 						default:
 							engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 							[[fallthrough]];
@@ -308,11 +312,11 @@ namespace sneka {
 				newObject.position_xyz = state.playerHeadPos.getValue();
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-				playerHead = tryCreate(playerHeadMdl);
+				playerHead = tryCreate(mdlIds.playerHead);
 				newObject.position_xyz = { };
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-				tryCreate(sceneryMdl);
+				tryCreate(mdlIds.scenery);
 				state.camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
 				wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 				light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
