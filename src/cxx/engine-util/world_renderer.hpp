@@ -118,8 +118,9 @@ namespace SKENGINE_NAME_NS {
 
 		static WorldRenderer create(
 			Logger,
+			VmaAllocator,
 			std::shared_ptr<WorldRendererSharedState>,
-			std::shared_ptr<ObjectStorage>,
+			std::shared_ptr<std::vector<ObjectStorage>>,
 			const ProjectionInfo&,
 			util::TransientArray<PipelineParameters> = { defaultPipelineParams } );
 
@@ -181,14 +182,15 @@ namespace SKENGINE_NAME_NS {
 		RayLight&         modifyRayLight   (ObjectId);
 		PointLight&       modifyPointLight (ObjectId);
 
-		VmaAllocator vma() const noexcept { return mState.objectStorage->vma(); }
+		VmaAllocator vma() const noexcept { return mState.vma; }
 
 		const auto& lightStorage() const noexcept { return mState.lightStorage; }
 
 	private:
 		struct {
 			Logger logger;
-			std::shared_ptr<ObjectStorage> objectStorage;
+			VmaAllocator vma;
+			std::shared_ptr<std::vector<ObjectStorage>> objectStorages;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
 			std::shared_ptr<ShaderCacheInterface> shaderCache;
 			util::TransientArray<PipelineParameters> pipelineParams;
@@ -215,24 +217,24 @@ namespace SKENGINE_NAME_NS {
 
 
 	constexpr WorldRenderer::PipelineParameters WorldRenderer::defaultPipelineParams = {
-			.primitiveRestartEnable  = true,
-			.topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN,
-			.cullMode                = VK_CULL_MODE_BACK_BIT,
-			.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-			.polygonMode             = VK_POLYGON_MODE_FILL,
-			.lineWidth               = 1.0f,
-			.rasterizerDiscardEnable = false,
-			.depthTestEnable         = true,
-			.depthWriteEnable        = true,
-			.depthCompareOp          = VK_COMPARE_OP_LESS_OR_EQUAL,
-			.blendEnable             = false,
-			.srcColorBlendFactor     = { },
-			.dstColorBlendFactor     = { },
-			.colorBlendOp            = { },
-			.srcAlphaBlendFactor     = { },
-			.dstAlphaBlendFactor     = { },
-			.alphaBlendOp            = { },
-			.shaderRequirement       = ShaderRequirement { "default", PipelineLayoutId::e3d }
-		};
+		.primitiveRestartEnable  = true,
+		.topology                = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN,
+		.cullMode                = VK_CULL_MODE_BACK_BIT,
+		.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.polygonMode             = VK_POLYGON_MODE_FILL,
+		.lineWidth               = 1.0f,
+		.rasterizerDiscardEnable = false,
+		.depthTestEnable         = true,
+		.depthWriteEnable        = true,
+		.depthCompareOp          = VK_COMPARE_OP_LESS_OR_EQUAL,
+		.blendEnable             = false,
+		.srcColorBlendFactor     = { },
+		.dstColorBlendFactor     = { },
+		.colorBlendOp            = { },
+		.srcAlphaBlendFactor     = { },
+		.dstAlphaBlendFactor     = { },
+		.alphaBlendOp            = { },
+		.shaderRequirement       = ShaderRequirement { "default", PipelineLayoutId::e3d }
+	};
 
 }

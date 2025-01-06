@@ -28,6 +28,11 @@ extern "C" {
 
 namespace sneka {
 
+	constexpr size_t OBJSTG_SCENERY_IDX = 0;
+	constexpr size_t OBJSTG_OBJECTS_IDX = 1;
+
+
+
 	namespace anim::target {
 
 		template <typename T>
@@ -130,7 +135,7 @@ namespace sneka {
 
 		void updateViewPosRot(tickreg::delta_t deltaAvg) {
 			auto& wr = * rproc->worldRenderer();
-			auto& os = * rproc->objectStorage();
+			auto& os = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
 
 			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
 				return (src + (target * bias)) / (1.0f + bias); };
@@ -216,7 +221,8 @@ namespace sneka {
 
 		void loop_begin() override {
 			auto ca = engine->getConcurrentAccess();
-			ske::ObjectStorage& os = * rproc->objectStorage();
+			ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
+			ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 
 			{ // Input management
@@ -281,7 +287,7 @@ namespace sneka {
 				auto& tc = engine->getTransferContext();
 				auto newObject = ske::ObjectStorage::NewObject {
 					{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
-				auto tryCreate = [&](ske::ModelId mdl) {
+				auto tryCreate = [&](ske::ObjectStorage& os, ske::ModelId mdl) {
 					if(mdl == idgen::invalidId<ske::ModelId>()) return idgen::invalidId<ske::ObjectId>();
 					newObject.model_id = mdl;
 					return os.createObject(tc, newObject);
@@ -299,10 +305,10 @@ namespace sneka {
 						0.0f,
 						0.0f };
 					switch(world.tile(x, y)) {
-						case GridObjectClass::eBoost:    tryCreate(mdlIds.boost); break;
-						case GridObjectClass::ePoint:    tryCreate(mdlIds.point); break;
-						case GridObjectClass::eObstacle: tryCreate(mdlIds.obstacle); break;
-						case GridObjectClass::eWall:     tryCreate(mdlIds.wall); break;
+						case GridObjectClass::eBoost:    tryCreate(sceneryOs, mdlIds.boost); break;
+						case GridObjectClass::ePoint:    tryCreate(sceneryOs, mdlIds.point); break;
+						case GridObjectClass::eObstacle: tryCreate(sceneryOs, mdlIds.obstacle); break;
+						case GridObjectClass::eWall:     tryCreate(sceneryOs, mdlIds.wall); break;
 						default:
 							engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 							[[fallthrough]];
@@ -312,11 +318,11 @@ namespace sneka {
 				newObject.position_xyz = state.playerHeadPos.getValue();
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-				playerHead = tryCreate(mdlIds.playerHead);
+				playerHead = tryCreate(objectsOs, mdlIds.playerHead);
 				newObject.position_xyz = { };
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-				tryCreate(mdlIds.scenery);
+				tryCreate(sceneryOs, mdlIds.scenery);
 				state.camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
 				wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 				light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
@@ -465,9 +471,9 @@ int main(int argn, char** argv) {
 
 	try {
 		auto shader_cache   = std::make_shared<ske::BasicShaderCache>("assets/", logger);
-		auto asset_cache   = std::make_shared<ske::BasicAssetCache>("assets/", logger);
+		auto asset_cache    = std::make_shared<ske::BasicAssetCache>("assets/", logger);
 		auto basic_rprocess = std::make_shared<ske::BasicRenderProcess>();
-		BasicRenderProcess::setup(*basic_rprocess, logger, asset_cache, 0.125);
+		BasicRenderProcess::setup(*basic_rprocess, logger, asset_cache, 2, 0.125);
 
 		auto engine = ske::Engine(
 			ske::DeviceInitInfo {

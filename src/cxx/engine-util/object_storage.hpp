@@ -201,6 +201,7 @@ namespace SKENGINE_NAME_NS {
 		ObjectStorage() = default;
 		ObjectStorage(const ObjectStorage&) = delete;
 		ObjectStorage(ObjectStorage&&) = default;
+		ObjectStorage& operator=(ObjectStorage&& mv) { this->~ObjectStorage(); return * new (this) ObjectStorage(std::move(mv)); }
 
 		static ObjectStorage create(
 			Logger,

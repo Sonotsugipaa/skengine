@@ -17,10 +17,13 @@ namespace SKENGINE_NAME_NS {
 		BasicRenderProcess& brp,
 		Logger logger,
 		std::shared_ptr<AssetCacheInterface> aci,
+		size_t obj_storage_count,
 		float max_sampler_anisotropy
 	) {
 		assert(! brp.brp_assetSupplier.isInitialized());
 		brp.brp_assetSupplier = AssetSupplier(std::move(logger), std::move(aci), max_sampler_anisotropy);
+		brp.brp_objStorages = std::make_shared<std::vector<ObjectStorage>>();
+		brp.brp_objStorages->resize(obj_storage_count);
 	}
 
 
@@ -35,34 +38,42 @@ namespace SKENGINE_NAME_NS {
 			assert(! brp_assetSupplier.isInitialized());
 			assert(! brp_worldRenderer);
 			assert(! brp_uiRenderer);
-			assert(! brp_objStorage);
+			assert(! brp_objStorages);
 			assert(! brp_worldRendererSs);
 		}
 	#endif
 
 
-	void BasicRenderProcess::rpi_createRenderers(ConcurrentAccess& ca) {
-		using namespace std::string_view_literals;
+	inline namespace basic_render_process_impl {
 
+		auto copyLogger(const Logger& cp, std::string_view sub) {
+			using namespace std::string_view_literals;
+			std::string cat = std::string(SKENGINE_NAME_PC_CSTR ":");
+			cat.reserve(cat.size() + sub.size() + 1);
+			cat.append(sub);
+			cat.push_back(' ');
+			return cloneLogger(cp, "["sv, cat, ""sv, "]  "sv);
+		};
+
+	}
+
+
+	void BasicRenderProcess::rpi_createRenderers(ConcurrentAccess& ca) {
 		auto& e = ca.engine();
 		const auto& prefs = e.getPreferences();
 
 		brp_worldRendererSs = std::make_shared_for_overwrite<WorldRendererSharedState>();
 		WorldRenderer::initSharedState(e.getDevice(), *brp_worldRendererSs);
 
-		auto copyLogger = [&]<typename... Pfx>(std::string_view sub) {
-			std::string cat = std::string(SKENGINE_NAME_PC_CSTR ":");
-			cat.reserve(cat.size() + sub.size() + 1);
-			cat.append(sub);
-			cat.push_back(' ');
-			return cloneLogger<Pfx...>(e.logger(), "["sv, cat, ""sv, "]  "sv);
-		};
-
-		brp_objStorage = std::make_shared<ObjectStorage>(ObjectStorage::create(
-			copyLogger("ObjStorage"),
-			brp_worldRendererSs,
-			e.getVmaAllocator(),
-			brp_assetSupplier ));
+		assert(brp_objStorages);
+		assert(! brp_objStorages->empty());
+		for(auto& osSlot : *brp_objStorages) {
+			osSlot = ObjectStorage::create(
+				copyLogger(e.logger(), "ObjStorage"),
+				brp_worldRendererSs,
+				e.getVmaAllocator(),
+				brp_assetSupplier );
+		}
 
 		const auto worldProj = WorldRenderer::ProjectionInfo {
 			.verticalFov = prefs.fov_y,
@@ -77,15 +88,16 @@ namespace SKENGINE_NAME_NS {
 		} ();
 
 		brp_worldRenderer = std::make_shared<WorldRenderer>(WorldRenderer::create(
-			copyLogger("WorldRdr"),
+			copyLogger(e.logger(), "WorldRdr"),
+			e.getVmaAllocator(),
 			brp_worldRendererSs,
-			brp_objStorage,
+			brp_objStorages,
 			worldProj,
 			{ WorldRenderer::defaultPipelineParams, outlinePlParams } ));
 
 		brp_uiRenderer = std::make_shared<UiRenderer>(UiRenderer::create(
 			e.getVmaAllocator(),
-			copyLogger("UiRdr"),
+			copyLogger(e.logger(), "UiRdr"),
 			prefs.font_location ));
 	}
 
@@ -210,8 +222,18 @@ namespace SKENGINE_NAME_NS {
 	void BasicRenderProcess::rpi_destroyRenderers(ConcurrentAccess& ca) {
 		WorldRenderer::destroy(*brp_worldRenderer); brp_worldRenderer = { };
 		UiRenderer::destroy(*brp_uiRenderer); brp_uiRenderer = { };
-		ObjectStorage::destroy(ca.engine().getTransferContext(), *brp_objStorage); brp_objStorage = { };
+		for(auto& objStorage : *brp_objStorages) {
+			ObjectStorage::destroy(ca.engine().getTransferContext(), objStorage);
+		}
+		brp_objStorages = { };
 		WorldRenderer::destroySharedState(ca.engine().getDevice(), *brp_worldRendererSs); brp_worldRendererSs = { };
+	}
+
+
+	ObjectStorage& BasicRenderProcess::getObjectStorage(size_t index) noexcept {
+		assert(brp_objStorages);
+		assert(index < brp_objStorages->size());
+		return (*brp_objStorages)[index];
 	}
 
 }

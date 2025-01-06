@@ -160,15 +160,17 @@ namespace SKENGINE_NAME_NS {
 
 	WorldRenderer WorldRenderer::create(
 			Logger logger,
+			VmaAllocator vma,
 			std::shared_ptr<WorldRendererSharedState> sharedState,
-			std::shared_ptr<ObjectStorage> objectStorage,
+			std::shared_ptr<std::vector<ObjectStorage>> objectStorages,
 			const ProjectionInfo& projInfo,
 			util::TransientArray<PipelineParameters> plParams
 	) {
 		WorldRenderer r;
 		r.mState = { };
 		r.mState.logger = std::move(logger);
-		r.mState.objectStorage = std::move(objectStorage);
+		r.mState.vma = vma;
+		r.mState.objectStorages = std::move(objectStorages);
 		r.mState.sharedState = std::move(sharedState);
 		r.mState.rtargetId = idgen::invalidId<RenderTargetId>();
 		r.mState.viewTransfCacheOod = true;
@@ -287,7 +289,7 @@ namespace SKENGINE_NAME_NS {
 		mState.pipelines.reserve(mState.pipelineParams.size());
 		for(uint32_t subpassIdx = 0; auto& params : mState.pipelineParams) {
 			mState.pipelines.push_back(world::create3dPipeline(
-				vmaGetAllocatorDevice(mState.objectStorage->vma()),
+				vmaGetAllocatorDevice(vma()),
 				*shCache, params,
 				ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, subpassIdx ++ ));
 		}
@@ -296,7 +298,7 @@ namespace SKENGINE_NAME_NS {
 
 	void WorldRenderer::forgetSubpasses(const SubpassSetupInfo&) {
 		for(auto& pl : mState.pipelines) {
-			vkDestroyPipeline(vmaGetAllocatorDevice(mState.objectStorage->vma()), pl, nullptr);
+			vkDestroyPipeline(vmaGetAllocatorDevice(vma()), pl, nullptr);
 			pl = nullptr;
 		}
 		mState.pipelines.clear();
@@ -453,7 +455,7 @@ namespace SKENGINE_NAME_NS {
 		}
 		wgf.frameUbo.flush(cmd, vma);
 
-		mState.objectStorage->commitObjects(cmd);
+		for(auto& os : *mState.objectStorages) os.commitObjects(cmd);
 
 		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
 		if(buffer_resized) {
@@ -489,13 +491,9 @@ namespace SKENGINE_NAME_NS {
 
 	void WorldRenderer::duringDrawStage(ConcurrentAccess& ca, const DrawInfo& drawInfo, VkCommandBuffer cmd) {
 		assert(drawInfo.gframeIndex < mState.gframes.size());
-		auto& objStorage     = * mState.objectStorage.get();
-		auto& wgf            = mState.gframes[drawInfo.gframeIndex];
-		auto batches         = objStorage.getDrawBatches();
-		auto instance_buffer = objStorage.getInstanceBuffer();
-		auto batch_buffer    = objStorage.getDrawCommandBuffer();
-
-		if(batches.empty()) return;
+		auto& objStorages  = * mState.objectStorages.get();
+		auto& wgf          = mState.gframes[drawInfo.gframeIndex];
+		if(objStorages.empty()) [[unlikely]] return;
 
 		auto& renderExtent = ca.engine().getRenderExtent();
 		VkViewport viewport = { }; {
@@ -513,43 +511,52 @@ namespace SKENGINE_NAME_NS {
 		vkCmdSetViewport(cmd, 0, 1, &viewport);
 		vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-		objStorage.waitUntilReady();
-
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
-		ModelId         last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
-		MaterialId      last_mat = MaterialId (~ material_id_e (batches.front().material_id));
-		auto draw = [&](uint32_t subpassIdx) {
-			assert(subpassIdx < mState.pipelines.size());
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelines[subpassIdx]);
-			for(VkDeviceSize i = 0; const auto& batch : batches) {
-				auto* model = objStorage.getModel(batch.model_id);
-				assert(model != nullptr);
-				if(batch.model_id != last_mdl) {
-					VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
-					constexpr VkDeviceSize offsets[] = { 0, 0 };
-					vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
-					vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+		auto draw = [&](uint32_t subpassIdx, bool doWaitForStorage) {
+			for(auto& objStorage: objStorages) {
+				auto batches         = objStorage.getDrawBatches();
+				auto instance_buffer = objStorage.getInstanceBuffer();
+				auto batch_buffer    = objStorage.getDrawCommandBuffer();
+
+				if(batches.empty()) continue;
+				if(doWaitForStorage) objStorage.waitUntilReady();
+
+				ModelId    last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
+				MaterialId last_mat = MaterialId (~ material_id_e (batches.front().material_id));
+
+				assert(subpassIdx < mState.pipelines.size());
+				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelines[subpassIdx]);
+				for(VkDeviceSize batchIdx = 0; const auto& batch : batches) {
+					auto* model = objStorage.getModel(batch.model_id);
+					assert(model != nullptr);
+					if(batch.model_id != last_mdl) {
+						VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
+						constexpr VkDeviceSize offsets[] = { 0, 0 };
+						vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
+						vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+					}
+					if(batch.material_id != last_mat) {
+						auto mat = objStorage.getMaterial(batch.material_id);
+						assert(mat != nullptr);
+						dsets[MATERIAL_DSET_LOC] = mat->dset;
+						vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+					}
+					vkCmdDrawIndexedIndirect(
+						cmd, batch_buffer,
+						batchIdx * sizeof(VkDrawIndexedIndirectCommand), 1,
+						sizeof(VkDrawIndexedIndirectCommand) );
+					++ batchIdx;
 				}
-				if(batch.material_id != last_mat) {
-					auto mat = objStorage.getMaterial(batch.material_id);
-					assert(mat != nullptr);
-					dsets[MATERIAL_DSET_LOC] = mat->dset;
-					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
-				}
-				vkCmdDrawIndexedIndirect(
-					cmd, batch_buffer,
-					i * sizeof(VkDrawIndexedIndirectCommand), 1,
-					sizeof(VkDrawIndexedIndirectCommand) );
-				++ i;
 			}
 		};
 
-		assert(mState.pipelines.size() == mState.pipelineParams.size());
-		draw(0);
+		draw(0, true);
 		for(uint32_t subpassIdx = 1; subpassIdx < mState.pipelines.size(); ++ subpassIdx) {
 			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			draw(subpassIdx);
+			draw(subpassIdx, false);
 		}
+
+		assert(mState.pipelines.size() == mState.pipelineParams.size());
 	}
 
 

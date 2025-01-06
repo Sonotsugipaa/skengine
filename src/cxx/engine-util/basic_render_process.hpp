@@ -14,7 +14,7 @@ namespace SKENGINE_NAME_NS {
 
 	class BasicRenderProcess : public RenderProcessInterface {
 	public:
-		static void setup(BasicRenderProcess&, Logger, std::shared_ptr<AssetCacheInterface>, float max_sampler_anisotropy);
+		static void setup(BasicRenderProcess&, Logger, std::shared_ptr<AssetCacheInterface>, size_t objectStorageCount, float max_sampler_anisotropy);
 		static void destroy(BasicRenderProcess&, TransferContext);
 
 		#ifndef NDEBUG
@@ -27,15 +27,16 @@ namespace SKENGINE_NAME_NS {
 		void rpi_destroyRenderers(ConcurrentAccess&) override;
 
 		#define M_ACCESS_(FN_, M_) template <typename T> auto& FN_ (this T& self) { return self.brp_ ## M_; }
-		M_ACCESS_(objectStorage, objStorage   )
 		M_ACCESS_(worldRenderer, worldRenderer)
 		M_ACCESS_(uiRenderer   , uiRenderer   )
 		#undef M_ACCESS_
 
+		ObjectStorage& getObjectStorage(size_t key) noexcept;
+
 	private:
 		AssetSupplier brp_assetSupplier;
 		std::shared_ptr<WorldRendererSharedState> brp_worldRendererSs;
-		std::shared_ptr<ObjectStorage> brp_objStorage;
+		std::shared_ptr<std::vector<ObjectStorage>> brp_objStorages;
 		std::shared_ptr<WorldRenderer> brp_worldRenderer;
 		std::shared_ptr<UiRenderer>    brp_uiRenderer;
 		RenderTargetId brp_depthRtarget;
