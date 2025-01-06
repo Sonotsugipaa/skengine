@@ -141,6 +141,9 @@ inline namespace input {
 		[](T tr) { T tl = tr; (void) tl /* GCC complains that tl is unused... really? */; };
 	};
 
+	template <typename T>
+	concept CommandCallbackFunctionOptional = CommandCallbackFunction<T> || std::same_as<T, nullptr_t>;
+
 
 	class CommandCallback {
 	public:

@@ -90,6 +90,9 @@ namespace sneka {
 	public:
 		static constexpr float cameraDistance = 2.0f;
 		static constexpr float cameraPitch = 0.75f;
+		static constexpr float speedBoostDecayDn = 0.333f;
+		static constexpr float speedBoostDecayUp = 0.2f;
+		static constexpr float speedBoostFromInput = speedBoostDecayDn * 5.0f;
 
 		struct CallbackSharedState {
 			ske::AnimationSet<glm::vec3> playerMovementAnim = { };
@@ -98,7 +101,7 @@ namespace sneka {
 			ske::AnimId cameraAnimId    = idgen::invalidId<ske::AnimId>();
 			signed char lastDir[2]    = { 0, -1 };
 			float       headYawTarget = 0.0f;
-			float       speedBase     = 1.5f;
+			float       speedBase     = 2.0f;
 			float       speedBoost    = 0.0f;
 			bool        quit          = false;
 		};
@@ -126,8 +129,7 @@ namespace sneka {
 		ske::ObjectId skyLight;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
-		ske::CommandId cmdLeft;
-		ske::CommandId cmdRight;
+		ske::CommandId cmdBoost;
 		float macrotickProgress;
 		float macrotickFrequency;
 		World world;
@@ -228,12 +230,25 @@ namespace sneka {
 			{ // Input management
 				auto inputLock = std::unique_lock(inputManMutex);
 				auto sharedState = this->sharedState;
-				auto bindKeyCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunction auto cb) {
+				auto bindKeyPressCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunction auto cb) {
 					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActivated };
 					auto cbPtr = std::make_shared<ske::CommandCallbackWrapper<decltype(cb)>>(std::move(cb));
 					return inputMan.bindNewCommand(
 						ske::Binding { key, std::move(ctx) },
 						std::move(cbPtr) );
+				};
+				auto bindKeyHoldCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunctionOptional auto cb) {
+					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActive };
+					if constexpr (std::same_as<decltype(cb), nullptr_t>) {
+						return inputMan.bindNewCommand(
+							ske::Binding { key, std::move(ctx) },
+							nullptr );
+					} else {
+						auto cbPtr = std::make_shared<ske::CommandCallbackWrapper<decltype(cb)>>(std::move(cb));
+						return inputMan.bindNewCommand(
+							ske::Binding { key, std::move(ctx) },
+							std::move(cbPtr) );
+					}
 				};
 				static constexpr auto rotate = [](CallbackSharedState& state, signed char dir) {
 					constexpr auto pi = std::numbers::pi_v<float>;
@@ -253,9 +268,10 @@ namespace sneka {
 						cam,
 						glm::vec3 { yawDiff, 0.0f, 0.0f } );
 				};
-				bindKeyCb(SDLK_a, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, +1); });
-				bindKeyCb(SDLK_d, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, -1); });
-				bindKeyCb(SDLK_q, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->quit = true; });
+				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
+				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
+				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quit = true; });
+				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [sharedState](auto&, auto) { sharedState->speedBoost = speedBoostFromInput; });
 			}
 
 			{ // Load models
@@ -358,6 +374,7 @@ namespace sneka {
 			(void) delta;
 
 			auto ca = engine->getConcurrentAccess();
+			auto& shState = *sharedState;
 
 			struct ResizeEvent {
 				Sint32 width;
@@ -383,11 +400,14 @@ namespace sneka {
 				if(macrotickProgress >= 1.0f) [[unlikely]] {
 					constexpr auto pi = std::numbers::pi_v<float>;
 					constexpr auto pi2 = 2.0f * pi;
-					auto& shState = *sharedState;
 
 					-- macrotickProgress;
+					if(inputMan.isCommandActive(cmdBoost)) shState.speedBoost = speedBoostFromInput;
 					macrotickFrequency = shState.speedBase + shState.speedBoost;
 					macrotickLock.unlock();
+
+					if     (shState.speedBoost > 0.0f) shState.speedBoost = std::max(0.0f, shState.speedBoost - speedBoostDecayDn);
+					else if(shState.speedBoost < 0.0f) shState.speedBoost = std::min(0.0f, shState.speedBoost + speedBoostDecayUp);
 
 					const auto pos = shState.playerHeadPos.getValue();
 					auto xApprox = std::floorf(pos.x + 0.5f);

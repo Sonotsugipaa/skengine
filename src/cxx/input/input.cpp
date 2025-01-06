@@ -159,11 +159,11 @@ inline namespace input {
 			constexpr auto nullTuple = R { nullptr, nullCmd, nullptr, false };
 			auto mapKeyWithChange    = InputMapKey { event.input.id, (event.input.state | InputState::eActive) | InputState::eDeactivated };
 			auto mapKeyWithoutChange = InputMapKey { event.input.id, (event.input.state | InputState::eActive) & (~InputState::eDeactivated) };
-			bool doActivate = false;
+			bool boundOnChange = true;
 			auto bindingFound = mBindings.find(mapKeyWithChange);
 			if(bindingFound == mBindings.end()) {
 				bindingFound = mBindings.find(mapKeyWithoutChange);
-				doActivate = true;
+				boundOnChange = false;
 				if(bindingFound == mBindings.end()) return nullTuple;
 			}
 			auto ctxFound = bindingFound->second.lower_bound(ctxStr);
@@ -172,13 +172,13 @@ inline namespace input {
 			if(ctxCmp == Context::Cmp::eSame || ctxCmp == Context::Cmp::eLeftIsSubcontext) {
 				auto cmdFound = mCommands.find(ctxFound->second);
 				assert(cmdFound != mCommands.end());
-				return R { &ctxFound->first, ctxFound->second, &cmdFound->second, doActivate };
+				return R { &ctxFound->first, ctxFound->second, &cmdFound->second, boundOnChange };
 			} else {
 				return nullTuple;
 			}
 		};
 		auto activateCmd = [&]() {
-			auto [ctx, cmdId, cmdPtrPtr, keepActive] = findCmd();
+			auto [ctx, cmdId, cmdPtrPtr, boundOnChange] = findCmd();
 			if(cmdPtrPtr)
 			if(*cmdPtrPtr) {
 				(*cmdPtrPtr)->operator()(
@@ -188,7 +188,7 @@ inline namespace input {
 			mActiveCommands.insert_or_assign(cmdId, InputMapKey { event.input.id, event.input.state });
 		};
 		auto deactivateCmd = [&]() {
-			auto [ctx, cmdId, cmdPtr, keepActive] = findCmd();
+			auto [ctx, cmdId, cmdPtr, boundOnChange] = findCmd();
 			mActiveCommands.erase(cmdId);
 		};
 		auto unfocus = [&]() {
