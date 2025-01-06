@@ -10,6 +10,7 @@
 #include <engine-util/basic_asset_cache.hpp>
 #include <engine-util/basic_render_process.hpp>
 #include <engine-util/gui_manager.hpp>
+#include <engine-util/animation.inl.hpp>
 
 #include <input/input.hpp>
 
@@ -26,6 +27,47 @@ extern "C" {
 
 
 namespace sneka {
+
+	namespace anim::target {
+
+		template <typename T>
+		class Linear : public ske::Animation<T> {
+		public:
+			T beginning;
+			T dir;
+
+			Linear(ske::AnimationValue<T>& v, T beginning, T dir):
+				ske::Animation<T>(v),
+				beginning(beginning),
+				dir(dir)
+			{ }
+
+			void animation_setProgress(T& dst, ske::anim_x_t x) noexcept override {
+				dst = beginning + (dir * x);
+			}
+		};
+
+
+		template <typename T>
+		class EaseOut : public ske::Animation<T> {
+		public:
+			T beginning;
+			T dir;
+
+			EaseOut(ske::AnimationValue<T>& v, T beginning, T dir):
+				ske::Animation<T>(v),
+				beginning(beginning),
+				dir(dir)
+			{ }
+
+			void animation_setProgress(T& dst, ske::anim_x_t x) noexcept override {
+				constexpr auto f = [](ske::anim_x_t x) { auto x2 = x*x; return (ske::anim_x_t(2) * x) - x2; };
+				dst = beginning + (dir * float(f(x)));
+			}
+		};
+
+	}
+
 
 	std::string getenv(const char* nameCstr) {
 		static std::mutex mtx;
@@ -45,11 +87,15 @@ namespace sneka {
 		static constexpr float cameraPitch = 0.75f;
 
 		struct CallbackSharedState {
-			signed char lastDir[2]  = { 0, -1 };
-			float       yawTarget   = 0.0f;
-			float       speed       = 0.0f;
-			float       speedTarget = 0.0f;
-			bool        quit        = false;
+			ske::AnimationSet<glm::vec3> playerMovementAnim = { };
+			ske::AnimationValue<glm::vec3> playerHeadPos = { };
+			ske::AnimationValue<glm::vec3> camRotation = { };
+			ske::AnimId cameraAnimId    = idgen::invalidId<ske::AnimId>();
+			signed char lastDir[2]    = { 0, -1 };
+			float       headYawTarget = 0.0f;
+			float       speedBase     = 1.5f;
+			float       speedBoost    = 0.0f;
+			bool        quit          = false;
 		};
 
 		ske::Engine* engine;
@@ -58,7 +104,8 @@ namespace sneka {
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
 		std::mutex inputManMutex;
-		glm::vec3 playerHeadPos;
+		std::mutex macrotickMutex;
+		ske::AnimId playerHeadPosAnimId;
 		ske::ObjectId light0;
 		ske::ObjectId light1;
 		ske::ObjectId skyLight;
@@ -72,84 +119,54 @@ namespace sneka {
 		ske::ModelId wallMdl;
 		ske::CommandId cmdLeft;
 		ske::CommandId cmdRight;
+		float macrotickProgress;
+		float macrotickFrequency;
 		World world;
 
 
-		void updateViewPosRot(tickreg::delta_t deltaAvg, bool forceAllUpdates = false) {
+		void updateViewPosRot(tickreg::delta_t deltaAvg) {
 			auto& wr = * rproc->worldRenderer();
 			auto& os = * rproc->objectStorage();
 
 			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
 				return (src + (target * bias)) / (1.0f + bias); };
 
-			const auto accelerate = [deltaAvg](float value, float delta, float accel) -> float {
-				return value + (delta * deltaAvg) + (2.0f * accel * deltaAvg);
-			};
-
 			{
-				constexpr float viewRotBias = 8.0f;
-				constexpr float headRotBias = 9.0f;
-				auto state = *sharedState;
+				constexpr float headRotBias = 8.0f;
+				constexpr float macrotickAnimRatio = 0.99f; // Used to encourage macrotick-tied animations to finish after the macrotick (ideally being interrupted)
+
+				auto& state = *sharedState;
 				auto inputLock = std::unique_lock(inputManMutex);
-				bool doUpdateViewPos = forceAllUpdates;
-				auto viewRot = wr.getViewRotation();
-				auto playerHead = [&]() { auto r = os.getObject(this->playerHead); return (r.has_value()? *r.value() : ske::Object { }); } ();
-				auto newHeadRot = playerHead.direction_ypr;
-				auto* direction = state.lastDir;
-				auto recomputeYawTowards =
-					[&]
-					<typename Fn>
-					(float from, float to, float bias, bool* setToTrue, Fn&& fn)
+				auto viewRot = state.camRotation.getValue();
+				const auto playerHeadPos = state.playerHeadPos.getValue();
+				const auto playerHeadDir = [&]() { auto r = os.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
+				auto deltaSupertick = deltaAvg * macrotickFrequency;
+
 				{
-					auto yawDiff = to - from;
-					auto yawDiffAbs = std::abs(yawDiff);
-					if(yawDiffAbs > 0.0001f) {
-						constexpr float pi = std::numbers::pi_v<float>;
-						if(yawDiffAbs < 0.001) {
-							std::forward<Fn>(fn)({ state.yawTarget });
-						} else {
-							if     (yawDiff > +pi) from += pi*2.0f;
-							else if(yawDiff < -pi) from -= pi*2.0f;
-							from = biasedAverage(from, state.yawTarget, bias * deltaAvg);
-							std::forward<Fn>(fn)(from);
-						}
-						if(setToTrue != nullptr) *setToTrue = true;
-					}
-				};
-				recomputeYawTowards(viewRot.x   , state.yawTarget, viewRotBias, &doUpdateViewPos, [&](float v) { wr.setViewRotation({ v, viewRot.y, viewRot.z }); });
-				recomputeYawTowards(newHeadRot.x, state.yawTarget, headRotBias, &doUpdateViewPos, [&](float v) { newHeadRot.x = v; });
-				doUpdateViewPos = doUpdateViewPos || state.speedTarget > 0.0f;
-				if(doUpdateViewPos) {
-					constexpr float speedBias = 2.0f;
+					auto macrotickLock = std::unique_lock(macrotickMutex);
+					macrotickProgress += deltaSupertick;
+				}
+
+				state.playerMovementAnim.fwd(deltaSupertick * macrotickAnimRatio);
+
+				{
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
-					viewRotTransf = glm::rotate(viewRotTransf,  viewRot.x, { 0.0f, 1.0f, 0.0f });
+					viewRotTransf = glm::rotate(viewRotTransf, +viewRot.x, { 0.0f, 1.0f, 0.0f });
 					viewRotTransf = glm::rotate(viewRotTransf, -viewRot.y, { 1.0f, 0.0f, 0.0f });
-					auto speedTarget = biasedAverage(state.speed, -state.speedTarget, speedBias * deltaAvg); // -state.speedTarget: "Forward" is z<0
-					auto accel = (speedTarget - state.speed);
-					auto vel = state.speed;
-					playerHeadPos.x = accelerate(playerHeadPos.x, +direction[0] * vel, +direction[0] * accel);
-					playerHeadPos.z = accelerate(playerHeadPos.z, -direction[1] * vel, -direction[1] * accel);
 					auto viewPos = playerHeadPos;
 					auto viewPosOff4 = viewRotTransf * glm::vec4 { 0.0f, 0.0f, -cameraDistance, 1.0f };
 					viewPos -= glm::vec3(viewPosOff4);
 					wr.setViewPosition(viewPos);
-					state.speed = speedTarget;
+					wr.setViewRotation(viewRot);
 				}
-				*sharedState = state;
-				if(this->playerHead != idgen::invalidId<ske::ObjectId>())
-				if(
-					playerHead.model_id != idgen::invalidId<ske::ModelId>() && (
-						playerHead.position_xyz != playerHeadPos ||
-						playerHead.direction_ypr != newHeadRot )
-				) {
+
+				if(this->playerHead != idgen::invalidId<ske::ObjectId>()) {
+					auto newHeadRot = playerHeadDir;
+					newHeadRot.x = biasedAverage(newHeadRot.x, state.headYawTarget, headRotBias * deltaAvg);
 					{ auto mod = os.modifyObject(this->playerHead);
 						mod->position_xyz = playerHeadPos;
 						mod->direction_ypr = newHeadRot; }
 				}
-				{ auto& mod = wr.modifyPointLight(this->light0);
-					mod.position.x = playerHeadPos.x;
-					mod.position.y = playerHeadPos.y + 0.7f;
-					mod.position.z = playerHeadPos.z; }
 			}
 		}
 
@@ -159,7 +176,7 @@ namespace sneka {
 			assetCache(std::move(assetCache)),
 			rproc(std::move(rproc)),
 			sharedState(std::make_shared<CallbackSharedState>()),
-			playerHeadPos { }
+			macrotickFrequency(1.0f)
 		{
 			constexpr const char* worldFilename = "world.wrd";
 			using enum GridObjectClass;
@@ -209,14 +226,23 @@ namespace sneka {
 						std::move(cbPtr) );
 				};
 				static constexpr auto rotate = [](CallbackSharedState& state, signed char dir) {
+					constexpr auto pi = std::numbers::pi_v<float>;
+					constexpr auto pi2 = 2.0f * pi;
 					signed char lastDir0 = state.lastDir[0];
+					auto cam = state.camRotation.getValue();
 					state.lastDir[0] = -dir * state.lastDir[1];
 					state.lastDir[1] = +dir * lastDir0;
-					state.yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
-					state.speed = std::min(0.2f, state.speed * 0.5f);
+					auto yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
+					auto yawDiff = yawTarget - cam.x;
+					while(yawDiff >= +pi) yawDiff -= pi2;
+					while(yawDiff <= -pi) yawDiff += pi2;
+					state.playerMovementAnim.interrupt(state.cameraAnimId);
+					state.cameraAnimId = state.playerMovementAnim.start<anim::target::EaseOut<glm::vec3>>(
+						ske::AnimEndAction::eClampThenPause,
+						state.camRotation,
+						cam,
+						glm::vec3 { yawDiff, 0.0f, 0.0f } );
 				};
-				bindKeyCb(SDLK_w, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->speedTarget += 0.50000f; });
-				bindKeyCb(SDLK_s, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->speedTarget = std::max<float>(0.0f, sharedState->speedTarget - 0.50001f); });
 				bindKeyCb(SDLK_a, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, +1); });
 				bindKeyCb(SDLK_d, "general", [sharedState](const ske::Context&, ske::Input) { rotate(*sharedState, -1); });
 				bindKeyCb(SDLK_q, "general", [sharedState](const ske::Context&, ske::Input) { sharedState->quit = true; });
@@ -236,65 +262,76 @@ namespace sneka {
 				wallMdl       = trySetModel(world.getObjWallModel());
 			}
 
-			assert(world.width() * world.height() > 0);
-			float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
-			float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
-			auto& tc = engine->getTransferContext();
-			auto newObject = ske::ObjectStorage::NewObject {
-				{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
-			auto tryCreate = [&](ske::ModelId mdl) {
-				if(mdl == idgen::invalidId<ske::ModelId>()) return idgen::invalidId<ske::ObjectId>();
-				newObject.model_id = mdl;
-				return os.createObject(tc, newObject);
-				return idgen::invalidId<ske::ObjectId>();
-			};
-			for(size_t y = 0; y < world.height(); ++ y)
-			for(size_t x = 0; x < world.width();  ++ x) {
-				auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
-				bool invert = std::uniform_int_distribution<unsigned>(0, 1)(rng) == 1;
-				newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
-				newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
-				newObject.scale_xyz.z *= invert? -1.0f : +1.0f;
-				newObject.direction_ypr = {
-					0.5f * std::numbers::pi_v<float> * float(std::uniform_int_distribution<unsigned>(0, 3)(rng)),
-					0.0f,
-					0.0f };
-				switch(world.tile(x, y)) {
-					case GridObjectClass::eBoost:    tryCreate(boostMdl); break;
-					case GridObjectClass::ePoint:    tryCreate(pointMdl); break;
-					case GridObjectClass::eObstacle: tryCreate(obstacleMdl); break;
-					case GridObjectClass::eWall:     tryCreate(wallMdl); break;
-					default:
-						engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
-						[[fallthrough]];
-					case GridObjectClass::eNoObject: break;
-				}
+			{ // Setup animations
+				auto state = *this->sharedState;
+				macrotickProgress = 0.0f;
+				playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
 			}
-			newObject.position_xyz = playerHeadPos;
-			newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-			playerHead = tryCreate(playerHeadMdl);
-			newObject.position_xyz = { };
-			newObject.direction_ypr = { };
-			newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-			tryCreate(sceneryMdl);
-			wr.setViewRotation({ 0.0f, cameraPitch, 0.0f });
-			wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
-			light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
-				.position = { },
-				.color = { 0.4f, 0.4f, 1.0f },
-				.intensity = 0.8f,
-				.falloffExponent = 0.8f });
-			light1 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
-				.position = { -0.9f * xGridCenter, 10.0f, -0.8f * yGridCenter },
-				.color = { 0.9f, 0.9f, 1.0f },
-				.intensity = 12.0f,
-				.falloffExponent = 0.9f });
-			skyLight = wr.createRayLight(ske::WorldRenderer::NewRayLight {
-				.direction = { 0.0f, -1.0f, 0.0f },
-				.color = { 0.9f, 0.9f, 1.0f },
-				.intensity = 0.7f,
-				.aoaThreshold = 0.3f });
-			updateViewPosRot(0.0, true);
+
+			{ // Create world
+				auto& state = *this->sharedState;
+				state = CallbackSharedState();
+				assert(world.width() * world.height() > 0);
+				float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
+				float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
+				auto& tc = engine->getTransferContext();
+				auto newObject = ske::ObjectStorage::NewObject {
+					{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
+				auto tryCreate = [&](ske::ModelId mdl) {
+					if(mdl == idgen::invalidId<ske::ModelId>()) return idgen::invalidId<ske::ObjectId>();
+					newObject.model_id = mdl;
+					return os.createObject(tc, newObject);
+					return idgen::invalidId<ske::ObjectId>();
+				};
+				for(size_t y = 0; y < world.height(); ++ y)
+				for(size_t x = 0; x < world.width();  ++ x) {
+					auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
+					bool invert = std::uniform_int_distribution<unsigned>(0, 1)(rng) == 1;
+					newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
+					newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
+					newObject.scale_xyz.z *= invert? -1.0f : +1.0f;
+					newObject.direction_ypr = {
+						0.5f * std::numbers::pi_v<float> * float(std::uniform_int_distribution<unsigned>(0, 3)(rng)),
+						0.0f,
+						0.0f };
+					switch(world.tile(x, y)) {
+						case GridObjectClass::eBoost:    tryCreate(boostMdl); break;
+						case GridObjectClass::ePoint:    tryCreate(pointMdl); break;
+						case GridObjectClass::eObstacle: tryCreate(obstacleMdl); break;
+						case GridObjectClass::eWall:     tryCreate(wallMdl); break;
+						default:
+							engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
+							[[fallthrough]];
+						case GridObjectClass::eNoObject: break;
+					}
+				}
+				newObject.position_xyz = state.playerHeadPos.getValue();
+				newObject.direction_ypr = { };
+				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
+				playerHead = tryCreate(playerHeadMdl);
+				newObject.position_xyz = { };
+				newObject.direction_ypr = { };
+				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
+				tryCreate(sceneryMdl);
+				state.camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
+				wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
+				light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+					.position = { },
+					.color = { 0.4f, 0.4f, 1.0f },
+					.intensity = 0.8f,
+					.falloffExponent = 0.8f });
+				light1 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+					.position = { -0.9f * xGridCenter, 10.0f, -0.8f * yGridCenter },
+					.color = { 0.9f, 0.9f, 1.0f },
+					.intensity = 12.0f,
+					.falloffExponent = 0.9f });
+				skyLight = wr.createRayLight(ske::WorldRenderer::NewRayLight {
+					.direction = { 0.0f, -1.0f, 0.0f },
+					.color = { 0.9f, 0.9f, 1.0f },
+					.intensity = 0.7f,
+					.aoaThreshold = 0.3f });
+				updateViewPosRot(0.0);
+			}
 
 			sharedState->quit = false;
 		}
@@ -330,6 +367,35 @@ namespace sneka {
 			}
 
 			if(resizeEvent.triggered) ca->setPresentExtent(VkExtent2D { uint32_t(resizeEvent.width), uint32_t(resizeEvent.height) });
+
+			{
+				auto macrotickLock = std::unique_lock(macrotickMutex);
+				if(macrotickProgress >= 1.0f) [[unlikely]] {
+					constexpr auto pi = std::numbers::pi_v<float>;
+					constexpr auto pi2 = 2.0f * pi;
+					auto& shState = *sharedState;
+
+					-- macrotickProgress;
+					macrotickFrequency = shState.speedBase + shState.speedBoost;
+					macrotickLock.unlock();
+
+					const auto pos = shState.playerHeadPos.getValue();
+					auto xApprox = std::floorf(pos.x + 0.5f);
+					auto zApprox = std::floorf(pos.z + 0.5f);
+					auto xDiff = (xApprox - shState.lastDir[0]) - pos.x;
+					auto zDiff = (zApprox + shState.lastDir[1]) - pos.z;
+					auto yawDiff = std::atan2f(-xDiff, -zDiff) - shState.headYawTarget;
+					while(yawDiff >= +pi) yawDiff -= pi2;
+					while(yawDiff <= -pi) yawDiff += pi2;
+					shState.headYawTarget += yawDiff;
+					shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
+					playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
+						ske::AnimEndAction::ePause,
+						shState.playerHeadPos,
+						pos,
+						glm::vec3 { xDiff, 0.0f, zDiff } );
+				}
+			}
 		}
 
 		LoopState loop_pollState() const noexcept override {
