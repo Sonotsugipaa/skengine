@@ -246,17 +246,16 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		void matrix_worker_fn(ObjectStorage::MatrixAssembler* ma, size_t thread_index) {
-			auto& worker = ma->workers[thread_index];
-			auto  lock   = std::unique_lock(worker.cond->mutex);
+		void matrix_worker_fn(ObjectStorage::MatrixAssembler* ma) {
+			auto lock = std::unique_lock(ma->mutex);
 
 			begin:
-			if(worker.queue.empty()) [[unlikely]] {
+			if(ma->queue.empty()) [[unlikely]] {
 				lock.unlock();
 				return;
 			}
 
-			for(auto& job : worker.queue) {
+			for(auto& job : ma->queue) {
 				static constexpr glm::vec3 x = { 1.0f, 0.0f, 0.0f };
 				static constexpr glm::vec3 y = { 0.0f, 1.0f, 0.0f };
 				static constexpr glm::vec3 z = { 0.0f, 0.0f, 1.0f };
@@ -283,10 +282,10 @@ namespace SKENGINE_NAME_NS {
 				scale     (job.dst, job.scale.bone);
 				scale     (job.dst, job.scale.bone_instance);
 			}
-			worker.queue.clear();
+			ma->queue.clear();
 
-			worker.cond->consume_cond.notify_one();
-			worker.cond->produce_cond.wait(lock);
+			ma->consume_cond.notify_one();
+			ma->produce_cond.wait(lock);
 
 			goto begin;
 		}
@@ -313,23 +312,17 @@ namespace SKENGINE_NAME_NS {
 		r.mDpool         = nullptr;
 		r.mDpoolCapacity = 0;
 		r.mDpoolSize     = 0;
-		r.mBatchesNeedUpdate  = true;
-		r.mObjectsNeedRebuild = true;
-		r.mObjectsNeedFlush   = true;
+		r.mMatrixAssemblerRunning = false;
+		r.mBatchesNeedUpdate      = true;
+		r.mObjectsNeedRebuild     = true;
+		r.mObjectsNeedFlush       = true;
 		r.mObjectBuffer = create_object_buffer(r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Instance));
 		r.mBatchBuffer  =   create_draw_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
 
 		{ // Initialize the matrix assembler
-			constexpr auto maxWorkerCount = 4; // This heuristic value seems to outperform other bottlenecks
-			auto workerCount = std::min<size_t>(maxWorkerCount, sysres::optimalWorkerCount());
-			r.mLogger.info("ObjectStorage: using {} workers", workerCount);
 			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
-			r.mMatrixAssembler->workers.reserve(workerCount);
-			for(size_t i = 0; i < workerCount; ++i) {
-				r.mMatrixAssembler->workers.emplace_back();
-				r.mMatrixAssembler->workers.back().cond->mutex.lock();
-				r.mMatrixAssembler->workers.back().thread = std::thread(matrix_worker_fn, r.mMatrixAssembler.get(), i);
-			}
+			r.mMatrixAssembler->mutex.lock();
+			r.mMatrixAssembler->thread = std::thread(matrix_worker_fn, r.mMatrixAssembler.get());
 		}
 
 		return r;
@@ -351,12 +344,10 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		{
-			for(auto& worker : r.mMatrixAssembler->workers) {
-				assert(worker.queue.empty());
-				worker.cond->produce_cond.notify_one();
-				worker.cond->mutex.unlock();
-			}
-			for(auto& worker : r.mMatrixAssembler->workers) worker.thread.join();
+			assert(r.mMatrixAssembler->queue.empty());
+			r.mMatrixAssembler->produce_cond.notify_one();
+			r.mMatrixAssembler->mutex.unlock();
+			r.mMatrixAssembler->thread.join();
 			r.mMatrixAssembler = { };
 		}
 
@@ -697,8 +688,7 @@ namespace SKENGINE_NAME_NS {
 				job.direction = { src_obj.first.direction_ypr, bone.direction_ypr, bone_instance.direction_ypr };
 				job.scale     = { src_obj.first.scale_xyz,     bone.scale_xyz,     bone_instance.scale_xyz };
 				job.dst = &obj.model_transf;
-				auto& worker = mMatrixAssembler->workers[object_id_e(obj_id) % mMatrixAssembler->workers.size()];
-				worker.queue.push_back(job);
+				mMatrixAssembler->queue.push_back(job);
 			}
 
 			return true;
@@ -748,16 +738,11 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // Wait for the matrix assembler
-				auto& runningWorkers = mMatrixAssemblerRunningWorkers;
-				assert(runningWorkers.empty());
-				runningWorkers.reserve(mMatrixAssembler->workers.size());
-				for(size_t i = 0; i < mMatrixAssembler->workers.size(); ++i) {
-					auto& worker = mMatrixAssembler->workers[i];
-					if(! worker.queue.empty()) {
-						runningWorkers.push_back(i);
-						worker.cond->produce_cond.notify_one();
-						worker.cond->mutex.unlock();
-					}
+				assert(! mMatrixAssemblerRunning);
+				if(! mMatrixAssembler->queue.empty()) {
+					mMatrixAssemblerRunning = true;
+					mMatrixAssembler->produce_cond.notify_one();
+					mMatrixAssembler->mutex.unlock();
 				}
 			}
 
@@ -777,17 +762,13 @@ namespace SKENGINE_NAME_NS {
 
 
 	void ObjectStorage::waitUntilReady() {
-		auto& runningWorkers = mMatrixAssemblerRunningWorkers;
-		if(runningWorkers.empty()) [[unlikely]] return;
-		for(size_t i = 0; i < runningWorkers.size(); ++i) {
-			auto& worker = mMatrixAssembler->workers[runningWorkers[i]];
-			auto lock = std::unique_lock(worker.cond->mutex);
-			if(! worker.queue.empty() /* `consume_cond` may have already been notified */) {
-				worker.cond->consume_cond.wait(lock);
-			}
-			lock.release(); // The consumer thread always holds the mutex, unless waiting
+		if(! mMatrixAssemblerRunning) return;
+		auto lock = std::unique_lock(mMatrixAssembler->mutex);
+		if(! mMatrixAssembler->queue.empty() /* `consume_cond` may have already been notified */) {
+			mMatrixAssembler->consume_cond.wait(lock);
 		}
-		runningWorkers.clear();
+		lock.release(); // The consumer thread always holds the mutex, unless waiting
+		mMatrixAssemblerRunning = false;
 	}
 
 }

@@ -33,7 +33,7 @@ namespace sysres {
 	/// If SMT is unavailable, leave one "thread" for the rest of the system.
 	///
 	/// Obviously, this only applies if the entire program respects this
-	/// function's return value:
+	/// function's return value.
 	inline unsigned optimalWorkerCount() noexcept {
 		// Rationale: a worker pool does not benefit from having more workers
 		// than physical threads, but the overhead of running unrelated
@@ -41,7 +41,7 @@ namespace sysres {
 		// If SMT is unavailable, leave one "thread" for the rest of the system.
 		//
 		// Obviously, this only applies if the entire program respects this
-		// function's return value:
+		// function's return value.
 		//
 		auto& pt = topology.physicalThreads;
 		if(topology.smt()) {

@@ -171,18 +171,11 @@ namespace SKENGINE_NAME_NS {
 				glm::mat4* dst;
 			};
 			using JobQueue = std::deque<Job>;
-			struct Worker {
-				struct LockSet {
-					std::mutex mutex;
-					std::condition_variable produce_cond;
-					std::condition_variable consume_cond;
-				};
-				std::unique_ptr<LockSet> cond;
-				std::thread thread;
-				JobQueue    queue;
-				Worker(): cond(std::make_unique<decltype(cond)::element_type>()) { }
-			};
-			std::vector<Worker> workers;
+			std::mutex              mutex;
+			std::condition_variable produce_cond;
+			std::condition_variable consume_cond;
+			std::thread             thread;
+			JobQueue                queue;
 		};
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
@@ -260,11 +253,11 @@ namespace SKENGINE_NAME_NS {
 		vkutil::BufferDuplex mBatchBuffer;
 
 		std::shared_ptr<MatrixAssembler> mMatrixAssembler;
-		std::vector<size_t> mMatrixAssemblerRunningWorkers;
 
-		bool mBatchesNeedUpdate  : 1; // `true` when objects have been added or removed
-		bool mObjectsNeedRebuild : 1; // `true` when the object buffer is completely out of date
-		bool mObjectsNeedFlush   : 1; // `true` when the object buffer needs to be uploaded, but all objects already exist in it
+		bool mMatrixAssemblerRunning : 1;
+		bool mBatchesNeedUpdate      : 1; // `true` when objects have been added or removed
+		bool mObjectsNeedRebuild     : 1; // `true` when the object buffer is completely out of date
+		bool mObjectsNeedFlush       : 1; // `true` when the object buffer needs to be uploaded, but all objects already exist in it
 
 		ModelData&    setModel      (ModelId,    DevModel);
 		MaterialData& setMaterial   (MaterialId, Material);
