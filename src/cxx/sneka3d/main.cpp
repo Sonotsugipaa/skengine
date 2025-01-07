@@ -95,15 +95,28 @@ namespace sneka {
 		static constexpr float speedBoostFromInput = speedBoostDecayDn * 5.0f;
 
 		struct CallbackSharedState {
-			ske::AnimationSet<glm::vec3> playerMovementAnim = { };
-			ske::AnimationValue<glm::vec3> playerHeadPos = { };
-			ske::AnimationValue<glm::vec3> camRotation = { };
-			ske::AnimId cameraAnimId    = idgen::invalidId<ske::AnimId>();
-			signed char lastDir[2]    = { 0, -1 };
-			float       headYawTarget = 0.0f;
-			float       speedBase     = 2.0f;
-			float       speedBoost    = 0.0f;
-			bool        quit          = false;
+			std::mutex animMutex;
+			ske::AnimationSet<glm::vec3> playerMovementAnim;
+			ske::AnimationValue<glm::vec3> playerHeadPos;
+			ske::AnimationValue<glm::vec3> camRotation;
+			ske::AnimId cameraAnimId;
+			signed char lastDir[2];
+			float       headYawTarget;
+			float       speedBase;
+			float       speedBoost;
+			bool        quit;
+			void init() {
+				playerMovementAnim = { };
+				playerHeadPos      = { };
+				camRotation        = { };
+				cameraAnimId       = idgen::invalidId<ske::AnimId>();
+				lastDir[0]         =  0;
+				lastDir[1]         = -1;
+				headYawTarget      = 0.0f;
+				speedBase          = 2.0f;
+				speedBoost         = 0.0f;
+				quit               = false;
+			}
 		};
 
 		struct ModelIdStorage {
@@ -158,7 +171,10 @@ namespace sneka {
 					macrotickProgress += deltaSupertick;
 				}
 
-				state.playerMovementAnim.fwd(deltaSupertick * macrotickAnimRatio);
+				{
+					auto lock = std::unique_lock(state.animMutex);
+					state.playerMovementAnim.fwd(deltaSupertick * macrotickAnimRatio);
+				}
 
 				{
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
@@ -226,6 +242,8 @@ namespace sneka {
 			ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
 			ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
+			auto& state = *this->sharedState;
+			state.init();
 
 			{ // Input management
 				auto inputLock = std::unique_lock(inputManMutex);
@@ -261,12 +279,15 @@ namespace sneka {
 					auto yawDiff = yawTarget - cam.x;
 					while(yawDiff >= +pi) yawDiff -= pi2;
 					while(yawDiff <= -pi) yawDiff += pi2;
-					state.playerMovementAnim.interrupt(state.cameraAnimId);
-					state.cameraAnimId = state.playerMovementAnim.start<anim::target::EaseOut<glm::vec3>>(
-						ske::AnimEndAction::eClampThenPause,
-						state.camRotation,
-						cam,
-						glm::vec3 { yawDiff, 0.0f, 0.0f } );
+					{
+						auto lock = std::unique_lock(state.animMutex);
+						state.playerMovementAnim.interrupt(state.cameraAnimId);
+						state.cameraAnimId = state.playerMovementAnim.start<anim::target::EaseOut<glm::vec3>>(
+							ske::AnimEndAction::eClampThenPause,
+							state.camRotation,
+							cam,
+							glm::vec3 { yawDiff, 0.0f, 0.0f } );
+					}
 				};
 				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
 				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
@@ -289,14 +310,11 @@ namespace sneka {
 			}
 
 			{ // Setup animations
-				auto state = *this->sharedState;
 				macrotickProgress = 0.0f;
 				playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
 			}
 
 			{ // Create world
-				auto& state = *this->sharedState;
-				state = CallbackSharedState();
 				assert(world.width() * world.height() > 0);
 				float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
 				float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
@@ -418,12 +436,15 @@ namespace sneka {
 					while(yawDiff >= +pi) yawDiff -= pi2;
 					while(yawDiff <= -pi) yawDiff += pi2;
 					shState.headYawTarget += yawDiff;
-					shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
-					playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
-						ske::AnimEndAction::ePause,
-						shState.playerHeadPos,
-						pos,
-						glm::vec3 { xDiff, 0.0f, zDiff } );
+					{
+						auto lock = std::unique_lock(shState.animMutex);
+						shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
+						playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
+							ske::AnimEndAction::ePause,
+							shState.playerHeadPos,
+							pos,
+							glm::vec3 { xDiff, 0.0f, zDiff } );
+					}
 				}
 			}
 		}
