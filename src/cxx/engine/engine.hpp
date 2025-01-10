@@ -93,6 +93,7 @@ namespace SKENGINE_NAME_NS {
 		std::float32_t z_near;
 		std::float32_t z_far;
 		uint32_t       shade_step_count;
+		std::float32_t point_light_distance_threshold;
 		std::float32_t shade_step_smoothness;
 		std::float32_t shade_step_exponent;
 		std::float32_t dithering_steps;

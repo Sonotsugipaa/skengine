@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float dithering_steps;
 	float rnd;
 	float time_delta;
+	float p_light_dist_threshold;
 	uint flags;
 } frame_ubo;
 

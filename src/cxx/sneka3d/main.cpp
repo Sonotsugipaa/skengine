@@ -371,7 +371,6 @@ namespace sneka {
 					return os.createObject(tc, newObject);
 					return idgen::invalidId<ske::ObjectId>();
 				};
-				uint_fast8_t pointLightCtr = 0;
 				auto insPoint = [&](ske::ObjectStorage& os) {
 					using V = decltype(pointObjects)::value_type;
 					auto p = tryCreate(os, mdlIds.point);
@@ -379,19 +378,15 @@ namespace sneka {
 						int64_t(+newObject.position_xyz.x) + worldOffset.x,
 						int64_t(-newObject.position_xyz.z) + worldOffset.y };
 					if(p != idgen::invalidId<ske::ObjectId>()) {
-						auto l = idgen::invalidId<ske::ObjectId>();
-						if(0 == pointLightCtr) {
-							l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
-								.position = {
-									newObject.position_xyz.x,
-									0.6f,
-									newObject.position_xyz.z },
-								.color = { 0.7f, 0.7f, 0.0f },
-								.intensity = 0.2f,
-								.falloffExponent = 1.7f });
-						}
+						auto l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+							.position = {
+								newObject.position_xyz.x,
+								0.6f,
+								newObject.position_xyz.z },
+							.color = { 1.0f, 1.0f, 0.0f },
+							.intensity = 0.12f,
+							.falloffExponent = 1.5f });
 						pointObjects.insert(V { pos, { p, l } });
-						pointLightCtr = (pointLightCtr + uint_fast8_t(1)) % uint_fast8_t(3);
 					}
 				};
 				for(size_t y = 0; y < world.height(); ++ y)
@@ -583,20 +578,21 @@ int main(int argn, char** argv) {
 
 	const auto enginePrefs = []() {
 		auto prefs = EnginePreferences::default_prefs;
-		prefs.init_present_extent   = { 700, 500 };
-		prefs.max_render_extent     = { 0, 0 };
-		prefs.asset_filename_prefix = "assets/";
-		prefs.present_mode          = VK_PRESENT_MODE_MAILBOX_KHR;
-		prefs.target_framerate      = 72.0f;
-		prefs.target_tickrate       = 60.0f;
-		prefs.fov_y                 = glm::radians(90.0f);
-		prefs.shade_step_count      = 12;
-		prefs.shade_step_smoothness = 0.3f;
-		prefs.shade_step_exponent   = 4.0f;
-		prefs.dithering_steps       = 256.0f;
-		prefs.font_location         = "assets/font.otf";
-		prefs.wait_for_gframe       = false;
-		prefs.framerate_samples     = 4;
+		prefs.init_present_extent            = { 700, 500 };
+		prefs.max_render_extent              = { 0, 0 };
+		prefs.asset_filename_prefix          = "assets/";
+		prefs.present_mode                   = VK_PRESENT_MODE_MAILBOX_KHR;
+		prefs.target_framerate               = 72.0f;
+		prefs.target_tickrate                = 60.0f;
+		prefs.fov_y                          = glm::radians(90.0f);
+		prefs.shade_step_count               = 12;
+		prefs.point_light_distance_threshold = 1.0f / 64.0f;
+		prefs.shade_step_smoothness          = 0.3f;
+		prefs.shade_step_exponent            = 4.0f;
+		prefs.dithering_steps                = 256.0f;
+		prefs.font_location                  = "assets/font.otf";
+		prefs.wait_for_gframe                = false;
+		prefs.framerate_samples              = 4;
 		return prefs;
 	} ();
 

@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 	float dithering_steps;
 	float rnd;
 	float time_delta;
+	float p_light_dist_threshold;
 	uint flags;
 } frame_ubo;
 
@@ -24,9 +25,9 @@ struct RayLight {
 	vec4  direction;
 	vec4  color;
 	float aoa_threshold;
+	float unused0;
 	float unused1;
 	float unused2;
-	float unused3;
 };
 
 struct PointLight {
@@ -247,14 +248,16 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 			point_light_buffer.lights[i].position.xyz
 			- frg_pos.xyz;
 
+		float intensity         = point_light_buffer.lights[i].color.a;
+		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
+		float falloff_distance  = pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
+		float intensity_falloff = intensity / falloff_distance;
+		if(intensity_falloff < frame_ubo.p_light_dist_threshold) continue;
+
 		light_dir = normalize(frg_view3 * light_dir);
 
 		float aoa = dot(frg_nrm, light_dir);
 		float aoa_threshold = 0.0;
-
-		float intensity         = point_light_buffer.lights[i].color.a;
-		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
-		float intensity_falloff = intensity / pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 
 		float luminance_dfs = (
 			intensity_falloff

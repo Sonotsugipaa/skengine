@@ -91,9 +91,9 @@ namespace sneka {
 		float tJunctionProb = genFloat(0.3l, 0.6l) / (((long double)(minPathTiles) + (long double)(maxPathTiles)) / 2.0l);
 		float xJunctionProb = genFloat(0.4f, 0.9f);
 		float targetJunctionProb = genFloat(0.05f, 0.3f);
-		float deadEndProb = genFloat(0.005f, 0.3f);
+		float deadEndProb = genFloat(0.005f, 0.5f);
 		float diagonalCompBias = genFloat(0.4f, 0.6f);
-		float pointObjProb = 0.3f;
+		float pointObjProb = genFloat(0.05f, 0.2f);
 		comp_t stopAtTilesLeft = genInt(w / comp_t(2), (w * comp_t(3)) / comp_t(2));
 
 		auto randomPos = [&]() -> auto {
@@ -159,10 +159,11 @@ namespace sneka {
 		while((minPathTiles < stopAtTilesLeft) && (maxPathTiles > stopAtTilesLeft)) {
 			bool targetJunction = rollProb(targetJunctionProb);
 			bool createPointObjs = rollProb(pointObjProb);
+			bool deadEnd = rollProb(deadEndProb);
 			auto target = targetJunction? randomJunction() : randomPos();
 			auto obj = createPointObjs? GridObjectClass::ePoint : GridObjectClass::eNoObject;
 			startingPoint = carveDiagonal(startingPoint, target, obj);
-			if(rollProb(deadEndProb)) { startingPoint = randomJunction(); }
+			if(deadEnd) startingPoint = randomJunction();
 		}
 		logger.info(
 			"Generated world paths [{}ms]",
