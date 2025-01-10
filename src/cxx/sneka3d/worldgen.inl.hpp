@@ -8,60 +8,12 @@
 
 #include <timer.tpp>
 
+#include "basic_unordered_sets.hpp"
 #include "world.hpp"
 
 
 
 namespace sneka {
-
-	template <typename T>
-	concept StdHashable = requires(const T& ctr) {
-		{ auto(ctr.hash()) } -> std::same_as<std::size_t>;
-	};
-
-	template <typename T>
-	concept StdEqualComparable = requires(const T& ctr0, const T& ctr1) {
-		{ auto(ctr0 == ctr1) } -> std::same_as<bool>;
-	};
-
-	template <typename T>
-	concept UnorderedKeyType = StdHashable<T> && StdEqualComparable<T>;
-
-
-	template <typename T>
-	requires sneka::StdHashable<T>
-	struct StdHash {
-		auto operator()(const T& t) const noexcept { return t.hash(); }
-	};
-
-	template <typename T>
-	requires std::is_trivial_v<T> && (! requires (T t0, T t1) { { auto(t0 == t1) } -> std::convertible_to<bool>; })
-	struct StdEqualTo {
-		auto operator()(const T& t0, const T& t1) const noexcept { return 0 == memcmp(&t0, &t1, sizeof(T)); }
-	};
-
-
-	template <std::integral Dst, std::integral T>
-	constexpr Dst hashValues(T x) noexcept { return x; }
-
-	template <std::integral Dst, std::integral T0, std::integral T1, std::integral... T>
-	constexpr Dst hashValues(T0 x0, T1 x1, T... x) noexcept {
-		using UnsignedDst = std::make_unsigned_t<Dst>;
-		return Dst(
-			UnsignedDst(  std::rotl<Dst>(x0, 4)) +
-			UnsignedDst(~ std::rotr<Dst>(x0, 7)) +
-			UnsignedDst(~ hashValues<Dst>(x1, x...)) );
-	}
-
-
-	template <std::integral T>
-	struct Vec2 {
-		T x;
-		T y;
-		constexpr auto hash() const noexcept { return hashValues<size_t>(x, y); }
-		constexpr bool operator==(this auto& l, const Vec2& r) noexcept { return (l.x == r.x) && (l.y == r.y); }
-	};
-
 
 	template <std::integral T, typename Rng, T minBits = std::numeric_limits<T>::digits>
 	inline auto random(Rng rng) {
@@ -118,7 +70,7 @@ namespace sneka {
 
 
 	template <typename Logger, typename Rng>
-	auto generateWorld(Logger&& logger, World& dst, Rng&& rng) {
+	auto generateWorld(Logger&& logger, World& dst, BasicUset<Vec2<uint64_t>>* dstPtObjs, Rng&& rng) {
 		using comp_t = uint64_t;
 		using fcomp_t = long double;
 		using Pos = Vec2<comp_t>;
@@ -128,8 +80,9 @@ namespace sneka {
 		auto genFloat = [&](auto min, auto max) { return std::uniform_real_distribution<decltype(auto(min))>(min, max)(rng); };
 		auto genInt   = [&](auto min, auto max) { return std::uniform_int_distribution<decltype(auto(min))>(min, max)(rng); };
 		auto rollProb = [&](auto prob) { return (prob > genFloat(decltype(auto(prob))(0.0), 1.0f)); };
-		auto junctionMap = std::unordered_map<comp_t, Pos         >(16);
-		auto junctionSet = std::unordered_set<Pos   , StdHash<Pos>>(16);
+		auto junctionMap        = BasicUmap<comp_t, Pos>(16);
+		auto junctionSet        = BasicUset<Pos>(16);
+		auto pointObjCandidates = BasicUset<Pos>(16);
 		junctionMap.max_load_factor(4.0f);
 		junctionSet.max_load_factor(4.0f);
 		comp_t minPathTiles = genInt(comp_t(4), std::min(w, h) / comp_t(2));
@@ -140,6 +93,7 @@ namespace sneka {
 		float targetJunctionProb = genFloat(0.05f, 0.3f);
 		float deadEndProb = genFloat(0.005f, 0.3f);
 		float diagonalCompBias = genFloat(0.4f, 0.6f);
+		float pointObjProb = 0.3f;
 		comp_t stopAtTilesLeft = genInt(w / comp_t(2), (w * comp_t(3)) / comp_t(2));
 
 		auto randomPos = [&]() -> auto {
@@ -164,11 +118,15 @@ namespace sneka {
 			auto* curComp = vertical? (&curPos.y) : (&curPos.x);
 			auto* endComp = vertical? (&endPos.y) : (&endPos.x);
 			std::make_signed_t<comp_t> step = (*curComp < *endComp)? +1 : -1;
+			constexpr auto setTile = [](World& dst, BasicUset<Vec2<uint64_t>>* dstPtObjs, uint64_t x, uint64_t y, GridObjectClass obj) {
+				dst.tile(x, y) = obj;
+				if(dstPtObjs != nullptr && obj == GridObjectClass::ePoint) dstPtObjs->insert({ x, y });
+			};
 			auto move = [&]() {
 				if(maxPathTiles > 0) [[likely]] {
 					assert(curPos.x < w);
 					assert(curPos.y < h);
-					dst.tile(curPos.x, curPos.y) = obj;
+					setTile(dst, dstPtObjs, curPos.x, curPos.y, obj);
 					*curComp += step;
 					-- maxPathTiles;
 				}
@@ -181,7 +139,7 @@ namespace sneka {
 				if(rollProb(tJunctionProb)) addJunction(curPos);
 				move();
 			}
-			dst.tile(curPos.x, curPos.y) = obj;
+			setTile(dst, dstPtObjs, curPos.x, curPos.y, obj);
 			if(rollProb(xJunctionProb)) addJunction(curPos);
 			return curPos;
 		};
@@ -200,8 +158,10 @@ namespace sneka {
 		addJunction(startingPoint);
 		while((minPathTiles < stopAtTilesLeft) && (maxPathTiles > stopAtTilesLeft)) {
 			bool targetJunction = rollProb(targetJunctionProb);
+			bool createPointObjs = rollProb(pointObjProb);
 			auto target = targetJunction? randomJunction() : randomPos();
-			startingPoint = carveDiagonal(startingPoint, target, GridObjectClass::eNoObject);
+			auto obj = createPointObjs? GridObjectClass::ePoint : GridObjectClass::eNoObject;
+			startingPoint = carveDiagonal(startingPoint, target, obj);
 			if(rollProb(deadEndProb)) { startingPoint = randomJunction(); }
 		}
 		logger.info(

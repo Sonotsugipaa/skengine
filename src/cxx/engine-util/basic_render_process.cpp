@@ -29,6 +29,7 @@ namespace SKENGINE_NAME_NS {
 
 	void BasicRenderProcess::destroy(BasicRenderProcess& brp, TransferContext transfCtx) {
 		assert(brp.brp_assetSupplier.isInitialized());
+		brp.brp_objStorages = { };
 		brp.brp_assetSupplier.destroy(transfCtx);
 	}
 
@@ -225,7 +226,6 @@ namespace SKENGINE_NAME_NS {
 		for(auto& objStorage : *brp_objStorages) {
 			ObjectStorage::destroy(ca.engine().getTransferContext(), objStorage);
 		}
-		brp_objStorages = { };
 		WorldRenderer::destroySharedState(ca.engine().getDevice(), *brp_worldRendererSs); brp_worldRendererSs = { };
 	}
 

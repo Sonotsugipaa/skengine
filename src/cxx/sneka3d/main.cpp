@@ -74,9 +74,31 @@ namespace sneka {
 	}
 
 
+
+	template <std::integral T>
+	float discreteObjRotation(T x) {
+		constexpr auto quarter = std::numbers::pi_v<float> / 2.0f;
+		switch(x) {
+			case  0: return           0.0f;
+			case  1: return quarter * 0.1f;
+			case  2: return quarter * 0.9f;
+			case  3: return quarter * 1.0f;
+			case  4: return quarter * 1.1f;
+			case  5: return quarter * 1.9f;
+			case  6: return quarter * 2.0f;
+			case  7: return quarter * 2.1f;
+			case  8: return quarter * 2.9f;
+			case  9: return quarter * 3.0f;
+			case 10: return quarter * 3.1f;
+			case 11: return quarter * 3.9f;
+			default: assert(false /* Should not happen */); return 0.0f;
+		}
+	}
+
+
 	std::string getenv(const char* nameCstr) {
 		static std::mutex mtx;
-		mtx.lock();
+		auto lock = std::unique_lock(mtx);
 		char* env = std::getenv(nameCstr);
 		if(env == nullptr) return "";
 		auto len = strlen(env);
@@ -88,11 +110,18 @@ namespace sneka {
 
 	class Loop : public ske::LoopInterface {
 	public:
-		static constexpr float cameraDistance = 2.0f;
+		static constexpr const char* worldFilename = "world.wrd";
+		static constexpr float cameraDistance = 2.5f;
 		static constexpr float cameraPitch = 0.75f;
-		static constexpr float speedBoostDecayDn = 0.333f;
+		static constexpr float speedBoostDecayDn = 0.5f;
 		static constexpr float speedBoostDecayUp = 0.2f;
 		static constexpr float speedBoostFromInput = speedBoostDecayDn * 5.0f;
+
+		enum class QuitReason : unsigned char {
+			eNoQuit = 1,
+			eUserInput = 2,
+			eGameEnd = 3
+		};
 
 		struct CallbackSharedState {
 			std::mutex animMutex;
@@ -104,7 +133,7 @@ namespace sneka {
 			float       headYawTarget;
 			float       speedBase;
 			float       speedBoost;
-			bool        quit;
+			QuitReason  quitReason;
 			void init() {
 				playerMovementAnim = { };
 				playerHeadPos      = { };
@@ -115,8 +144,9 @@ namespace sneka {
 				headYawTarget      = 0.0f;
 				speedBase          = 2.0f;
 				speedBoost         = 0.0f;
-				quit               = false;
+				quitReason         = QuitReason::eNoQuit;
 			}
+			CallbackSharedState() { init(); }
 		};
 
 		struct ModelIdStorage {
@@ -129,11 +159,13 @@ namespace sneka {
 		};
 
 		ske::Engine* engine;
+		ske::Logger logger;
 		std::shared_ptr<ske::BasicAssetCache> assetCache;
 		std::shared_ptr<ske::BasicRenderProcess> rproc;
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
 		ModelIdStorage mdlIds;
+		BasicUmap<Vec2<int64_t>, std::pair<ske::ObjectId, ske::ObjectId>> pointObjects;
 		std::mutex inputManMutex;
 		std::mutex macrotickMutex;
 		ske::AnimId playerHeadPosAnimId;
@@ -146,6 +178,25 @@ namespace sneka {
 		float macrotickProgress;
 		float macrotickFrequency;
 		World world;
+		Vec2<int64_t> worldOffset;
+
+
+		void createWorld(const char* worldFilename) {
+			auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
+			auto* sideLengthEnvvarEnd = sideLengthEnvvar.data() + sideLengthEnvvar.size();
+			uint64_t sideLength = std::strtoull(sideLengthEnvvar.data(), &sideLengthEnvvarEnd, 10);
+			if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
+			world = World::initEmpty(sideLength, sideLength);
+			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
+			generateWorld(logger, world, nullptr, std::minstd_rand(NOW_));
+			world.setSceneryModel("world1-scenery.fma");
+			world.setPlayerHeadModel("default-player-head.fma");
+			world.setObjBoostModel("default-boost.fma");
+			world.setObjPointModel("default-point.fma");
+			world.setObjObstacleModel("crate-obstacle.fma");
+			world.setObjWallModel("crate-wall.fma");
+			world.toFile(worldFilename);
+		}
 
 
 		void updateViewPosRot(tickreg::delta_t deltaAvg) {
@@ -198,31 +249,17 @@ namespace sneka {
 		}
 
 
-		Loop(ske::Engine& e, decltype(assetCache) assetCache, decltype(rproc) rproc):
+		Loop(ske::Engine& e, ske::Logger loggerMv, decltype(assetCache) assetCache, decltype(rproc) rproc):
 			engine(&e),
+			logger(std::move(loggerMv)),
 			assetCache(std::move(assetCache)),
 			rproc(std::move(rproc)),
 			sharedState(std::make_shared<CallbackSharedState>()),
 			macrotickFrequency(1.0f)
 		{
-			constexpr const char* worldFilename = "world.wrd";
 			using enum GridObjectClass;
-			ske::Logger& logger = engine->logger();
 			const auto onError = [&]() {
-				auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
-				auto* sideLengthEnvvarEnd = sideLengthEnvvar.data() + sideLengthEnvvar.size();
-				uint64_t sideLength = std::strtoull(sideLengthEnvvar.data(), &sideLengthEnvvarEnd, 10);
-				if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
-				world = World::initEmpty(sideLength, sideLength);
-				#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				generateWorld(logger, world, std::minstd_rand(NOW_));
-				world.setSceneryModel("world1-scenery.fma");
-				world.setPlayerHeadModel("default-player-head.fma");
-				world.setObjBoostModel("default-boost.fma");
-				world.setObjPointModel("default-point.fma");
-				world.setObjObstacleModel("crate-obstacle.fma");
-				world.setObjWallModel("crate-wall.fma");
-				world.toFile(worldFilename);
+				createWorld(worldFilename);
 			};
 			try {
 				world = World::fromFile(worldFilename);
@@ -237,6 +274,11 @@ namespace sneka {
 		}
 
 
+		void reset() {
+			sharedState->quitReason = QuitReason::eNoQuit;
+		}
+
+
 		void loop_begin() override {
 			auto ca = engine->getConcurrentAccess();
 			ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
@@ -244,6 +286,7 @@ namespace sneka {
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 			auto& state = *this->sharedState;
 			state.init();
+			pointObjects.clear();
 
 			{ // Input management
 				auto inputLock = std::unique_lock(inputManMutex);
@@ -291,14 +334,14 @@ namespace sneka {
 				};
 				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
 				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
-				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quit = true; });
+				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quitReason = QuitReason::eUserInput; });
 				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [sharedState](auto&, auto) { sharedState->speedBoost = speedBoostFromInput; });
 			}
 
 			{ // Load models
 				auto trySetModel = [&](std::string_view filename) {
 					try { return assetCache->setModelFromFile(filename); }
-					catch(posixfio::Errcode& e) { engine->logger().error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
+					catch(posixfio::Errcode& e) { logger.error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
 					return idgen::invalidId<ske::ModelId>();
 				};
 				mdlIds.scenery    = trySetModel(world.getSceneryModel());
@@ -318,6 +361,7 @@ namespace sneka {
 				assert(world.width() * world.height() > 0);
 				float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
 				float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
+				worldOffset = { int64_t(xGridCenter), int64_t(yGridCenter) };
 				auto& tc = engine->getTransferContext();
 				auto newObject = ske::ObjectStorage::NewObject {
 					{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
@@ -327,6 +371,29 @@ namespace sneka {
 					return os.createObject(tc, newObject);
 					return idgen::invalidId<ske::ObjectId>();
 				};
+				uint_fast8_t pointLightCtr = 0;
+				auto insPoint = [&](ske::ObjectStorage& os) {
+					using V = decltype(pointObjects)::value_type;
+					auto p = tryCreate(os, mdlIds.point);
+					auto pos = Vec2<int64_t> {
+						int64_t(+newObject.position_xyz.x) + worldOffset.x,
+						int64_t(-newObject.position_xyz.z) + worldOffset.y };
+					if(p != idgen::invalidId<ske::ObjectId>()) {
+						auto l = idgen::invalidId<ske::ObjectId>();
+						if(0 == pointLightCtr) {
+							l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
+								.position = {
+									newObject.position_xyz.x,
+									0.6f,
+									newObject.position_xyz.z },
+								.color = { 0.7f, 0.7f, 0.0f },
+								.intensity = 0.2f,
+								.falloffExponent = 1.7f });
+						}
+						pointObjects.insert(V { pos, { p, l } });
+						pointLightCtr = (pointLightCtr + uint_fast8_t(1)) % uint_fast8_t(3);
+					}
+				};
 				for(size_t y = 0; y < world.height(); ++ y)
 				for(size_t x = 0; x < world.width();  ++ x) {
 					auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
@@ -335,20 +402,21 @@ namespace sneka {
 					newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
 					newObject.scale_xyz.z *= invert? -1.0f : +1.0f;
 					newObject.direction_ypr = {
-						0.5f * std::numbers::pi_v<float> * float(std::uniform_int_distribution<unsigned>(0, 3)(rng)),
+						discreteObjRotation(std::uniform_int_distribution<uint_fast8_t>(0, 11)(rng)),
 						0.0f,
 						0.0f };
 					switch(world.tile(x, y)) {
 						case GridObjectClass::eBoost:    tryCreate(sceneryOs, mdlIds.boost); break;
-						case GridObjectClass::ePoint:    tryCreate(sceneryOs, mdlIds.point); break;
+						case GridObjectClass::ePoint:    insPoint(sceneryOs); break;
 						case GridObjectClass::eObstacle: tryCreate(sceneryOs, mdlIds.obstacle); break;
 						case GridObjectClass::eWall:     tryCreate(sceneryOs, mdlIds.wall); break;
 						default:
-							engine->logger().warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
+							logger.warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 							[[fallthrough]];
 						case GridObjectClass::eNoObject: break;
 					}
 				}
+				logger.info("World generated with {} points", pointObjects.size());
 				newObject.position_xyz = state.playerHeadPos.getValue();
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
@@ -377,12 +445,11 @@ namespace sneka {
 				updateViewPosRot(0.0);
 			}
 
-			sharedState->quit = false;
+			sharedState->quitReason = QuitReason::eNoQuit;
 		}
 
 
 		void loop_end() noexcept override {
-			sharedState->quit = false;
 			inputMan.clear();
 		}
 
@@ -430,27 +497,50 @@ namespace sneka {
 					const auto pos = shState.playerHeadPos.getValue();
 					auto xApprox = std::floorf(pos.x + 0.5f);
 					auto zApprox = std::floorf(pos.z + 0.5f);
-					auto xDiff = (xApprox - shState.lastDir[0]) - pos.x;
-					auto zDiff = (zApprox + shState.lastDir[1]) - pos.z;
-					auto yawDiff = std::atan2f(-xDiff, -zDiff) - shState.headYawTarget;
-					while(yawDiff >= +pi) yawDiff -= pi2;
-					while(yawDiff <= -pi) yawDiff += pi2;
-					shState.headYawTarget += yawDiff;
-					{
-						auto lock = std::unique_lock(shState.animMutex);
-						shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
-						playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
-							ske::AnimEndAction::ePause,
-							shState.playerHeadPos,
-							pos,
-							glm::vec3 { xDiff, 0.0f, zDiff } );
+
+					{ // Player-environment interaction
+						auto ix = int64_t(+xApprox) + worldOffset.x;
+						auto iz = int64_t(-zApprox) + worldOffset.y;
+						auto obj = pointObjects.find({ ix, iz });
+						if(obj != pointObjects.end()) [[unlikely]] {
+							ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
+							sceneryOs.removeObject(engine->getTransferContext(), obj->second.first);
+							if(obj->second.second != idgen::invalidId<ske::ObjectId>())
+								rproc->worldRenderer()->removeLight(obj->second.second);
+							pointObjects.erase(obj);
+							if(pointObjects.empty()) {
+								logger.info("Conglaturations! Shine get!");
+								createWorld(worldFilename);
+								sharedState->quitReason = QuitReason::eGameEnd;
+							}
+						}
+					}
+
+					{ // Player movement animations
+						auto xDiff = (xApprox - shState.lastDir[0]) - pos.x;
+						auto zDiff = (zApprox + shState.lastDir[1]) - pos.z;
+						auto yawDiff = std::atan2f(-xDiff, -zDiff) - shState.headYawTarget;
+						while(yawDiff >= +pi) yawDiff -= pi2;
+						while(yawDiff <= -pi) yawDiff += pi2;
+						shState.headYawTarget += yawDiff;
+						{
+							auto lock = std::unique_lock(shState.animMutex);
+							shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
+							playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
+								ske::AnimEndAction::ePause,
+								shState.playerHeadPos,
+								pos,
+								glm::vec3 { xDiff, 0.0f, zDiff } );
+						}
 					}
 				}
 			}
 		}
 
 		LoopState loop_pollState() const noexcept override {
-			return sharedState->quit? LoopState::eShouldStop : LoopState::eShouldContinue;
+			return (sharedState->quitReason == QuitReason::eNoQuit)?
+				LoopState::eShouldContinue :
+				LoopState::eShouldStop;
 		}
 
 
@@ -525,9 +615,14 @@ int main(int argn, char** argv) {
 			std::move(shader_cache),
 			logger );
 
-		auto loop = sneka::Loop(engine, asset_cache, basic_rprocess);
+		auto loop = sneka::Loop(engine, logger, asset_cache, basic_rprocess);
+		sneka::Loop::QuitReason loopQuitReason;
 
-		engine.run(loop, basic_rprocess);
+		do {
+			engine.run(loop, basic_rprocess);
+			loopQuitReason = loop.sharedState->quitReason;
+			loop.reset();
+		} while(loopQuitReason == sneka::Loop::QuitReason::eGameEnd);
 
 		BasicRenderProcess::destroy(*basic_rprocess, engine.getTransferContext());
 

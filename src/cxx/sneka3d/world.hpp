@@ -7,12 +7,36 @@
 #include <posixfio_tl.hpp>
 
 #include "memrange.inl.hpp"
+#include "basic_unordered_sets.hpp"
 
 
 
 namespace sneka {
 
 	using std::byte;
+
+
+	template <std::integral Dst, std::integral T>
+	constexpr Dst hashValues(T x) noexcept { return x; }
+
+	template <std::integral Dst, std::integral T0, std::integral T1, std::integral... T>
+	constexpr Dst hashValues(T0 x0, T1 x1, T... x) noexcept {
+		using UnsignedDst = std::make_unsigned_t<Dst>;
+		return Dst(
+			UnsignedDst(  std::rotl<Dst>(x0, 4)) +
+			UnsignedDst(~ std::rotr<Dst>(x0, 7)) +
+			UnsignedDst(~ hashValues<Dst>(x1, x...)) );
+	}
+
+
+	template <std::integral T>
+	struct Vec2 {
+		T x;
+		T y;
+		constexpr auto hash() const noexcept { return hashValues<size_t>(x, y); }
+		constexpr bool operator==(this auto& l, const Vec2& r) noexcept { return (l.x == r.x) && (l.y == r.y); }
+	};
+
 
 	using grid_object_class_e = uint8_t;
 	enum class GridObjectClass : grid_object_class_e {
