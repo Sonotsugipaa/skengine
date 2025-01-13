@@ -70,40 +70,54 @@ namespace sneka {
 
 
 	template <typename Logger, typename Rng>
-	auto generateWorld(Logger&& logger, World& dst, BasicUset<Vec2<uint64_t>>* dstPtObjs, Rng&& rng) {
-		using comp_t = uint64_t;
+	auto generateWorld(Logger&& logger, World& dst, BasicUset<Vec2<uint64_t>>* dstPtObjs, Vec2<uint64_t> startPos, Rng&& rng) {
+		using ucomp_t = uint64_t;
+		using scomp_t = std::make_signed_t<ucomp_t>;
 		using fcomp_t = long double;
-		using Pos = Vec2<comp_t>;
+		using Pos = Vec2<ucomp_t>;
 		const auto w = dst.width();
 		const auto h = dst.height();
 		if(w * h < 2) return Pos { };
 		auto genFloat = [&](auto min, auto max) { return std::uniform_real_distribution<decltype(auto(min))>(min, max)(rng); };
 		auto genInt   = [&](auto min, auto max) { return std::uniform_int_distribution<decltype(auto(min))>(min, max)(rng); };
 		auto rollProb = [&](auto prob) { return (prob > genFloat(decltype(auto(prob))(0.0), 1.0f)); };
-		auto junctionMap        = BasicUmap<comp_t, Pos>(16);
+		auto junctionMap        = BasicUmap<ucomp_t, Pos>(16);
 		auto junctionSet        = BasicUset<Pos>(16);
 		auto pointObjCandidates = BasicUset<Pos>(16);
 		junctionMap.max_load_factor(4.0f);
 		junctionSet.max_load_factor(4.0f);
-		comp_t minPathTiles = genInt(comp_t(4), std::min(w, h) / comp_t(2));
-		comp_t maxPathTiles = fcomp_t(w) * fcomp_t(h) / fcomp_t(2);
+		fcomp_t widthHeightAvg = fcomp_t(w) + fcomp_t(h) / fcomp_t(2.0);
+		fcomp_t widthHeightAvgSq = widthHeightAvg * widthHeightAvg;
 
-		float tJunctionProb = genFloat(0.3l, 0.6l) / (((long double)(minPathTiles) + (long double)(maxPathTiles)) / 2.0l);
-		float xJunctionProb = genFloat(0.4f, 0.9f);
-		float targetJunctionProb = genFloat(0.05f, 0.3f);
-		float deadEndProb = genFloat(0.005f, 0.5f);
-		float diagonalCompBias = genFloat(0.4f, 0.6f);
-		float pointObjProb = genFloat(0.05f, 0.2f);
-		comp_t stopAtTilesLeft = genInt(w / comp_t(2), (w * comp_t(3)) / comp_t(2));
+		ucomp_t minPathTiles = genInt(ucomp_t(4), std::min(w, h) / ucomp_t(2));
+		ucomp_t maxPathTiles = genInt(ucomp_t(widthHeightAvgSq / fcomp_t(8)), ucomp_t(widthHeightAvgSq / fcomp_t(3)));
+		fcomp_t tJunctionProb      = genFloat(fcomp_t(  0.3), fcomp_t(0.6)) / ((fcomp_t(minPathTiles) + widthHeightAvg) / fcomp_t(2.0));
+		fcomp_t xJunctionProb      = genFloat(fcomp_t(  0.4), fcomp_t(0.9));
+		fcomp_t targetJunctionProb = genFloat(fcomp_t( 0.05), fcomp_t(0.3));
+		fcomp_t deadEndProb        = genFloat(fcomp_t(0.005), fcomp_t(0.5));
+		fcomp_t diagonalCompBias   = genFloat(fcomp_t(  0.4), fcomp_t(0.6));
+		fcomp_t pointObjProb       = genFloat(fcomp_t( 0.05), fcomp_t(0.2));
+		fcomp_t maxDiagonalDist    = genFloat(glm::sqrt(std::min<fcomp_t>(w, h)), widthHeightAvg);
 
-		auto randomPos = [&]() -> auto {
-			return Pos { genInt(comp_t(0), w-1), genInt(comp_t(0), h-1) };
+		auto randomPos = [&]() {
+			return Pos { genInt(ucomp_t(0), w-1), genInt(ucomp_t(0), h-1) };
+		};
+		auto randomPosAround = [&](Vec2<ucomp_t> src, fcomp_t maxDistSq) {
+			auto rx = genFloat(-maxDistSq, +maxDistSq);
+			auto ry = genFloat(-maxDistSq, +maxDistSq);
+			fcomp_t ptLen = glm::sqrt((rx*rx) + (ry*ry));
+			fcomp_t rndDist = genFloat(fcomp_t(2.0), maxDistSq);
+			rndDist /= ptLen;
+			rx *= rndDist; ry *= rndDist;
+			ucomp_t rrx = std::clamp(scomp_t(src.x) + scomp_t(rx), scomp_t(0), scomp_t(w-1));
+			ucomp_t rry = std::clamp(scomp_t(src.y) + scomp_t(ry), scomp_t(0), scomp_t(h-1));
+			return Pos { rrx, rry };
 		};
 
 		auto randomJunction = [&]() -> auto {
 			assert(! junctionMap.empty() /* Not *necessary*, but it likely results in unreachable path tiles */);
 			if(junctionMap.empty()) [[unlikely]] return randomPos();
-			auto rndIdx = genInt(0, junctionMap.size() - 1);
+			auto rndIdx = genInt(ucomp_t(0), junctionMap.size() - 1);
 			assert(junctionMap.contains(rndIdx));
 			return junctionMap.find(rndIdx)->second;
 		};
@@ -117,7 +131,7 @@ namespace sneka {
 			// `endPos` is not the idiomatic "end": the interval is [curPos, endPos] instead of [curPos, endPos)
 			auto* curComp = vertical? (&curPos.y) : (&curPos.x);
 			auto* endComp = vertical? (&endPos.y) : (&endPos.x);
-			std::make_signed_t<comp_t> step = (*curComp < *endComp)? +1 : -1;
+			scomp_t step = (*curComp < *endComp)? +1 : -1;
 			constexpr auto setTile = [](World& dst, BasicUset<Vec2<uint64_t>>* dstPtObjs, uint64_t x, uint64_t y, GridObjectClass obj) {
 				dst.tile(x, y) = obj;
 				if(dstPtObjs != nullptr && obj == GridObjectClass::ePoint) dstPtObjs->insert({ x, y });
@@ -154,13 +168,13 @@ namespace sneka {
 
 		generateWorldNoise(std::forward<Logger>(logger), dst, std::forward<Rng>(rng));
 		util::SteadyTimer<> timer;
-		auto startingPoint = randomPos();
+		auto startingPoint = startPos;
 		addJunction(startingPoint);
-		while((minPathTiles < stopAtTilesLeft) && (maxPathTiles > stopAtTilesLeft)) {
+		while(minPathTiles < maxPathTiles) {
 			bool targetJunction = rollProb(targetJunctionProb);
 			bool createPointObjs = rollProb(pointObjProb);
 			bool deadEnd = rollProb(deadEndProb);
-			auto target = targetJunction? randomJunction() : randomPos();
+			auto target = targetJunction? randomJunction() : randomPosAround(startingPoint, maxDiagonalDist);
 			auto obj = createPointObjs? GridObjectClass::ePoint : GridObjectClass::eNoObject;
 			startingPoint = carveDiagonal(startingPoint, target, obj);
 			if(deadEnd) startingPoint = randomJunction();

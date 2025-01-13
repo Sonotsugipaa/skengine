@@ -113,6 +113,7 @@ namespace sneka {
 		static constexpr const char* worldFilename = "world.wrd";
 		static constexpr float cameraDistance = 2.5f;
 		static constexpr float cameraPitch = 0.75f;
+		static constexpr float speedBaseDefault = 2.0f;
 		static constexpr float speedBoostDecayDn = 0.5f;
 		static constexpr float speedBoostDecayUp = 0.2f;
 		static constexpr float speedBoostFromInput = speedBoostDecayDn * 5.0f;
@@ -142,8 +143,8 @@ namespace sneka {
 				lastDir[0]         =  0;
 				lastDir[1]         = -1;
 				headYawTarget      = 0.0f;
-				speedBase          = 2.0f;
-				speedBoost         = 0.0f;
+				speedBase          = speedBaseDefault;
+				speedBoost         = -0.5f * speedBase;
 				quitReason         = QuitReason::eNoQuit;
 			}
 			CallbackSharedState() { init(); }
@@ -181,14 +182,32 @@ namespace sneka {
 		Vec2<int64_t> worldOffset;
 
 
-		void createWorld(const char* worldFilename) {
+		auto gridToWorld(Vec2<int64_t> g, float height) {
+			return glm::vec3 { +g.x - worldOffset.x, height, +g.y + worldOffset.y };
+		}
+
+		auto worldToGrid(glm::vec3 w) {
+			w.x = std::floorf(+w.x + 0.5f);
+			w.z = std::floorf(+w.z + 0.5f);
+			return Vec2<int64_t> { int64_t(w.x) + worldOffset.x, int64_t(w.z) - worldOffset.y };
+		}
+
+
+		void createWorld(const char* worldFilename, Vec2<uint64_t> startPos = { UINT64_MAX, UINT64_MAX }) {
 			auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
 			auto* sideLengthEnvvarEnd = sideLengthEnvvar.data() + sideLengthEnvvar.size();
 			uint64_t sideLength = std::strtoull(sideLengthEnvvar.data(), &sideLengthEnvvarEnd, 10);
 			if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
+			if(sideLength % 2 == 0) ++ sideLength;
 			world = World::initEmpty(sideLength, sideLength);
+			if(startPos.x == UINT64_MAX && startPos.y == UINT64_MAX) {
+				startPos.x = sideLength / uint64_t(2);
+				startPos.y = sideLength / uint64_t(2); }
 			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-			generateWorld(logger, world, nullptr, std::minstd_rand(NOW_));
+				generateWorld(logger, world, nullptr, startPos, std::minstd_rand(NOW_));
+			#undef NOW_
+			world.entryPointX() = startPos.x;
+			world.entryPointY() = startPos.y;
 			world.setSceneryModel("world1-scenery.fma");
 			world.setPlayerHeadModel("default-player-head.fma");
 			world.setObjBoostModel("default-boost.fma");
@@ -357,7 +376,7 @@ namespace sneka {
 				playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
 			}
 
-			{ // Create world
+			{ // Set up the world
 				assert(world.width() * world.height() > 0);
 				float xGridCenter = + (float(world.width()  - 1.0f) / 2.0f);
 				float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
@@ -374,9 +393,7 @@ namespace sneka {
 				auto insPoint = [&](ske::ObjectStorage& os) {
 					using V = decltype(pointObjects)::value_type;
 					auto p = tryCreate(os, mdlIds.point);
-					auto pos = Vec2<int64_t> {
-						int64_t(+newObject.position_xyz.x) + worldOffset.x,
-						int64_t(-newObject.position_xyz.z) + worldOffset.y };
+					auto pos = worldToGrid(newObject.position_xyz);
 					if(p != idgen::invalidId<ske::ObjectId>()) {
 						auto l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
 							.position = {
@@ -384,8 +401,8 @@ namespace sneka {
 								0.6f,
 								newObject.position_xyz.z },
 							.color = { 1.0f, 1.0f, 0.0f },
-							.intensity = 0.12f,
-							.falloffExponent = 1.5f });
+							.intensity = 0.15f,
+							.falloffExponent = 3.0f });
 						pointObjects.insert(V { pos, { p, l } });
 					}
 				};
@@ -400,6 +417,8 @@ namespace sneka {
 						discreteObjRotation(std::uniform_int_distribution<uint_fast8_t>(0, 11)(rng)),
 						0.0f,
 						0.0f };
+					assert(x < world.width());
+					assert(y < world.height());
 					switch(world.tile(x, y)) {
 						case GridObjectClass::eBoost:    tryCreate(sceneryOs, mdlIds.boost); break;
 						case GridObjectClass::ePoint:    insPoint(sceneryOs); break;
@@ -412,7 +431,7 @@ namespace sneka {
 					}
 				}
 				logger.info("World generated with {} points", pointObjects.size());
-				newObject.position_xyz = state.playerHeadPos.getValue();
+				newObject.position_xyz = gridToWorld({ int64_t(world.entryPointX()), int64_t(world.entryPointY()) }, 0.0f);
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				playerHead = tryCreate(objectsOs, mdlIds.playerHead);
@@ -489,14 +508,13 @@ namespace sneka {
 					if     (shState.speedBoost > 0.0f) shState.speedBoost = std::max(0.0f, shState.speedBoost - speedBoostDecayDn);
 					else if(shState.speedBoost < 0.0f) shState.speedBoost = std::min(0.0f, shState.speedBoost + speedBoostDecayUp);
 
-					const auto pos = shState.playerHeadPos.getValue();
-					auto xApprox = std::floorf(pos.x + 0.5f);
-					auto zApprox = std::floorf(pos.z + 0.5f);
+					const auto worldPos = shState.playerHeadPos.getValue();
+					const auto gridPos = worldToGrid(worldPos);
+					auto xApprox = std::floorf(worldPos.x + 0.5f);
+					auto zApprox = std::floorf(worldPos.z + 0.5f);
 
 					{ // Player-environment interaction
-						auto ix = int64_t(+xApprox) + worldOffset.x;
-						auto iz = int64_t(-zApprox) + worldOffset.y;
-						auto obj = pointObjects.find({ ix, iz });
+						auto obj = pointObjects.find({ gridPos.x, gridPos.y });
 						if(obj != pointObjects.end()) [[unlikely]] {
 							ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
 							sceneryOs.removeObject(engine->getTransferContext(), obj->second.first);
@@ -512,8 +530,8 @@ namespace sneka {
 					}
 
 					{ // Player movement animations
-						auto xDiff = (xApprox - shState.lastDir[0]) - pos.x;
-						auto zDiff = (zApprox + shState.lastDir[1]) - pos.z;
+						auto xDiff = (xApprox - shState.lastDir[0]) - worldPos.x;
+						auto zDiff = (zApprox + shState.lastDir[1]) - worldPos.z;
 						auto yawDiff = std::atan2f(-xDiff, -zDiff) - shState.headYawTarget;
 						while(yawDiff >= +pi) yawDiff -= pi2;
 						while(yawDiff <= -pi) yawDiff += pi2;
@@ -524,7 +542,7 @@ namespace sneka {
 							playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
 								ske::AnimEndAction::ePause,
 								shState.playerHeadPos,
-								pos,
+								worldPos,
 								glm::vec3 { xDiff, 0.0f, zDiff } );
 						}
 					}
@@ -585,9 +603,9 @@ int main(int argn, char** argv) {
 		prefs.target_framerate               = 72.0f;
 		prefs.target_tickrate                = 60.0f;
 		prefs.fov_y                          = glm::radians(90.0f);
-		prefs.shade_step_count               = 12;
+		prefs.shade_step_count               = 7;
 		prefs.point_light_distance_threshold = 1.0f / 64.0f;
-		prefs.shade_step_smoothness          = 0.3f;
+		prefs.shade_step_smoothness          = 1.0f;
 		prefs.shade_step_exponent            = 4.0f;
 		prefs.dithering_steps                = 256.0f;
 		prefs.font_location                  = "assets/font.otf";

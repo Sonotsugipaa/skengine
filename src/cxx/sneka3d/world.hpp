@@ -33,8 +33,12 @@ namespace sneka {
 	struct Vec2 {
 		T x;
 		T y;
+
 		constexpr auto hash() const noexcept { return hashValues<size_t>(x, y); }
 		constexpr bool operator==(this auto& l, const Vec2& r) noexcept { return (l.x == r.x) && (l.y == r.y); }
+
+		template <std::integral U> requires (! std::same_as<U, T>)
+		constexpr operator Vec2<U>() const noexcept { return { U(x), U(y) }; }
 	};
 
 
@@ -68,7 +72,10 @@ namespace sneka {
 			eEndOfAttribs     = 1,
 			eSceneryModel     = 2,
 			eObjectClassModel = 3,
-			ePlayerHeadModel  = 4 };
+			ePlayerHeadModel  = 4,
+			ePlayerBodyModel  = 5,
+			ePlayerTailModel  = 6,
+			eEntryPoint       = 7 };
 
 		struct Attribute {
 			AttributeType type;
@@ -101,8 +108,11 @@ namespace sneka {
 
 		auto  width () const { return world_width ; }
 		auto  height() const { return world_height; }
+
 		auto& tile(uint64_t x, uint64_t y)       { return * reinterpret_cast<GridObjectClass*>(world_rawGrid + (y * width()) + x); }
 		auto  tile(uint64_t x, uint64_t y) const { return const_cast<World*>(this)->tile(x, y); }
+		auto& entryPointX(this auto& self) noexcept { return self.world_entryPoint[0]; }
+		auto& entryPointY(this auto& self) noexcept { return self.world_entryPoint[1]; }
 
 	private:
 		struct ModelStrings {
@@ -118,6 +128,7 @@ namespace sneka {
 		uint64_t world_version;
 		uint64_t world_width;
 		uint64_t world_height;
+		uint64_t world_entryPoint[2];
 	};
 
 }

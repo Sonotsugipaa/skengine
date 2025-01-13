@@ -84,7 +84,10 @@ namespace sneka {
 			eEndOfAttribs     = 0x1,
 			eSceneryModel     = 0x2,
 			eObjectClassModel = 0x3,
-			ePlayerHeadModel  = 0x4 };
+			ePlayerHeadModel  = 0x4,
+			ePlayerBodyModel  = 0x5,
+			ePlayerTailModel  = 0x6,
+			eEntryPoint       = 0x7 };
 
 
 		static World::AttributeType mapAttribType(v1::AttributeType v1a) { switch(v1a) {
@@ -93,6 +96,9 @@ namespace sneka {
 			MAP_(eSceneryModel    , eSceneryModel    )
 			MAP_(eObjectClassModel, eObjectClassModel)
 			MAP_(ePlayerHeadModel , ePlayerHeadModel )
+			MAP_(ePlayerBodyModel , ePlayerBodyModel )
+			MAP_(ePlayerTailModel , ePlayerTailModel )
+			MAP_(eEntryPoint      , eEntryPoint      )
 			default: return World::AttributeType(0);
 			#undef MAP_
 		}}
@@ -103,6 +109,9 @@ namespace sneka {
 			MAP_(eSceneryModel    , eSceneryModel    )
 			MAP_(eObjectClassModel, eObjectClassModel)
 			MAP_(ePlayerHeadModel , ePlayerHeadModel )
+			MAP_(ePlayerBodyModel , ePlayerBodyModel )
+			MAP_(ePlayerTailModel , ePlayerTailModel )
+			MAP_(eEntryPoint      , eEntryPoint      )
 			default: return v1::AttributeType(0);
 			#undef MAP_
 		}}
@@ -147,11 +156,20 @@ namespace sneka {
 			}
 		}
 
+		static void entryPointFromAttrib(uint64_t* dst, const GenericAttribute& src, size_t fileCursorAtAttrib) {
+			if(src.length < (2 * sizeof(uint64_t))) throw BadFile { BadFile::eBadAttribData, fileCursorAtAttrib + sizeof(uint8_t) };
+			auto const * const& dataPtr = reinterpret_cast<uint64_t*>(src.data.get());
+			dst[0] = deserialize(dataPtr[0]);
+			dst[1] = deserialize(dataPtr[1]);
+		}
+
 
 		static World readFile(posixfio::File file) {
 			size_t fileCursor = 2 * sizeof(uint64_t);
 			World r = { };
 			r.world_version = 1;
+			r.world_entryPoint[0] = 0;
+			r.world_entryPoint[1] = 0;
 
 			{
 				uint64_t widthHeight[2];
@@ -172,6 +190,8 @@ namespace sneka {
 						objModelFromAttrib(&r.world_models, attrib, oldFileCursor); break;
 					case v1::AttributeType::ePlayerHeadModel:
 						r.world_models.playerHead = translateAttribToWorld(std::move(attrib)); break;
+					case v1::AttributeType::eEntryPoint:
+						entryPointFromAttrib(r.world_entryPoint, attrib, oldFileCursor);
 					default: break;
 				}
 				oldFileCursor = fileCursor;
@@ -238,27 +258,44 @@ namespace sneka {
 				fileCursor += sizeof(auto(v));
 				assert(rd == sizeof(auto(v))); (void) rd;
 			};
-			const auto writeAttrib = [&](AttributeType type, const std::string& attrib) {
+			const auto writeAttribStr = [&](AttributeType type, const std::string& attrib) {
 				write(uint32_t(mapAttribType(type)));
 				write(uint32_t(attrib.size()));
 				if(attrib.size() > 0) {
-					fb.writeAll(attrib.c_str(), attrib.size() + /* null-term */ 1);
+					auto wr = attrib.size() + /* null-term */ 1;
+					fb.writeAll(attrib.c_str(), wr);
+					fileCursor += wr;
 				}
+			};
+			const auto writeAttribUint64 = [&](AttributeType type, const uint64_t* srcPtr, uint32_t srcCount) {
+				auto tmpSpace = std::make_unique<uint64_t>(srcCount);
+				write(uint32_t(mapAttribType(type)));
+				write(uint32_t(sizeof(uint64_t)) * srcCount);
+				for(uint32_t i = 0; i < srcCount; ++ i) {
+					tmpSpace.get()[i] = serialize(srcPtr[i]);
+				}
+				auto wr = srcCount * sizeof(uint64_t);
+				fb.writeAll(tmpSpace.get(), wr);
+				fileCursor += wr;
+				write('\0');
 			};
 			const auto writeObjMdlAttrib = [&](GridObjectClass objClass, const std::string& attrib) {
 				write(uint32_t(mapAttribType(AttributeType::eObjectClassModel)));
 				write(uint32_t(sizeof(uint8_t) + attrib.size()));
 				if(attrib.size() > 0) {
 					write(uint8_t(objClass));
-					fb.writeAll(attrib.c_str(), attrib.size() + /* null-term */ 1);
+					auto wr = attrib.size() + /* null-term */ 1;
+					fb.writeAll(attrib.c_str(), wr);
+					fileCursor += wr;
 				}
 			};
 			write(uint64_t(magicNo));
 			write(uint64_t(src.world_version));
 			write(uint64_t(src.world_width));
 			write(uint64_t(src.world_height));
-			writeAttrib(AttributeType::eSceneryModel,     src.world_models.scenery);
-			writeAttrib(AttributeType::ePlayerHeadModel,  src.world_models.playerHead);
+			writeAttribStr(AttributeType::eSceneryModel,    src.world_models.scenery);
+			writeAttribUint64(AttributeType::eEntryPoint,   src.world_entryPoint, 2);
+			writeAttribStr(AttributeType::ePlayerHeadModel, src.world_models.playerHead);
 			writeObjMdlAttrib(GridObjectClass::eBoost,    src.world_models.objBoost);
 			writeObjMdlAttrib(GridObjectClass::ePoint,    src.world_models.objPoint);
 			writeObjMdlAttrib(GridObjectClass::eObstacle, src.world_models.objObstacle);
