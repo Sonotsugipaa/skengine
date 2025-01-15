@@ -14,7 +14,14 @@ namespace SKENGINE_NAME_NS {
 
 	class BasicRenderProcess : public RenderProcessInterface {
 	public:
-		static void setup(BasicRenderProcess&, Logger, std::shared_ptr<AssetCacheInterface>, size_t objectStorageCount, float max_sampler_anisotropy);
+		static void setup(
+			BasicRenderProcess&,
+			Logger,
+			WorldRenderer::RdrParams,
+			UiRenderer::RdrParams,
+			std::shared_ptr<AssetCacheInterface>,
+			size_t objectStorageCount,
+			float max_sampler_anisotropy );
 		static void destroy(BasicRenderProcess&, TransferContext);
 
 		#ifndef NDEBUG
@@ -35,6 +42,8 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		AssetSupplier brp_assetSupplier;
+		WorldRenderer::RdrParams brp_worldRdrParams;
+		UiRenderer::RdrParams    brp_uiRdrParams;
 		std::shared_ptr<WorldRendererSharedState> brp_worldRendererSs;
 		std::shared_ptr<std::vector<ObjectStorage>> brp_objStorages;
 		std::shared_ptr<WorldRenderer> brp_worldRenderer;

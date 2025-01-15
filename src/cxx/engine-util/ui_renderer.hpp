@@ -34,6 +34,12 @@ namespace SKENGINE_NAME_NS {
 	public:
 		friend GuiManager;
 
+		struct RdrParams {
+			static const RdrParams defaultParams;
+			std::string fontLocation;
+			uint32_t fontMaxCacheSize;
+		};
+
 		struct GframeData {
 			std::unordered_map<FontRequirement, vkutil::ManagedImage, FontRequirement::Hash> fontImages;
 		};
@@ -42,7 +48,7 @@ namespace SKENGINE_NAME_NS {
 		UiRenderer(UiRenderer&&);
 		~UiRenderer();
 
-		static UiRenderer create(VmaAllocator, Logger, std::string fontFilePath);
+		static UiRenderer create(VmaAllocator, RdrParams, Logger);
 		static void destroy(UiRenderer&);
 
 		std::string_view name() const noexcept override { return "ui"; }
@@ -70,6 +76,7 @@ namespace SKENGINE_NAME_NS {
 	private:
 		struct {
 			Logger logger;
+			RdrParams rdrParams;
 			std::shared_ptr<ShaderCacheInterface> shaderCache;
 			std::vector<GframeData> gframes;
 			std::unique_ptr<ui::Canvas> canvas;
@@ -80,7 +87,6 @@ namespace SKENGINE_NAME_NS {
 			RenderTargetId srcRtarget;
 			geom::PipelineSet pipelines;
 			FT_Library freetype;
-			std::string fontFilePath;
 			bool initialized : 1;
 		} mState;
 	};

@@ -16,11 +16,15 @@ namespace SKENGINE_NAME_NS {
 	void BasicRenderProcess::setup(
 		BasicRenderProcess& brp,
 		Logger logger,
+		WorldRenderer::RdrParams worldRdrParams,
+		UiRenderer::RdrParams uiRdrParams,
 		std::shared_ptr<AssetCacheInterface> aci,
 		size_t obj_storage_count,
 		float max_sampler_anisotropy
 	) {
 		assert(! brp.brp_assetSupplier.isInitialized());
+		brp.brp_worldRdrParams = std::move(worldRdrParams);
+		brp.brp_uiRdrParams = std::move(uiRdrParams);
 		brp.brp_assetSupplier = AssetSupplier(std::move(logger), std::move(aci), max_sampler_anisotropy);
 		brp.brp_objStorages = std::make_shared<std::vector<ObjectStorage>>();
 		brp.brp_objStorages->resize(obj_storage_count);
@@ -61,7 +65,6 @@ namespace SKENGINE_NAME_NS {
 
 	void BasicRenderProcess::rpi_createRenderers(ConcurrentAccess& ca) {
 		auto& e = ca.engine();
-		const auto& prefs = e.getPreferences();
 
 		brp_worldRendererSs = std::make_shared_for_overwrite<WorldRendererSharedState>();
 		WorldRenderer::initSharedState(e.getDevice(), *brp_worldRendererSs);
@@ -77,9 +80,9 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		const auto worldProj = WorldRenderer::ProjectionInfo {
-			.verticalFov = prefs.fov_y,
-			.zNear       = prefs.z_near,
-			.zFar        = prefs.z_far };
+			.verticalFov = brp_worldRdrParams.fovY,
+			.zNear       = brp_worldRdrParams.zNear,
+			.zFar        = brp_worldRdrParams.zFar };
 
 		constexpr WorldRenderer::PipelineParameters outlinePlParams = [&]() {
 			auto r = WorldRenderer::defaultPipelineParams;
@@ -91,6 +94,7 @@ namespace SKENGINE_NAME_NS {
 		brp_worldRenderer = std::make_shared<WorldRenderer>(WorldRenderer::create(
 			copyLogger(e.logger(), "WorldRdr"),
 			e.getVmaAllocator(),
+			brp_worldRdrParams,
 			brp_worldRendererSs,
 			brp_objStorages,
 			worldProj,
@@ -98,8 +102,8 @@ namespace SKENGINE_NAME_NS {
 
 		brp_uiRenderer = std::make_shared<UiRenderer>(UiRenderer::create(
 			e.getVmaAllocator(),
-			copyLogger(e.logger(), "UiRdr"),
-			prefs.font_location ));
+			brp_uiRdrParams,
+			copyLogger(e.logger(), "UiRdr") ));
 	}
 
 

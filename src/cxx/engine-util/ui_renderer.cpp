@@ -79,6 +79,12 @@ namespace SKENGINE_NAME_NS {
 
 
 
+	const UiRenderer::RdrParams UiRenderer::RdrParams::defaultParams = UiRenderer::RdrParams {
+		.fontLocation = "font.otf",
+		.fontMaxCacheSize = 512
+	};
+
+
 	UiRenderer::UiRenderer(): Renderer(ui_renderer_shape_subpass_info) { mState.initialized = false; }
 
 	UiRenderer::UiRenderer(UiRenderer&& mv):
@@ -98,15 +104,14 @@ namespace SKENGINE_NAME_NS {
 
 	UiRenderer UiRenderer::create(
 		VmaAllocator vma,
-		Logger logger,
-		std::string fontFilePath
-
+		RdrParams rdrParams,
+		Logger logger
 	) {
 		UiRenderer r;
 		r.mState.logger = std::move(logger);
 		r.mState.vma = vma;
+		r.mState.rdrParams = std::move(rdrParams);
 		r.mState.pipelines = { };
-		r.mState.fontFilePath = std::move(fontFilePath);
 		r.mState.srcRtarget = idgen::invalidId<RenderTargetId>();
 		r.mState.initialized = true;
 		auto dev = vmaGetAllocatorDevice(r.mState.vma);
@@ -409,13 +414,13 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void UiRenderer::afterPostRender(ConcurrentAccess& ca, const DrawInfo&) {
-		trimTextCaches(ca.engine().getPreferences().font_max_cache_size);
+	void UiRenderer::afterPostRender(ConcurrentAccess&, const DrawInfo&) {
+		trimTextCaches(mState.rdrParams.fontMaxCacheSize);
 	}
 
 
 	FontFace UiRenderer::createFontFace() {
-		return FontFace::fromFile(mState.freetype, false, mState.fontFilePath.c_str());
+		return FontFace::fromFile(mState.freetype, false, mState.rdrParams.fontLocation.c_str());
 	}
 
 

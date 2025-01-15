@@ -81,26 +81,14 @@ namespace SKENGINE_NAME_NS {
 	struct EnginePreferences {
 		static const EnginePreferences default_prefs;
 		std::string phys_device_uuid;
-		std::string asset_filename_prefix;
-		std::string font_location;
 		VkExtent2D  init_present_extent;
 		VkExtent2D  max_render_extent;
-		VkPresentModeKHR   present_mode;
-		VkSampleCountFlags sample_count;
+		VkPresentModeKHR present_mode;
 		uint32_t       max_concurrent_frames;
 		uint32_t       framerate_samples;
-		std::float32_t fov_y;
-		std::float32_t z_near;
-		std::float32_t z_far;
-		uint32_t       shade_step_count;
-		std::float32_t point_light_distance_threshold;
-		std::float32_t shade_step_smoothness;
-		std::float32_t shade_step_exponent;
-		std::float32_t dithering_steps;
 		std::float32_t upscale_factor;
 		std::float32_t target_framerate;
 		std::float32_t target_tickrate;
-		uint32_t       font_max_cache_size;
 		bool           fullscreen      : 1;
 		bool           composite_alpha : 1;
 		bool           wait_for_gframe : 1;

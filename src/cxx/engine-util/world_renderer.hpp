@@ -39,6 +39,18 @@ namespace SKENGINE_NAME_NS {
 	///
 	class WorldRenderer : public Renderer {
 	public:
+		struct RdrParams {
+			static const RdrParams defaultParams;
+			std::float32_t fovY;
+			std::float32_t zNear;
+			std::float32_t zFar;
+			uint32_t       shadeStepCount;
+			std::float32_t pointLightDistanceThreshold;
+			std::float32_t shadeStepSmoothness;
+			std::float32_t shadeStepExponent;
+			std::float32_t ditheringSteps;
+		};
+
 		struct ProjectionInfo {
 			float verticalFov = ((90.0 /* degrees */) * (std::numbers::pi_v<double> / 180.0));
 			float zNear       = 0.1f;
@@ -119,6 +131,7 @@ namespace SKENGINE_NAME_NS {
 		static WorldRenderer create(
 			Logger,
 			VmaAllocator,
+			RdrParams,
 			std::shared_ptr<WorldRendererSharedState>,
 			std::shared_ptr<std::vector<ObjectStorage>>,
 			const ProjectionInfo&,
@@ -190,6 +203,7 @@ namespace SKENGINE_NAME_NS {
 		struct {
 			Logger logger;
 			VmaAllocator vma;
+			RdrParams params;
 			std::shared_ptr<std::vector<ObjectStorage>> objectStorages;
 			std::shared_ptr<WorldRendererSharedState> sharedState;
 			std::shared_ptr<ShaderCacheInterface> shaderCache;

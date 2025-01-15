@@ -596,29 +596,37 @@ int main(int argn, char** argv) {
 
 	const auto enginePrefs = []() {
 		auto prefs = EnginePreferences::default_prefs;
-		prefs.init_present_extent            = { 700, 500 };
-		prefs.max_render_extent              = { 0, 0 };
-		prefs.asset_filename_prefix          = "assets/";
-		prefs.present_mode                   = VK_PRESENT_MODE_MAILBOX_KHR;
-		prefs.target_framerate               = 72.0f;
-		prefs.target_tickrate                = 60.0f;
-		prefs.fov_y                          = glm::radians(90.0f);
-		prefs.shade_step_count               = 7;
-		prefs.point_light_distance_threshold = 1.0f / 64.0f;
-		prefs.shade_step_smoothness          = 1.0f;
-		prefs.shade_step_exponent            = 4.0f;
-		prefs.dithering_steps                = 256.0f;
-		prefs.font_location                  = "assets/font.otf";
-		prefs.wait_for_gframe                = false;
-		prefs.framerate_samples              = 4;
+		prefs.init_present_extent = { 700, 500 };
+		prefs.max_render_extent   = { 0, 0 };
+		prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
+		prefs.target_framerate    = 72.0f;
+		prefs.target_tickrate     = 60.0f;
+		prefs.wait_for_gframe     = false;
+		prefs.framerate_samples   = 4;
 		return prefs;
+	} ();
+
+	const auto worldRdrParams = []() {
+		auto params = WorldRenderer::RdrParams::defaultParams;
+		params.fovY                        = glm::radians(90.0f);
+		params.shadeStepCount              = 7;
+		params.pointLightDistanceThreshold = 1.0f / 64.0f;
+		params.shadeStepSmoothness         = 1.0f;
+		params.shadeStepExponent           = 4.0f;
+		params.ditheringSteps              = 256.0f;
+		return params;
+	} ();
+
+	const auto uiRdrParams = []() {
+		auto params = UiRenderer::RdrParams::defaultParams;
+		return params;
 	} ();
 
 	try {
 		auto shader_cache   = std::make_shared<ske::BasicShaderCache>("assets/", logger);
 		auto asset_cache    = std::make_shared<ske::BasicAssetCache>("assets/", logger);
 		auto basic_rprocess = std::make_shared<ske::BasicRenderProcess>();
-		BasicRenderProcess::setup(*basic_rprocess, logger, asset_cache, 2, 0.125);
+		BasicRenderProcess::setup(*basic_rprocess, logger, worldRdrParams, uiRdrParams, asset_cache, 2, 0.125);
 
 		auto engine = ske::Engine(
 			ske::DeviceInitInfo {

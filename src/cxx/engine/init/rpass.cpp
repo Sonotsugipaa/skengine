@@ -156,25 +156,12 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void validate_prefs(EnginePreferences& prefs) {
-		#define MAX_(M_, MAX_) { prefs.M_ = std::max<decltype(EnginePreferences::M_)>(MAX_, prefs.M_); }
-		MAX_(shade_step_count, 0)
-		MAX_(dithering_steps,  0)
-		#undef MAX_
-
-		#define UL_ [[unlikely]]
-		if(prefs.shade_step_smoothness < 0.0f) UL_ prefs.shade_step_smoothness = -1.0f - (-1.0f / -(-1.0f + prefs.shade_step_smoothness)); // Negative values (interval (-1, 0)) behave strangely
-		#undef UL_
-	}
-
-
 	#warning "Document how this works, since it's trippy, workaroundy and *definitely* UB (but it removes A LOT of boilerplate)"
 	void Engine::RpassInitializer::init(ConcurrentAccess& ca, const RpassConfig& rc) {
 		#define SET_STAGE_(B_) state.stages = state.stages | (stages_t(1) << stages_t(B_));
 		mRpassConfig = rc;
 		mSwapchainOod = false;
 		mHdrEnabled   = false;
-		validate_prefs(mPrefs);
 		auto state = State(ca, false, 0);
 		try {
 			initSurface(); SET_STAGE_(0)
@@ -197,8 +184,6 @@ namespace SKENGINE_NAME_NS {
 		mLogger.trace("Recreating swapchain");
 
 		auto state = State(ca, true);
-
-		validate_prefs(mPrefs);
 
 		VkExtent2D old_render_xt  = mRenderExtent;
 		VkExtent2D old_present_xt = mPresentExtent;

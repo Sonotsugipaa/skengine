@@ -137,8 +137,32 @@ namespace SKENGINE_NAME_NS {
 			return r;
 		}
 
+
+		void validate_params(WorldRenderer::RdrParams& params) {
+			#define MAX_(M_, MAX_) { params.M_ = std::max<decltype(WorldRenderer::RdrParams::M_)>(MAX_, params.M_); }
+			MAX_(shadeStepCount, 0)
+			MAX_(ditheringSteps,  0)
+			#undef MAX_
+
+			#define UL_ [[unlikely]]
+			if(params.shadeStepSmoothness < 0.0f) UL_ params.shadeStepSmoothness = -1.0f - (-1.0f / -(-1.0f + params.shadeStepSmoothness)); // Negative values (interval (-1, 0)) behave strangely
+			#undef UL_
+		}
+
 	}}
 
+
+
+	const WorldRenderer::RdrParams WorldRenderer::RdrParams::defaultParams = WorldRenderer::RdrParams {
+		.fovY                        = glm::radians(110.0f),
+		.zNear                       = 1.0f / float(1 << 6),
+		.zFar                        = float(1 << 10),
+		.shadeStepCount              = 0,
+		.pointLightDistanceThreshold = 1.0f / 256.0f /* Good enough for 24-bit colors, I'd hope */,
+		.shadeStepSmoothness         = 0.0f,
+		.shadeStepExponent           = 1.0f,
+		.ditheringSteps              = 256.0f
+	};
 
 
 	WorldRenderer::WorldRenderer(): Renderer(world::world_renderer_subpass_info), mState{} { }
@@ -161,15 +185,18 @@ namespace SKENGINE_NAME_NS {
 	WorldRenderer WorldRenderer::create(
 			Logger logger,
 			VmaAllocator vma,
+			RdrParams rdrParams,
 			std::shared_ptr<WorldRendererSharedState> sharedState,
 			std::shared_ptr<std::vector<ObjectStorage>> objectStorages,
 			const ProjectionInfo& projInfo,
 			util::TransientArray<PipelineParameters> plParams
 	) {
 		WorldRenderer r;
+		world::validate_params(rdrParams);
 		r.mState = { };
 		r.mState.logger = std::move(logger);
 		r.mState.vma = vma;
+		r.mState.params = std::move(rdrParams);
 		r.mState.objectStorages = std::move(objectStorages);
 		r.mState.sharedState = std::move(sharedState);
 		r.mState.rtargetId = idgen::invalidId<RenderTargetId>();
@@ -430,13 +457,13 @@ namespace SKENGINE_NAME_NS {
 
 		auto rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
 		auto dist = std::uniform_real_distribution(0.0f, 1.0f);
-		ubo.shade_step_count       = e.getPreferences().shade_step_count;
-		ubo.shade_step_smooth      = e.getPreferences().shade_step_smoothness;
-		ubo.shade_step_exp         = e.getPreferences().shade_step_exponent;
-		ubo.dithering_steps        = e.getPreferences().dithering_steps;
+		ubo.shade_step_count       = mState.params.shadeStepCount;
+		ubo.shade_step_smooth      = mState.params.shadeStepSmoothness;
+		ubo.shade_step_exp         = mState.params.shadeStepExponent;
+		ubo.dithering_steps        = mState.params.ditheringSteps;
 		ubo.rnd                    = dist(rng);
 		ubo.time_delta             = std::float32_t(egf.frame_delta);
-		ubo.p_light_dist_threshold = ca.engine().getPreferences().point_light_distance_threshold;
+		ubo.p_light_dist_threshold = mState.params.pointLightDistanceThreshold;
 		ubo.flags                  = dev::FrameUniformFlags(dev::FRAME_UNI_ZERO);
 		ubo.ambient_lighting       = glm::vec4((all > 0)? glm::normalize(al) : al, all);
 		ubo.view_transf            = getViewTransf();
