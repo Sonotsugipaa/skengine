@@ -19,6 +19,16 @@
 
 namespace SKENGINE_NAME_NS {
 
+	namespace dev {
+
+		struct ObjectId {
+			ALIGNI32(1) uint32_t id;
+		};
+
+	}
+
+
+
 	class Engine;
 	struct WorldRendererSharedState;
 
@@ -217,9 +227,12 @@ namespace SKENGINE_NAME_NS {
 
 		VmaAllocator vma() const noexcept { return mVma; }
 
-		auto     getDrawBatches       () const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
-		VkBuffer getInstanceBuffer    () const noexcept { return const_cast<VkBuffer>(mObjectBuffer.value); }
-		VkBuffer getDrawCommandBuffer () const noexcept { return const_cast<VkBuffer>(mBatchBuffer.value); }
+		auto  getObjectCount       () const noexcept { return mObjects.size(); }
+		auto  getDrawCount         () const noexcept { return mDrawCount; }
+		auto  getDrawBatchCount    () const noexcept { return mDrawBatchList.size(); }
+		auto  getDrawBatches       () const noexcept { return std::span<const DrawBatch>(mDrawBatchList); };
+		auto& getObjectBuffer      () const noexcept { return mObjectBuffer.first; }
+		auto& getDrawCommandBuffer () const noexcept { return mBatchBuffer.first; }
 
 		/// \brief Starts committing the objects to central memory, then to Vulkan buffers.
 		/// \returns `true` only if any command was recorded into the command buffer parameter.
@@ -246,11 +259,12 @@ namespace SKENGINE_NAME_NS {
 		UnboundBatchMap  mUnboundDrawBatches;
 		BatchList        mDrawBatchList;
 		ModelDepCounters mModelDepCounters;
-		VkDescriptorPool mDpool;
-		size_t           mDpoolSize;
-		size_t           mDpoolCapacity;
-		vkutil::BufferDuplex mObjectBuffer;
-		vkutil::BufferDuplex mBatchBuffer;
+		VkDescriptorPool mMatDpool;
+		size_t           mMatDpoolSize;
+		size_t           mMatDpoolCapacity;
+		size_t           mDrawCount;
+		std::pair<vkutil::Buffer, size_t> mObjectBuffer;
+		std::pair<vkutil::Buffer, size_t> mBatchBuffer;
 
 		std::shared_ptr<MatrixAssembler> mMatrixAssembler;
 

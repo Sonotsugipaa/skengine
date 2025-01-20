@@ -19,6 +19,7 @@ inline namespace shcmp {
 			r.SetGenerateDebugInfo();
 		#endif
 		r.SetSourceLanguage(shaderc_source_language_glsl);
+		r.SetTargetSpirv(shaderc_spirv_version_1_6);
 		return r;
 	} ();
 

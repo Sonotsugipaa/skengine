@@ -34,6 +34,9 @@ namespace SKENGINE_NAME_NS {
 	namespace world {
 
 		// Define elsewhere
+
+		void computeCullWorkgroupSizes(uint32_t dst[3], const VkPhysicalDeviceProperties& props);
+
 		VkPipeline create3dPipeline(
 			VkDevice,
 			ShaderCacheInterface&,
@@ -43,6 +46,12 @@ namespace SKENGINE_NAME_NS {
 			VkPipelineLayout,
 			uint32_t subpass );
 
+		VkPipeline createCullPipeline(
+			VkDevice dev,
+			VkPipelineCache plCache,
+			VkPipelineLayout plLayout,
+			const VkPhysicalDeviceProperties& phDevProps );
+
 	}
 
 
@@ -51,11 +60,11 @@ namespace SKENGINE_NAME_NS {
 
 		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
 		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
-		B_(WorldRenderer::DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
+		B_(WorldRenderer::RDR_DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
 		#undef B_
 
 		#define PI_ Renderer::PipelineInfo
@@ -113,24 +122,26 @@ namespace SKENGINE_NAME_NS {
 			wr.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			wr.descriptorCount = 1;
 			wr.dstSet          = dset;
-			wr.dstBinding      = WorldRenderer::LIGHT_STORAGE_BINDING;
+			wr.dstBinding      = WorldRenderer::RDR_LIGHT_STORAGE_BINDING;
 			wr.pBufferInfo     = &db_info;
 			vkUpdateDescriptorSets(dev, 1, &wr, 0, nullptr);
 		}
 
 
-		VkDescriptorPool create_gframe_dpool(VkDevice dev, const std::vector<WorldRenderer::GframeData>& gframes) {
+		VkDescriptorPool create_gframe_dpool(VkDevice dev, const std::vector<WorldRenderer::GframeData>& gframes, uint32_t objStgCount) {
 			auto gframeCount = uint32_t(gframes.size());
 
 			VkDescriptorPoolSize sizes[] = {
 				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, gframeCount * 1 },
-				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gframeCount * 1 } };
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					(gframeCount * 1) +
+					(gframeCount * 3 * objStgCount) } };
 
 			VkDescriptorPoolCreateInfo dpc_info = { };
 			dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 			dpc_info.poolSizeCount = std::size(sizes);
 			dpc_info.pPoolSizes    = sizes;
-			dpc_info.maxSets = gframeCount;
+			dpc_info.maxSets = gframeCount + (gframeCount * objStgCount);
 
 			VkDescriptorPool r;
 			VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, &r);
@@ -148,6 +159,76 @@ namespace SKENGINE_NAME_NS {
 			if(params.shadeStepSmoothness < 0.0f) UL_ params.shadeStepSmoothness = -1.0f - (-1.0f / -(-1.0f + params.shadeStepSmoothness)); // Negative values (interval (-1, 0)) behave strangely
 			#undef UL_
 		}
+
+
+		std::pair<vkutil::Buffer, size_t> create_obj_buffer(VmaAllocator vma, size_t count) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Instance);
+			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage         = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			auto r = vkutil::Buffer::create(vma, bc_info, ac_info);
+			return { std::move(r), count };
+		}
+
+		std::pair<vkutil::Buffer, size_t> create_obj_id_buffer(VmaAllocator vma, size_t count) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = std::bit_ceil(count) * sizeof(dev::ObjectId);
+			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage         = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			auto r = vkutil::Buffer::create(vma, bc_info, ac_info);
+			return { std::move(r), count };
+		}
+
+		std::pair<vkutil::Buffer, size_t> create_draw_cmd_buffer(VmaAllocator vma, size_t count) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = std::bit_ceil(count) * sizeof(VkDrawIndexedIndirectCommand);
+			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage         = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			auto r = vkutil::Buffer::create(vma, bc_info, ac_info);
+			return { std::move(r), count };
+		}
+
+		void resize_obj_buffer(VmaAllocator vma, std::pair<vkutil::Buffer, size_t>* dst, size_t requiredCmdCount) {
+			if(dst->second < requiredCmdCount) {
+				if(dst->first.value != nullptr) vkutil::Buffer::destroy(vma, dst->first);
+				*dst = create_obj_buffer(vma, requiredCmdCount);
+			}
+		}
+
+		void resize_obj_id_buffer(VmaAllocator vma, std::pair<vkutil::Buffer, size_t>* dst, size_t requiredCmdCount) {
+			if(dst->second < requiredCmdCount) {
+				if(dst->first.value != nullptr) vkutil::Buffer::destroy(vma, dst->first);
+				*dst = create_obj_id_buffer(vma, requiredCmdCount);
+			}
+		}
+
+		void resize_draw_cmd_buffer(VmaAllocator vma, std::pair<vkutil::Buffer, size_t>* dst, size_t requiredCmdCount) {
+			if(dst->second < requiredCmdCount) {
+				if(dst->first.value != nullptr) vkutil::Buffer::destroy(vma, dst->first);
+				*dst = create_draw_cmd_buffer(vma, requiredCmdCount);
+			}
+		}
+
+
+		auto destroy_gframe_data(VmaAllocator vma, WorldRenderer::GframeData& gframeData) {
+			for(auto& b : gframeData.osData) {
+				vkutil::Buffer::destroy(vma, b.objBfCopy.first);
+				vkutil::Buffer::destroy(vma, b.objIdBfCopy.first);
+				vkutil::Buffer::destroy(vma, b.drawCmdBfCopy.first);
+			}
+			vkutil::BufferDuplex::destroy(vma, gframeData.frameUbo);
+
+			if(gframeData.lightStorageCapacity > 0) {
+				vkutil::ManagedBuffer::destroy(vma, gframeData.lightStorage);
+				gframeData.lightStorageCapacity = 0;
+			}
+		};
 
 	}}
 
@@ -221,10 +302,7 @@ namespace SKENGINE_NAME_NS {
 		auto vma = r.vma();
 		auto dev = vmaGetAllocatorDevice(vma);
 
-		for(auto& gf : r.mState.gframes) {
-			vkutil::BufferDuplex::destroy(vma, gf.frameUbo);
-			vkutil::ManagedBuffer::destroy(vma, gf.lightStorage);
-		}
+		for(auto& gf : r.mState.gframes) world::destroy_gframe_data(vma, gf);
 		r.mState.gframes.clear();
 
 		vkDestroyDescriptorPool(dev, r.mState.gframeDpool, nullptr);
@@ -243,7 +321,7 @@ namespace SKENGINE_NAME_NS {
 			for(auto  l : removeList) r.removeLight(l);
 		}
 
-		for(auto pl : r.mState.pipelines) {
+		for(auto pl : r.mState.rdrPipelines) {
 			if(pl != nullptr) vkDestroyPipeline(dev, pl, nullptr);
 		}
 		r.mState.initialized = false;
@@ -251,51 +329,75 @@ namespace SKENGINE_NAME_NS {
 
 
 	void WorldRenderer::initSharedState(VkDevice dev, WorldRendererSharedState& wrss) {
-		VkDescriptorSetLayoutBinding dslb[5] = { };
+		VkDescriptorSetLayoutBinding dslb[5];
+		VkDescriptorSetLayoutCreateInfo dslc_info = { };
 		wrss = { }; // Zero-initialization is important in case of failure
 
 		try {
-			dslb[0].binding = DIFFUSE_TEX_BINDING;
+			dslc_info.pBindings = dslb;
+			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+
+			dslb[0] = { };
+			dslb[0].binding = CULL_OBJ_STG_BINDING;
+			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			dslb[0].descriptorCount = 1;
+			dslb[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+			dslb[1] = dslb[0];
+			dslb[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+			dslb[1].binding = CULL_OBJ_ID_STG_BINDING;
+			dslb[2] = dslb[1];
+			dslb[2].binding = CULL_CMD_BINDING;
+			static_assert(CULL_OBJ_STG_BINDING    == RDR_OBJ_STG_BINDING);    // The same layout is reused between the two stages
+			static_assert(CULL_OBJ_ID_STG_BINDING == RDR_OBJ_ID_STG_BINDING); // ^^^
+
+			dslc_info.bindingCount = 3; assert(dslc_info.bindingCount <= std::size(dslb));
+			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.objDsetLayout);
+
+			dslb[0] = { };
+			dslb[0].binding = RDR_DIFFUSE_TEX_BINDING;
 			dslb[0].descriptorCount = 1;
 			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 			dslb[1] = dslb[0];
-			dslb[1].binding = NORMAL_TEX_BINDING;
+			dslb[1].binding = RDR_NORMAL_TEX_BINDING;
 			dslb[2] = dslb[0];
-			dslb[2].binding = SPECULAR_TEX_BINDING;
+			dslb[2].binding = RDR_SPECULAR_TEX_BINDING;
 			dslb[3] = dslb[0];
-			dslb[3].binding = EMISSIVE_TEX_BINDING;
+			dslb[3].binding = RDR_EMISSIVE_TEX_BINDING;
 			dslb[4] = dslb[0];
 			dslb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			dslb[4].binding = MATERIAL_UBO_BINDING;
+			dslb[4].binding = RDR_MATERIAL_UBO_BINDING;
 
-			VkDescriptorSetLayoutCreateInfo dslc_info = { };
-			dslc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			dslc_info.bindingCount = std::size(dslb);
-			dslc_info.pBindings = dslb;
+			dslc_info.bindingCount = 5; assert(dslc_info.bindingCount <= std::size(dslb));
 			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.materialDsetLayout);
 
 			dslb[0] = { };
-			dslb[0].binding = FRAME_UBO_BINDING;
+			dslb[0].binding = RDR_FRAME_UBO_BINDING;
 			dslb[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			dslb[0].descriptorCount = 1;
 			dslb[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 			dslb[1] = dslb[0];
-			dslb[1].binding = LIGHT_STORAGE_BINDING;
+			dslb[1].binding = RDR_LIGHT_STORAGE_BINDING;
 			dslb[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 
-			dslc_info.bindingCount = 2;
+			dslc_info.bindingCount = 2; assert(dslc_info.bindingCount <= std::size(dslb));
 			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.gframeUboDsetLayout);
 
 			{ // Pipeline layout
 				VkPipelineLayoutCreateInfo plcInfo = { };
-				VkDescriptorSetLayout layouts[] = {
-					wrss.gframeUboDsetLayout,
-					wrss.materialDsetLayout };
 				plcInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-				plcInfo.setLayoutCount = std::size(layouts);
-				plcInfo.pSetLayouts    = layouts;
-				VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, &wrss.pipelineLayout);
+				VkPushConstantRange pcRanges[1] = { };
+				auto mkLayout = [&]<typename... Dl>(VkPipelineLayout* dst, Dl... dl) {
+					VkDescriptorSetLayout layouts[] = { dl... };
+					plcInfo.setLayoutCount = std::size(layouts);
+					plcInfo.pSetLayouts    = layouts;
+					VK_CHECK(vkCreatePipelineLayout, dev, &plcInfo, nullptr, dst);
+				};
+				mkLayout(&wrss.rdrPipelineLayout, wrss.gframeUboDsetLayout, wrss.materialDsetLayout, wrss.objDsetLayout);
+				pcRanges[0] = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) };
+				plcInfo.pushConstantRangeCount = 1;
+				plcInfo.pPushConstantRanges = pcRanges;
+				mkLayout(&wrss.cullPassPipelineLayout, wrss.objDsetLayout);
 			}
 		} catch(...) {
 			destroySharedState(dev, wrss);
@@ -305,30 +407,37 @@ namespace SKENGINE_NAME_NS {
 
 
 	void WorldRenderer::destroySharedState(VkDevice dev, WorldRendererSharedState& wrss) {
-		if(wrss.pipelineLayout) vkDestroyPipelineLayout(dev, wrss.pipelineLayout, nullptr);
+		if(wrss.cullPassPipelineLayout) vkDestroyPipelineLayout(dev, wrss.cullPassPipelineLayout, nullptr);
+		if(wrss.rdrPipelineLayout) vkDestroyPipelineLayout(dev, wrss.rdrPipelineLayout, nullptr);
 		if(wrss.gframeUboDsetLayout) vkDestroyDescriptorSetLayout(dev, wrss.gframeUboDsetLayout, nullptr);
 		if(wrss.materialDsetLayout) vkDestroyDescriptorSetLayout(dev, wrss.materialDsetLayout, nullptr);
+		if(wrss.objDsetLayout) vkDestroyDescriptorSetLayout(dev, wrss.objDsetLayout, nullptr);
 	}
 
 
 	void WorldRenderer::prepareSubpasses(const SubpassSetupInfo& ssInfo, VkPipelineCache plCache, ShaderCacheInterface* shCache) {
-		assert(mState.pipelines.empty());
-		mState.pipelines.reserve(mState.pipelineParams.size());
+		assert(mState.rdrPipelines.empty());
+		mState.rdrPipelines.reserve(mState.pipelineParams.size() + 1);
+		mState.cullPassPipeline = world::createCullPipeline(
+			vmaGetAllocatorDevice(vma()),
+			plCache, mState.sharedState->cullPassPipelineLayout, *ssInfo.phDevProps );
 		for(uint32_t subpassIdx = 0; auto& params : mState.pipelineParams) {
-			mState.pipelines.push_back(world::create3dPipeline(
+			mState.rdrPipelines.push_back(world::create3dPipeline(
 				vmaGetAllocatorDevice(vma()),
 				*shCache, params,
-				ssInfo.rpass, plCache, mState.sharedState->pipelineLayout, subpassIdx ++ ));
+				ssInfo.rpass, plCache, mState.sharedState->rdrPipelineLayout, subpassIdx ++ ));
 		}
 	}
 
 
 	void WorldRenderer::forgetSubpasses(const SubpassSetupInfo&) {
-		for(auto& pl : mState.pipelines) {
-			vkDestroyPipeline(vmaGetAllocatorDevice(vma()), pl, nullptr);
+		auto dev = vmaGetAllocatorDevice(vma());
+		vkDestroyPipeline(dev, mState.cullPassPipeline, nullptr);
+		for(auto& pl : mState.rdrPipelines) {
+			vkDestroyPipeline(dev, pl, nullptr);
 			pl = nullptr;
 		}
-		mState.pipelines.clear();
+		mState.rdrPipelines.clear();
 	}
 
 
@@ -360,17 +469,15 @@ namespace SKENGINE_NAME_NS {
 					.qfamSharing = { } };
 				wgf.frameUbo = vkutil::BufferDuplex::createUniformBuffer(vma, ubo_bc_info);
 			}
-		};
 
-		auto destroyGframeData = [&](unsigned gfIndex) {
-			GframeData& wgf = mState.gframes[gfIndex];
-
-			vkutil::BufferDuplex::destroy(vma, wgf.frameUbo);
-
-			uint32_t lightCapacity = mState.lightStorage.bufferCapacity;
-			if(lightCapacity > 0) {
-				vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
-				wgf.lightStorageCapacity = 0;
+			// Create the buffers for draw command copies
+			for(size_t i = 0; auto& os : *mState.objectStorages) {
+				wgf.osData.push_back({ });
+				auto& data = wgf.osData.back();
+				world::resize_obj_buffer     (vma, &data.objBfCopy,     os.getDrawCount());
+				world::resize_obj_id_buffer  (vma, &data.objIdBfCopy,   os.getDrawCount());
+				world::resize_draw_cmd_buffer(vma, &data.drawCmdBfCopy, os.getDrawBatchCount());
+				++ i;
 			}
 		};
 
@@ -379,7 +486,7 @@ namespace SKENGINE_NAME_NS {
 				mState.gframes.resize(gframeCount);
 				for(size_t i = oldGframeCount; i < gframeCount; ++i) createGframeData(i);
 			} else /* if(oldGframeCount > gframeCount) */ {
-				for(size_t i = gframeCount; i < oldGframeCount; ++i) destroyGframeData(i);
+				for(size_t i = gframeCount; i < oldGframeCount; ++i) world::destroy_gframe_data(vma, mState.gframes[i]);
 				mState.gframes.resize(gframeCount);
 			}
 
@@ -388,28 +495,31 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			if(gframeCount > 0) { // Create the gframe dpool, then allocate and write dsets
-				mState.gframeDpool = world::create_gframe_dpool(dev, mState.gframes);
+				mState.gframeDpool = world::create_gframe_dpool(dev, mState.gframes, mState.objectStorages->size());
 				mState.projTransfOod = true;
 
 				VkDescriptorSetAllocateInfo dsa_info = { };
-				VkDescriptorSetLayout dsetLayouts[] = { mState.sharedState->gframeUboDsetLayout };
 				dsa_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 				dsa_info.descriptorPool     = mState.gframeDpool;
-				dsa_info.descriptorSetCount = std::size(dsetLayouts);
-				dsa_info.pSetLayouts        = dsetLayouts;
+				dsa_info.descriptorSetCount = 1;
 				VkWriteDescriptorSet frame_dset_wr = { };
 				frame_dset_wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				frame_dset_wr.dstBinding = FRAME_UBO_BINDING;
+				frame_dset_wr.dstBinding = RDR_FRAME_UBO_BINDING;
 				frame_dset_wr.descriptorCount = 1;
 				frame_dset_wr.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 				VkDescriptorBufferInfo frame_db_info = { nullptr, 0, VK_WHOLE_SIZE };
 
 				for(auto& wgf : mState.gframes) {
+					dsa_info.pSetLayouts = &mState.sharedState->gframeUboDsetLayout;
 					VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &wgf.frameDset);
 					frame_dset_wr.pBufferInfo = &frame_db_info;
 					frame_dset_wr.dstSet = wgf.frameDset;
 					frame_db_info.buffer = wgf.frameUbo;
 					vkUpdateDescriptorSets(dev, 1, &frame_dset_wr, 0, nullptr);
+					for(auto& osd : wgf.osData) {
+						dsa_info.pSetLayouts = &mState.sharedState->objDsetLayout;
+						VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &osd.objDset);
+					}
 				}
 			}
 		}
@@ -424,6 +534,7 @@ namespace SKENGINE_NAME_NS {
 		auto& al  = getAmbientLight();
 		auto& ubo = * wgf.frameUbo.mappedPtr<dev::FrameUniform>();
 		auto& renderExtent = ca.engine().getRenderExtent();
+		auto& objStorages = *mState.objectStorages;
 		auto  dev = e.getDevice();
 		auto  vma = e.getVmaAllocator();
 		auto  all = glm::length(al);
@@ -483,10 +594,10 @@ namespace SKENGINE_NAME_NS {
 		}
 		wgf.frameUbo.flush(cmd, vma);
 
-		for(auto& os : *mState.objectStorages) os.commitObjects(cmd);
+		for(auto& os : objStorages) os.commitObjects(cmd);
 
-		bool buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
-		if(buffer_resized) {
+		bool light_buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
+		if(light_buffer_resized) {
 			mState.logger.trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
 			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
 
@@ -513,6 +624,121 @@ namespace SKENGINE_NAME_NS {
 			VkBufferCopy cp = { };
 			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
 			vkCmdCopyBuffer(cmd, ls.buffer.value, wgf.lightStorage, 1, &cp);
+		}
+
+		{ // Prepare the cull pass; populate the draw command buffer copy and write the dset
+			assert(wgf.osData.size() == objStorages.size());
+			for(size_t osIdx = 0; auto& os : objStorages) {
+				auto& gfOsData = wgf.osData[osIdx];
+				os.waitUntilReady();
+				size_t objBytes   = os.getDrawCount()      * sizeof(dev::Instance);
+				size_t objIdBytes = os.getDrawCount()      * sizeof(dev::ObjectId);
+				size_t cmdBytes   = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
+				world::resize_obj_buffer     (vma, &gfOsData.objBfCopy,     os.getDrawCount());
+				world::resize_obj_id_buffer  (vma, &gfOsData.objIdBfCopy,   os.getDrawCount());
+				world::resize_draw_cmd_buffer(vma, &gfOsData.drawCmdBfCopy, os.getDrawBatchCount());
+				VkBufferMemoryBarrier2 bars[2] = { };
+				bars[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+				bars[0].buffer = gfOsData.objBfCopy.first; bars[0].size = objBytes;
+				bars[0].srcStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+				bars[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT   | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+				bars[0].dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bars[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bars[1] = bars[0];
+				bars[1].buffer = gfOsData.drawCmdBfCopy.first; bars[1].size = cmdBytes;
+				bars[1].srcStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+				bars[1].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT   | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+				bars[1].dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				bars[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				VkDependencyInfo depInfo = { };
+				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				depInfo.bufferMemoryBarrierCount = std::size(bars); depInfo.pBufferMemoryBarriers = bars;
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+				auto cpBf = [&](VkBuffer src, std::pair<vkutil::Buffer, size_t>& dst, VkDeviceSize bytes) {
+					VkBufferCopy cp = { 0, 0, bytes };
+					vkCmdCopyBuffer(cmd, src, dst.first, 1, &cp);
+				};
+				cpBf(os.getObjectBuffer().value,      gfOsData.objBfCopy,     objBytes);
+				cpBf(os.getDrawCommandBuffer().value, gfOsData.drawCmdBfCopy, cmdBytes);
+				bars[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bars[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+				bars[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bars[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+				VkDescriptorBufferInfo dbInfos[3] = {
+					{ gfOsData.objBfCopy.first,     0, objBytes },
+					{ gfOsData.objIdBfCopy.first,   0, objIdBytes },
+					{ gfOsData.drawCmdBfCopy.first, 0, cmdBytes } };
+				VkWriteDescriptorSet wr[std::size(dbInfos)];
+				wr[0] = { };
+				wr[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				wr[0].dstSet = gfOsData.objDset;
+				wr[0].dstBinding = CULL_OBJ_STG_BINDING;
+				wr[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				wr[0].descriptorCount = 1;
+				wr[0].pBufferInfo = dbInfos + 0;
+				wr[1] = wr[0];
+				wr[1].dstBinding = CULL_OBJ_ID_STG_BINDING;
+				wr[1].pBufferInfo = dbInfos + 1;
+				wr[2] = wr[0];
+				wr[2].dstBinding = CULL_CMD_BINDING;
+				wr[2].pBufferInfo = dbInfos + 2;
+				vkUpdateDescriptorSets(dev, std::size(wr), wr, 0, nullptr);
+				++ osIdx;
+			}
+		}
+
+		{ // Run the cull pass
+			uint32_t dispatchXyz[3];
+			world::computeCullWorkgroupSizes(dispatchXyz, ca.engine().getPhysDeviceProperties());
+
+			for(size_t osIdx = 0; auto& os : objStorages) {
+				auto&    gfOsData      = wgf.osData[osIdx];
+				uint32_t drawCount     = os.getDrawCount();
+				uint32_t groupCountX   = drawCount / dispatchXyz[0];
+				if(drawCount % dispatchXyz[0] > 0) ++ groupCountX; // ceil behavior
+				if(groupCountX > 0) {
+					VkDescriptorSet dsets[] = { gfOsData.objDset };
+					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mState.cullPassPipeline);
+					vkCmdBindDescriptorSets(
+						cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mState.sharedState->cullPassPipelineLayout,
+						0, std::size(dsets), dsets, 0, nullptr );
+					vkCmdPushConstants(
+						cmd,
+						mState.sharedState->cullPassPipelineLayout,
+						VK_SHADER_STAGE_COMPUTE_BIT,
+						0, sizeof(uint32_t), &drawCount );
+					VkBufferMemoryBarrier2 bars[3];
+					VkDependencyInfo depInfo = { };
+					{ // Barrier boilerplate ( {0,1,2} -> { obj, objidx, drawcmd } )
+						depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+						depInfo.bufferMemoryBarrierCount = std::size(bars); depInfo.pBufferMemoryBarriers = bars;
+						bars[0] = { };
+						bars[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+						bars[0].buffer = gfOsData.objBfCopy.first;   bars[0].size = os.getDrawCount() * sizeof(dev::Instance);
+						bars[1] = bars[0];
+						bars[1].buffer = gfOsData.objIdBfCopy.first; bars[1].size = os.getDrawCount() * sizeof(dev::ObjectId);
+						bars[2] = bars[0];
+						bars[2].buffer = gfOsData.objBfCopy.first;   bars[2].size = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
+					}
+					bars[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+					bars[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					bars[1].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;   bars[1].srcAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+					bars[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+					bars[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[2].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+					bars[2].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[2].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+					vkCmdPipelineBarrier2(cmd, &depInfo);
+					vkCmdDispatch(cmd, groupCountX, 1, 1);
+					bars[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					bars[0].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;  bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+					bars[1].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+					bars[1].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;   bars[1].dstAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+					bars[2].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[2].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+					bars[2].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;  bars[2].dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+					vkCmdPipelineBarrier2(cmd, &depInfo);
+				}
+				++ osIdx;
+			}
 		}
 	}
 
@@ -541,50 +767,53 @@ namespace SKENGINE_NAME_NS {
 
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
 		auto draw = [&](uint32_t subpassIdx, bool doWaitForStorage) {
-			for(auto& objStorage: objStorages) {
-				auto batches         = objStorage.getDrawBatches();
-				auto instance_buffer = objStorage.getInstanceBuffer();
-				auto batch_buffer    = objStorage.getDrawCommandBuffer();
+			for(size_t osIdx = 0; auto& objStorage: objStorages) {
+				assert(osIdx < wgf.osData.size());
+				auto  batches  = objStorage.getDrawBatches();
+				auto& gfOsData = wgf.osData[osIdx];
 
 				if(batches.empty()) continue;
 				if(doWaitForStorage) objStorage.waitUntilReady();
 
 				ModelId    last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 				MaterialId last_mat = MaterialId (~ material_id_e (batches.front().material_id));
+				constexpr VkDeviceSize zero[] = { 0 };
+				auto rdrPlLayout = mState.sharedState->rdrPipelineLayout;
 
-				assert(subpassIdx < mState.pipelines.size());
-				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.pipelines[subpassIdx]);
+				assert(subpassIdx < mState.rdrPipelines.size());
+				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.rdrPipelines[subpassIdx]);
+				vkCmdBindVertexBuffers(cmd, 1, 1, &gfOsData.objIdBfCopy.first.value, zero);
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rdrPlLayout, RDR_OBJ_DSET_LOC, 1, &gfOsData.objDset, 0, nullptr);
 				for(VkDeviceSize batchIdx = 0; const auto& batch : batches) {
 					auto* model = objStorage.getModel(batch.model_id);
 					assert(model != nullptr);
 					if(batch.model_id != last_mdl) {
-						VkBuffer vtx_buffers[] = { model->vertices.value, instance_buffer };
-						constexpr VkDeviceSize offsets[] = { 0, 0 };
 						vkCmdBindIndexBuffer(cmd, model->indices.value, 0, VK_INDEX_TYPE_UINT32);
-						vkCmdBindVertexBuffers(cmd, 0, 2, vtx_buffers, offsets);
+						vkCmdBindVertexBuffers(cmd, 0, 1, &model->vertices.value, zero);
 					}
 					if(batch.material_id != last_mat) {
 						auto mat = objStorage.getMaterial(batch.material_id);
 						assert(mat != nullptr);
-						dsets[MATERIAL_DSET_LOC] = mat->dset;
-						vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mState.sharedState->pipelineLayout, 0, std::size(dsets), dsets, 0, nullptr);
+						dsets[RDR_MATERIAL_DSET_LOC] = mat->dset;
+						vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rdrPlLayout, 0, std::size(dsets), dsets, 0, nullptr);
 					}
 					vkCmdDrawIndexedIndirect(
-						cmd, batch_buffer,
+						cmd, gfOsData.drawCmdBfCopy.first,
 						batchIdx * sizeof(VkDrawIndexedIndirectCommand), 1,
 						sizeof(VkDrawIndexedIndirectCommand) );
 					++ batchIdx;
 				}
+				++ osIdx;
 			}
 		};
 
 		draw(0, true);
-		for(uint32_t subpassIdx = 1; subpassIdx < mState.pipelines.size(); ++ subpassIdx) {
+		for(uint32_t subpassIdx = 1; subpassIdx < mState.rdrPipelines.size(); ++ subpassIdx) {
 			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
 			draw(subpassIdx, false);
 		}
 
-		assert(mState.pipelines.size() == mState.pipelineParams.size());
+		assert(mState.rdrPipelines.size() == mState.pipelineParams.size());
 	}
 
 

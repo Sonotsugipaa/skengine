@@ -22,14 +22,12 @@ layout(set = 0, binding = 0) uniform FrameUbo {
 
 
 
-layout(location =  0) in vec3  in_pos;
-layout(location =  1) in vec2  in_tex;
-layout(location =  2) in vec3  in_nrm;
-layout(location =  3) in vec3  in_tanu;
-layout(location =  4) in vec3  in_tanv;
-layout(location =  5) in mat4  in_obj_transf;
-layout(location =  9) in vec4  in_col;
-layout(location = 10) in float in_rnd;
+layout(location = 0) in vec3  in_pos;
+layout(location = 1) in vec2  in_tex;
+layout(location = 2) in vec3  in_nrm;
+layout(location = 3) in vec3  in_tanu;
+layout(location = 4) in vec3  in_tanv;
+layout(location = 5) in uint  in_obj_idx;
 
 layout(location = 0) out vec4 frg_pos;
 layout(location = 1) out vec4 frg_col;
@@ -41,21 +39,35 @@ layout(location = 6) out vec3 frg_viewspace_tanv;
 layout(location = 7) out vec3 frg_viewspace_tanw;
 layout(location = 8) out mat3 frg_view3;
 
+struct Object {
+	mat4  model_transf;
+	vec4  color_mul;
+	float rnd;
+	uint  draw_batch_idx;
+	bool  visible;
+	uint  unused1;
+};
+
+layout(std140, set = 2, binding = 0) readonly buffer ObjectBuffer {
+	Object a[];
+} obj_buffer;
+
 
 
 void main() {
-	vec4 worldspace_pos = in_obj_transf * vec4(in_pos, 1.0);
+	Object obj = obj_buffer.a[in_obj_idx];
+	vec4 worldspace_pos = obj.model_transf * vec4(in_pos, 1.0);
 	vec4 viewspace_pos  = frame_ubo.view_transf4 * worldspace_pos;
 
 	gl_Position = frame_ubo.proj_transf4 * viewspace_pos;
 	frg_pos     = worldspace_pos;
-	frg_col     = in_col;
+	frg_col     = obj.color_mul;
 	frg_tex     = in_tex;
 	frg_viewport_pos = gl_Position.xy;
 
 	mat3 iview3      = inverse(mat3(frame_ubo.view_transf4));
 	mat3 view3       = transpose(iview3);
-	mat3 obj_transf3 = mat3(in_obj_transf);
+	mat3 obj_transf3 = mat3(obj.model_transf);
 	frg_view3        = view3;
 
 	vec3 worldspace_tanu = normalize(obj_transf3 * -in_tanu);

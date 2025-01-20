@@ -138,6 +138,9 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) glm::mat4 model_transf;
 			ALIGNF32(1) glm::vec4 color_mul;
 			ALIGNF32(1) std::float32_t rnd;
+			ALIGNI32(1) uint32_t draw_batch_idx;
+			ALIGNI32(1) bool     visible;
+			ALIGNI32(1) uint32_t padding[1];
 		};
 
 

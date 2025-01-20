@@ -28,9 +28,11 @@ namespace SKENGINE_NAME_NS {
 	///        them to share ObjectStorage instances and viceversa.
 	///
 	struct WorldRendererSharedState {
+		VkDescriptorSetLayout objDsetLayout;
 		VkDescriptorSetLayout materialDsetLayout;
 		VkDescriptorSetLayout gframeUboDsetLayout;
-		VkPipelineLayout pipelineLayout;
+		VkPipelineLayout cullPassPipelineLayout;
+		VkPipelineLayout rdrPipelineLayout;
 	};
 
 
@@ -102,6 +104,13 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct GframeData {
+			struct OsData {
+				std::pair<vkutil::Buffer, size_t> objBfCopy;
+				std::pair<vkutil::Buffer, size_t> objIdBfCopy;
+				std::pair<vkutil::Buffer, size_t> drawCmdBfCopy;
+				VkDescriptorSet objDset;
+			};
+			std::vector<OsData> osData;
 			vkutil::ManagedBuffer lightStorage;
 			vkutil::BufferDuplex frameUbo;
 			VkDescriptorSet frameDset;
@@ -110,15 +119,26 @@ namespace SKENGINE_NAME_NS {
 			bool frameDsetOod;
 		};
 
-		static constexpr uint32_t FRAME_UBO_BINDING     = 0;
-		static constexpr uint32_t LIGHT_STORAGE_BINDING = 1;
-		static constexpr uint32_t GFRAME_DSET_LOC       = 0;
-		static constexpr uint32_t MATERIAL_DSET_LOC     = 1;
-		static constexpr uint32_t DIFFUSE_TEX_BINDING   = 0;
-		static constexpr uint32_t NORMAL_TEX_BINDING    = 1;
-		static constexpr uint32_t SPECULAR_TEX_BINDING  = 2;
-		static constexpr uint32_t EMISSIVE_TEX_BINDING  = 3;
-		static constexpr uint32_t MATERIAL_UBO_BINDING  = 4;
+		// 3d pipeline dset location/binding constants
+		static constexpr uint32_t RDR_GFRAME_DSET_LOC       = 0;
+		static constexpr uint32_t RDR_MATERIAL_DSET_LOC     = 1;
+		static constexpr uint32_t RDR_OBJ_DSET_LOC          = 2;
+		static constexpr uint32_t RDR_OBJ_STG_BINDING       = 0;
+		static constexpr uint32_t RDR_OBJ_ID_STG_BINDING    = 1;
+		static constexpr uint32_t RDR_FRAME_UBO_BINDING     = 0;
+		static constexpr uint32_t RDR_LIGHT_STORAGE_BINDING = 1;
+		static constexpr uint32_t RDR_DIFFUSE_TEX_BINDING   = 0;
+		static constexpr uint32_t RDR_NORMAL_TEX_BINDING    = 1;
+		static constexpr uint32_t RDR_SPECULAR_TEX_BINDING  = 2;
+		static constexpr uint32_t RDR_EMISSIVE_TEX_BINDING  = 3;
+		static constexpr uint32_t RDR_MATERIAL_UBO_BINDING  = 4;
+
+		// cull pass dset location/binding constants
+		static constexpr uint32_t CULL_OBJ_DSET_LOC = 0;
+		static constexpr uint32_t CULL_CMD_DSET_LOC = 1;
+		static constexpr uint32_t CULL_OBJ_STG_BINDING = 0;
+		static constexpr uint32_t CULL_OBJ_ID_STG_BINDING = 1;
+		static constexpr uint32_t CULL_CMD_BINDING = 2;
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		using RayLights   = Umap<ObjectId, RayLight>;
@@ -209,7 +229,8 @@ namespace SKENGINE_NAME_NS {
 			std::shared_ptr<ShaderCacheInterface> shaderCache;
 			util::TransientArray<PipelineParameters> pipelineParams;
 			std::vector<GframeData> gframes;
-			std::vector<VkPipeline> pipelines;
+			std::vector<VkPipeline> rdrPipelines;
+			VkPipeline cullPassPipeline;
 			RayLights    rayLights;
 			PointLights  pointLights;
 			LightStorage lightStorage;

@@ -14,7 +14,7 @@ add_library(engine-util
 	gui.cpp )
 
 target_link_libraries(engine-util
-	engine
+	engine shader-compiler
 	fmamdl )
 
 # Enable unity builds

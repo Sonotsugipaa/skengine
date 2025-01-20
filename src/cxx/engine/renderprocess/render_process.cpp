@@ -174,7 +174,10 @@ namespace SKENGINE_NAME_NS {
 			for(auto& step : rp.sortedStepRange()) {
 				auto* renderer = rp.getRenderer(step.second.renderer);
 				if(renderer != nullptr) {
-					Renderer::SubpassSetupInfo ssInfo = { .rpass = rp.getRenderPass(step.second.rpass).handle, .rpassId = step.second.rpass };
+					Renderer::SubpassSetupInfo ssInfo = {
+						.phDevProps = &ca.engine().getPhysDeviceProperties(),
+						.rpass = rp.getRenderPass(step.second.rpass).handle,
+						.rpassId = step.second.rpass };
 					renderer->prepareSubpasses(ssInfo, ca.engine().getPipelineCache(), ca.engine().getShaderCache().get());
 				}
 			}
@@ -185,7 +188,10 @@ namespace SKENGINE_NAME_NS {
 			for(auto& step : rp.sortedStepRange()) {
 				auto* renderer = rp.getRenderer(step.second.renderer);
 				if(renderer != nullptr) {
-					Renderer::SubpassSetupInfo ssInfo = { .rpass = rp.getRenderPass(step.second.rpass).handle, .rpassId = step.second.rpass };
+					Renderer::SubpassSetupInfo ssInfo = {
+						.phDevProps = &ca.engine().getPhysDeviceProperties(),
+						.rpass = rp.getRenderPass(step.second.rpass).handle,
+						.rpassId = step.second.rpass };
 					renderer->forgetSubpasses(ssInfo);
 				}
 			}

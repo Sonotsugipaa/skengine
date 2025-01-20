@@ -51,6 +51,7 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		struct SubpassSetupInfo {
+			const VkPhysicalDeviceProperties* phDevProps;
 			VkRenderPass rpass;
 			RenderPassId rpassId;
 		};

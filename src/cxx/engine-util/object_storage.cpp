@@ -94,11 +94,11 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			{ // Update it
-				constexpr auto& DFS = WorldRenderer::DIFFUSE_TEX_BINDING;
-				constexpr auto& NRM = WorldRenderer::NORMAL_TEX_BINDING;
-				constexpr auto& SPC = WorldRenderer::SPECULAR_TEX_BINDING;
-				constexpr auto& EMI = WorldRenderer::EMISSIVE_TEX_BINDING;
-				constexpr auto& UBO = WorldRenderer::MATERIAL_UBO_BINDING;
+				constexpr auto& DFS = WorldRenderer::RDR_DIFFUSE_TEX_BINDING;
+				constexpr auto& NRM = WorldRenderer::RDR_NORMAL_TEX_BINDING;
+				constexpr auto& SPC = WorldRenderer::RDR_SPECULAR_TEX_BINDING;
+				constexpr auto& EMI = WorldRenderer::RDR_EMISSIVE_TEX_BINDING;
+				constexpr auto& UBO = WorldRenderer::RDR_MATERIAL_UBO_BINDING;
 				VkDescriptorImageInfo di_info[4] = { };
 				di_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				di_info[0].sampler   = mat->texture_diffuse.sampler;
@@ -146,9 +146,9 @@ namespace SKENGINE_NAME_NS {
 				VkDevice dev,
 				VkDescriptorPool*      dpool,
 				VkDescriptorSetLayout  layout,
-				ObjectStorage::MaterialMap& materials,
 				size_t* size,
 				size_t* capacity,
+				ObjectStorage::MaterialMap& materials,
 				ObjectStorage::MaterialData* dst
 		) {
 			++ *size;
@@ -163,61 +163,60 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		vkutil::BufferDuplex create_object_buffer(VmaAllocator vma, size_t count) {
+		std::pair<vkutil::Buffer, size_t> create_object_buffer(VmaAllocator vma, size_t count) {
 			vkutil::BufferCreateInfo bc_info = { };
 			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Instance);
-			bc_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 			vkutil::AllocationCreateInfo ac_info = { };
-			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-			ac_info.vmaFlags          = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-			auto r = vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+			ac_info.vmaUsage         = vkutil::VmaAutoMemoryUsage::eAutoPreferHost;
+			ac_info.vmaFlags         = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+			auto r = vkutil::Buffer::create(vma, bc_info, ac_info);
 			debug::createdBuffer(r, "object instances");
-			return r;
+			return { std::move(r), bc_info.size };
 		}
 
 
-		vkutil::BufferDuplex create_draw_buffer(VmaAllocator vma, size_t count) {
+		std::pair<vkutil::Buffer, size_t> create_draw_cmd_template_buffer(VmaAllocator vma, size_t count) {
 			vkutil::BufferCreateInfo bc_info = { };
 			bc_info.size  = std::bit_ceil(count) * sizeof(VkDrawIndexedIndirectCommand);
-			bc_info.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 			vkutil::AllocationCreateInfo ac_info = { };
-			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
-			auto r = vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+			ac_info.vmaUsage         = vkutil::VmaAutoMemoryUsage::eAutoPreferHost;
+			ac_info.vmaFlags         = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+			auto r = vkutil::Buffer::create(vma, bc_info, ac_info);
 			debug::createdBuffer(r, "indirect draw commands");
-			return r;
+			return { std::move(r), bc_info.size };
 		}
 
 
 		void commit_draw_batches(
 				VmaAllocator vma,
-				VkCommandBuffer cmd,
 				const ObjectStorage::BatchList& batches,
-				vkutil::BufferDuplex& buffer
+				std::pair<vkutil::Buffer, size_t>& buffer
 		) {
 			using namespace vkutil;
 
 			if(batches.empty()) return;
 
-			if(batches.size() * sizeof(VkDrawIndexedIndirectCommand) > buffer.size()) {
-				BufferDuplex::destroy(vma, buffer);
-				debug::destroyedBuffer(buffer, "indirect draw commands");
-				buffer = create_draw_buffer(vma, batches.size());
+			if(batches.size() > buffer.second) {
+				Buffer::destroy(vma, buffer.first);
+				debug::destroyedBuffer(buffer.first, "indirect draw commands");
+				buffer = create_draw_cmd_template_buffer(vma, batches.size());
 			}
 
-			auto buffer_batches = buffer.mappedPtr<VkDrawIndexedIndirectCommand>();
+			auto* buffer_batches = buffer.first.map<VkDrawIndexedIndirectCommand>(vma);
 			for(size_t i = 0; i < batches.size(); ++i) {
 				auto& h_batch = batches[i];
 				auto& b_batch = buffer_batches[i];
 				b_batch.firstIndex    = h_batch.first_index;
 				b_batch.firstInstance = h_batch.first_instance;
 				b_batch.indexCount    = h_batch.index_count;
-				b_batch.instanceCount = h_batch.instance_count;
+				b_batch.instanceCount = 0;
 				b_batch.vertexOffset  = h_batch.vertex_offset;
 			}
-
-			buffer.flush(cmd, vma);
+			buffer.first.unmap(vma);
 		}
 
 
@@ -309,15 +308,16 @@ namespace SKENGINE_NAME_NS {
 		r.mUnboundDrawBatches = decltype(mUnboundDrawBatches) (1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(decltype(mUnboundDrawBatches)::value_type));
 		r.mObjects.           max_load_factor(OBJECT_MAP_MAX_LOAD_FACTOR);
 		r.mUnboundDrawBatches.max_load_factor(BATCH_MAP_MAX_LOAD_FACTOR);
-		r.mDpool         = nullptr;
-		r.mDpoolCapacity = 0;
-		r.mDpoolSize     = 0;
+		r.mMatDpool         = nullptr;
+		r.mMatDpoolCapacity = 0;
+		r.mMatDpoolSize     = 0;
+		r.mDrawCount        = 0;
 		r.mMatrixAssemblerRunning = false;
 		r.mBatchesNeedUpdate      = true;
 		r.mObjectsNeedRebuild     = true;
 		r.mObjectsNeedFlush       = true;
-		r.mObjectBuffer = create_object_buffer(r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Instance));
-		r.mBatchBuffer  =   create_draw_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
+		r.mObjectBuffer    = create_object_buffer           (r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Instance));
+		r.mBatchBuffer     = create_draw_cmd_template_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
 
 		{ // Initialize the matrix assembler
 			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
@@ -331,16 +331,15 @@ namespace SKENGINE_NAME_NS {
 
 	void ObjectStorage::destroy(TransferContext transfCtx, ObjectStorage& r) {
 		assert(r.mVma != nullptr);
+		auto dev = vmaGetAllocatorDevice(r.mVma);
 
 		r.clearObjects(transfCtx);
-		debug::destroyedBuffer(r.mBatchBuffer, "indirect draw commands");
-		vkutil::BufferDuplex::destroy(r.mVma, r.mBatchBuffer);
-		debug::destroyedBuffer(r.mObjectBuffer, "object instances");
-		vkutil::BufferDuplex::destroy(r.mVma, r.mObjectBuffer);
+		debug::destroyedBuffer(r.mBatchBuffer.first,  "indirect draw commands"); vkutil::Buffer::destroy(r.mVma, r.mBatchBuffer.first);
+		debug::destroyedBuffer(r.mObjectBuffer.first, "object instances");       vkutil::Buffer::destroy(r.mVma, r.mObjectBuffer.first);
 
-		if(r.mDpool != nullptr) {
-			vkDestroyDescriptorPool(vmaGetAllocatorDevice(r.mVma), r.mDpool, nullptr);
-			r.mDpool = nullptr;
+		if(r.mMatDpool != nullptr) {
+			vkDestroyDescriptorPool(dev, r.mMatDpool, nullptr);
+			r.mMatDpool = nullptr;
 		}
 
 		{
@@ -591,7 +590,10 @@ namespace SKENGINE_NAME_NS {
 		mLogger.trace("ObjectStorage: creating material device data for ID {}", material_id_e(id));
 		material_ins = mMaterials.insert(MaterialMap::value_type(id, { material, id, { } })).first;
 
-		create_mat_dset(vmaGetAllocatorDevice(mVma), &mDpool, mWrSharedState->materialDsetLayout, mMaterials, &mDpoolSize, &mDpoolCapacity, &material_ins->second);
+		create_mat_dset(
+			vmaGetAllocatorDevice(mVma),
+			&mMatDpool, mWrSharedState->materialDsetLayout, &mMatDpoolSize, &mMatDpoolCapacity,
+			mMaterials, &material_ins->second );
 
 		return material_ins->second;
 	}
@@ -608,7 +610,7 @@ namespace SKENGINE_NAME_NS {
 		}
 		#endif
 
-		VK_CHECK(vkFreeDescriptorSets, vmaGetAllocatorDevice(mVma), mDpool, 1, &mat_data.dset);
+		VK_CHECK(vkFreeDescriptorSets, vmaGetAllocatorDevice(mVma), mMatDpool, 1, &mat_data.dset);
 
 		mAssetSupplier->releaseMaterial(mat_data.id, transfCtx);
 		mMaterials.erase(id);
@@ -635,26 +637,22 @@ namespace SKENGINE_NAME_NS {
 		constexpr size_t shrink_fac = 4;
 
 		{ // Ensure the object buffer is big enough
-			bool size_too_small = (new_size > mObjectBuffer.size());
-			bool size_too_big   = (new_size < mObjectBuffer.size() / shrink_fac);
+			bool size_too_small = (new_size > mObjectBuffer.second);
+			bool size_too_big   = (new_size < mObjectBuffer.second / shrink_fac);
 			if(size_too_small || size_too_big) {
+				auto new_instance_count_ceil = std::bit_ceil(new_instance_count);
 				mObjectsNeedRebuild = true;
 				mObjectsNeedFlush   = true;
-				debug::destroyedBuffer(mObjectBuffer, "object instances");
-				vkutil::BufferDuplex::destroy(mVma, mObjectBuffer);
-				mObjectBuffer = create_object_buffer(mVma, std::bit_ceil(new_instance_count));
+				debug::destroyedBuffer(mObjectBuffer.first, "object instances");
+				vkutil::Buffer::destroy(mVma, mObjectBuffer.first);
+				mObjectBuffer = create_object_buffer(mVma, new_instance_count_ceil);
 			}
 		}
 
 		std::minstd_rand rng;
 		auto             dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
-		auto* objects = mObjectBuffer.mappedPtr<dev::Instance>();
+		auto* objects = mObjectBuffer.first.map<dev::Instance>(mVma);
 		mDrawBatchList.clear();
-
-		std::vector<VkBufferCopy> copies;
-		if(mObjectsNeedFlush) {
-			copies.reserve(mObjectUpdates.size());
-		}
 
 		auto set_object = [&](
 				const Objects::iterator& obj_iter, ObjectId  obj_id,
@@ -662,23 +660,19 @@ namespace SKENGINE_NAME_NS {
 				uint32_t obj_buffer_index
 		) {
 			auto& src_obj = obj_iter->second;
+			auto& obj = objects[obj_buffer_index];
 
-			if(src_obj.first.hidden) return false;
+			obj.visible = ! src_obj.first.hidden;
+			if(! obj.visible) return false;
 
 			if(! mObjectUpdates.contains(obj_id)) {
 				if(! mObjectsNeedRebuild) return true;
-			} else {
-				VkDeviceSize offset = VkDeviceSize(obj_buffer_index) * sizeof(dev::Instance);
-				copies.push_back(VkBufferCopy {
-					.srcOffset = offset, .dstOffset = offset,
-					.size = sizeof(dev::Instance) });
 			}
 
 			auto& bone_instance = src_obj.second[bone_idx];
 			constexpr auto bone_id_digits = std::numeric_limits<bone_id_e>::digits;
 			rng.seed(object_id_e(obj_id) ^ std::rotl(bone_idx, bone_id_digits / 2));
 
-			auto& obj = objects[obj_buffer_index];
 			obj.rnd       = dist(rng);
 			obj.color_mul = bone_instance.color_rgba;
 
@@ -718,21 +712,28 @@ namespace SKENGINE_NAME_NS {
 		};
 
 		if(mBatchesNeedUpdate || mObjectsNeedFlush) {
+			mDrawCount = 0;
 			for(uint32_t first_object = 0; auto& model_batches : mUnboundDrawBatches) {
 				auto& model = assert_not_end_(mModels, model_batches.first)->second;
 				for(auto& bone_batches : model_batches.second) {
 					auto& bone = model.bones[bone_batches.first];
 					for(auto& ubatch : bone_batches.second) { // Create the (bound) draw batch
 						auto object_set_count = set_objects(ubatch.second, bone, first_object);
+						auto batch_idx = mDrawBatchList.size();
 						mDrawBatchList.push_back(DrawBatch {
 							.model_id       = model_batches.first,
 							.material_id    = ubatch.first,
 							.vertex_offset  = 0,
 							.index_count    = bone.mesh.index_count,
 							.first_index    = bone.mesh.first_index,
-							.instance_count = object_set_count.visible_count,
+							.instance_count = object_set_count.insert_count,
 							.first_instance = first_object });
+						auto& back = mDrawBatchList.back();
+						for(uint32_t i = 0; i < back.instance_count; ++i) {
+							objects[back.first_instance + i].draw_batch_idx = batch_idx;
+						}
 						first_object += object_set_count.insert_count;
+						mDrawCount   += object_set_count.insert_count;
 					}
 				}
 			}
@@ -747,15 +748,27 @@ namespace SKENGINE_NAME_NS {
 			}
 
 			mObjectsNeedRebuild = false;
-			commit_draw_batches(mVma, cmd, mDrawBatchList, mBatchBuffer);
+			commit_draw_batches(mVma, mDrawBatchList, mBatchBuffer);
+
+			{ // Barrier the buffer for outgoing transfer
+				VkBufferMemoryBarrier2 bar = { };
+				bar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+				bar.buffer = mBatchBuffer.first;
+				bar.size = mDrawBatchList.size() * sizeof(VkDrawIndexedIndirectCommand);
+				bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				bar.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; bar.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				VkDependencyInfo depInfo = { };
+				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				depInfo.bufferMemoryBarrierCount = 1;
+				depInfo.pBufferMemoryBarriers = &bar;
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+			}
+
 			mBatchesNeedUpdate = false;
 			mObjectUpdates.clear();
 		}
 
-		if(mObjectsNeedFlush) {
-			mObjectBuffer.flush(cmd, mVma, std::span(copies));
-		}
-		mObjectsNeedFlush = false;
+		mObjectBuffer.first.unmap(mVma);
 
 		return true;
 	}

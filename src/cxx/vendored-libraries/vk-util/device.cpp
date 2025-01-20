@@ -125,12 +125,13 @@ namespace vkutil {
 		ins(dst.queues.families.computeIndex,  dst.queues.families.computeProps,  computeFamQCount);
 		ins(dst.queues.families.transferIndex, dst.queues.families.transferProps, transferFamQCount);
 
-		VkPhysicalDeviceSynchronization2Features features2 = { };
-		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
-		features2.synchronization2 = true;
+		VkPhysicalDeviceVulkan13Features features13 = { };
+		features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+		features13.synchronization2 = true;
+		features13.maintenance4 = true;
 		VkDeviceCreateInfo dInfo = { };
 		dInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		dInfo.pNext = &features2;
+		dInfo.pNext = &features13;
 		dInfo.pQueueCreateInfos       = dqInfos.data();
 		dInfo.queueCreateInfoCount    = dqInfos.size();
 		dInfo.pEnabledFeatures        = info.pRequiredFeatures;

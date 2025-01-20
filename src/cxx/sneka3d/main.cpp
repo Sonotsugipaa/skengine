@@ -30,6 +30,8 @@ namespace sneka {
 
 	constexpr size_t OBJSTG_SCENERY_IDX = 0;
 	constexpr size_t OBJSTG_OBJECTS_IDX = 1;
+	constexpr size_t OBJSTG_PLAYER_IDX  = 2;
+	constexpr size_t OBJSTG_COUNT       = 3;
 
 
 
@@ -220,7 +222,7 @@ namespace sneka {
 
 		void updateViewPosRot(tickreg::delta_t deltaAvg) {
 			auto& wr = * rproc->worldRenderer();
-			auto& os = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
+			auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
 
 			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
 				return (src + (target * bias)) / (1.0f + bias); };
@@ -233,7 +235,7 @@ namespace sneka {
 				auto inputLock = std::unique_lock(inputManMutex);
 				auto viewRot = state.camRotation.getValue();
 				const auto playerHeadPos = state.playerHeadPos.getValue();
-				const auto playerHeadDir = [&]() { auto r = os.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
+				const auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
 				auto deltaSupertick = deltaAvg * macrotickFrequency;
 
 				{
@@ -260,7 +262,7 @@ namespace sneka {
 				if(this->playerHead != idgen::invalidId<ske::ObjectId>()) {
 					auto newHeadRot = playerHeadDir;
 					newHeadRot.x = biasedAverage(newHeadRot.x, state.headYawTarget, headRotBias * deltaAvg);
-					{ auto mod = os.modifyObject(this->playerHead);
+					{ auto mod = plrOs.modifyObject(this->playerHead);
 						mod->position_xyz = playerHeadPos;
 						mod->direction_ypr = newHeadRot; }
 				}
@@ -302,6 +304,7 @@ namespace sneka {
 			auto ca = engine->getConcurrentAccess();
 			ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
 			ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
+			ske::ObjectStorage& playerOs  = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 			auto& state = *this->sharedState;
 			state.init();
@@ -420,10 +423,10 @@ namespace sneka {
 					assert(x < world.width());
 					assert(y < world.height());
 					switch(world.tile(x, y)) {
-						case GridObjectClass::eBoost:    tryCreate(sceneryOs, mdlIds.boost); break;
-						case GridObjectClass::ePoint:    insPoint(sceneryOs); break;
-						case GridObjectClass::eObstacle: tryCreate(sceneryOs, mdlIds.obstacle); break;
-						case GridObjectClass::eWall:     tryCreate(sceneryOs, mdlIds.wall); break;
+						case GridObjectClass::eBoost:    tryCreate(objectsOs, mdlIds.boost); break;
+						case GridObjectClass::ePoint:    insPoint (objectsOs); break;
+						case GridObjectClass::eObstacle: tryCreate(objectsOs, mdlIds.obstacle); break;
+						case GridObjectClass::eWall:     tryCreate(objectsOs, mdlIds.wall); break;
 						default:
 							logger.warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 							[[fallthrough]];
@@ -434,7 +437,7 @@ namespace sneka {
 				newObject.position_xyz = gridToWorld({ int64_t(world.entryPointX()), int64_t(world.entryPointY()) }, 0.0f);
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
-				playerHead = tryCreate(objectsOs, mdlIds.playerHead);
+				playerHead = tryCreate(playerOs, mdlIds.playerHead);
 				newObject.position_xyz = { };
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
@@ -516,8 +519,8 @@ namespace sneka {
 					{ // Player-environment interaction
 						auto obj = pointObjects.find({ gridPos.x, gridPos.y });
 						if(obj != pointObjects.end()) [[unlikely]] {
-							ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
-							sceneryOs.removeObject(engine->getTransferContext(), obj->second.first);
+							ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
+							objectsOs.removeObject(engine->getTransferContext(), obj->second.first);
 							if(obj->second.second != idgen::invalidId<ske::ObjectId>())
 								rproc->worldRenderer()->removeLight(obj->second.second);
 							pointObjects.erase(obj);
@@ -626,7 +629,7 @@ int main(int argn, char** argv) {
 		auto shader_cache   = std::make_shared<ske::BasicShaderCache>("assets/", logger);
 		auto asset_cache    = std::make_shared<ske::BasicAssetCache>("assets/", logger);
 		auto basic_rprocess = std::make_shared<ske::BasicRenderProcess>();
-		BasicRenderProcess::setup(*basic_rprocess, logger, worldRdrParams, uiRdrParams, asset_cache, 2, 0.125);
+		BasicRenderProcess::setup(*basic_rprocess, logger, worldRdrParams, uiRdrParams, asset_cache, sneka::OBJSTG_COUNT, 0.125);
 
 		auto engine = ske::Engine(
 			ske::DeviceInitInfo {
