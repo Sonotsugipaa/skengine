@@ -630,7 +630,6 @@ namespace SKENGINE_NAME_NS {
 			assert(wgf.osData.size() == objStorages.size());
 			for(size_t osIdx = 0; auto& os : objStorages) {
 				auto& gfOsData = wgf.osData[osIdx];
-				os.waitUntilReady();
 				size_t objBytes   = os.getDrawCount()      * sizeof(dev::Instance);
 				size_t objIdBytes = os.getDrawCount()      * sizeof(dev::ObjectId);
 				size_t cmdBytes   = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
@@ -658,6 +657,7 @@ namespace SKENGINE_NAME_NS {
 					VkBufferCopy cp = { 0, 0, bytes };
 					vkCmdCopyBuffer(cmd, src, dst.first, 1, &cp);
 				};
+				os.waitUntilReady();
 				cpBf(os.getObjectBuffer().value,      gfOsData.objBfCopy,     objBytes);
 				cpBf(os.getDrawCommandBuffer().value, gfOsData.drawCmdBfCopy, cmdBytes);
 				bars[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -766,14 +766,13 @@ namespace SKENGINE_NAME_NS {
 		vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
-		auto draw = [&](uint32_t subpassIdx, bool doWaitForStorage) {
+		auto draw = [&](uint32_t subpassIdx) {
 			for(size_t osIdx = 0; auto& objStorage: objStorages) {
 				assert(osIdx < wgf.osData.size());
 				auto  batches  = objStorage.getDrawBatches();
 				auto& gfOsData = wgf.osData[osIdx];
 
 				if(batches.empty()) continue;
-				if(doWaitForStorage) objStorage.waitUntilReady();
 
 				ModelId    last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 				MaterialId last_mat = MaterialId (~ material_id_e (batches.front().material_id));
@@ -807,10 +806,10 @@ namespace SKENGINE_NAME_NS {
 			}
 		};
 
-		draw(0, true);
+		draw(0);
 		for(uint32_t subpassIdx = 1; subpassIdx < mState.rdrPipelines.size(); ++ subpassIdx) {
 			vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			draw(subpassIdx, false);
+			draw(subpassIdx);
 		}
 
 		assert(mState.rdrPipelines.size() == mState.pipelineParams.size());

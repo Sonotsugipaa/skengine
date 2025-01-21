@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <memory>
 #include <mutex>
+#include <stdfloat>
 #include <condition_variable>
 #include <string>
 #include <unordered_set>
