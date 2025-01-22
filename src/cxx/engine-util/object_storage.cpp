@@ -165,7 +165,7 @@ namespace SKENGINE_NAME_NS {
 
 		std::pair<vkutil::Buffer, size_t> create_object_buffer(VmaAllocator vma, size_t count) {
 			vkutil::BufferCreateInfo bc_info = { };
-			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Instance);
+			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Object);
 			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 			vkutil::AllocationCreateInfo ac_info = { };
 			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -270,16 +270,25 @@ namespace SKENGINE_NAME_NS {
 				constexpr auto scale = [](glm::mat4* dst, const glm::vec3& scl) {
 					*dst = glm::scale(*dst, scl);
 				};
-				*job.dst = identity;
-				translate (job.dst, job.position.object);
-				translate (job.dst, job.position.bone);
-				translate (job.dst, job.position.bone_instance);
-				rotate    (job.dst, job.direction.object);
-				rotate    (job.dst, job.direction.bone);
-				rotate    (job.dst, job.direction.bone_instance);
-				scale     (job.dst, job.scale.object);
-				scale     (job.dst, job.scale.bone);
-				scale     (job.dst, job.scale.bone_instance);
+				auto model_transf = identity;
+				translate (&model_transf, job.position.object);
+				translate (&model_transf, job.position.bone);
+				translate (&model_transf, job.position.bone_instance);
+				auto scale_mat = identity;
+				rotate    (&scale_mat, job.direction.object);
+				rotate    (&scale_mat, job.direction.bone);
+				rotate    (&scale_mat, job.direction.bone_instance);
+				scale     (&scale_mat, job.scale.object);
+				scale     (&scale_mat, job.scale.bone);
+				scale     (&scale_mat, job.scale.bone_instance);
+				model_transf = model_transf * scale_mat;
+				auto cull_sphere = glm::vec4(glm::vec3(job.mesh.cull_sphere), 1.0);
+				auto scaled_cube = glm::vec3(glm::vec4(1.0, 1.0, 1.0, 1.0) * scale_mat);
+				cull_sphere = model_transf * cull_sphere;
+				cull_sphere.w = job.mesh.cull_sphere.w * std::max({ scaled_cube.x, scaled_cube.y, scaled_cube.z });
+				assert(cull_sphere.w >= 0.0);
+				*job.dst.model_transf = model_transf;
+				*job.dst.cull_sphere = cull_sphere;
 			}
 			ma->queue.clear();
 
@@ -316,8 +325,8 @@ namespace SKENGINE_NAME_NS {
 		r.mBatchesNeedUpdate      = true;
 		r.mObjectsNeedRebuild     = true;
 		r.mObjectsNeedFlush       = true;
-		r.mObjectBuffer    = create_object_buffer           (r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Instance));
-		r.mBatchBuffer     = create_draw_cmd_template_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
+		r.mObjectBuffer = create_object_buffer           (r.mVma, 1024 * OBJECT_MAP_INITIAL_CAPACITY_KB / sizeof(dev::Object));
+		r.mBatchBuffer  = create_draw_cmd_template_buffer(r.mVma, 1024 * BATCH_MAP_INITIAL_CAPACITY_KB  / sizeof(VkDrawIndexedIndirectCommand));
 
 		{ // Initialize the matrix assembler
 			r.mMatrixAssembler = std::make_shared<MatrixAssembler>();
@@ -633,7 +642,7 @@ namespace SKENGINE_NAME_NS {
 			return i;
 		} ();
 
-		size_t new_size = new_instance_count * sizeof(dev::Instance);
+		size_t new_size = new_instance_count * sizeof(dev::Object);
 		constexpr size_t shrink_fac = 4;
 
 		{ // Ensure the object buffer is big enough
@@ -651,7 +660,7 @@ namespace SKENGINE_NAME_NS {
 
 		std::minstd_rand rng;
 		auto             dist = std::uniform_real_distribution<float>(0.0f, 1.0f);
-		auto* objects = mObjectBuffer.first.map<dev::Instance>(mVma);
+		auto* objects = mObjectBuffer.first.map<dev::Object>(mVma);
 		mDrawBatchList.clear();
 
 		auto set_object = [&](
@@ -681,7 +690,8 @@ namespace SKENGINE_NAME_NS {
 				job.position  = { src_obj.first.position_xyz,  bone.position_xyz,  bone_instance.position_xyz };
 				job.direction = { src_obj.first.direction_ypr, bone.direction_ypr, bone_instance.direction_ypr };
 				job.scale     = { src_obj.first.scale_xyz,     bone.scale_xyz,     bone_instance.scale_xyz };
-				job.dst = &obj.model_transf;
+				job.mesh      = { .cull_sphere = { bone.mesh.cull_sphere_xyzr } };
+				job.dst = { &obj.model_transf, &obj.cull_sphere_xyzr };
 				mMatrixAssembler->queue.push_back(job);
 			}
 

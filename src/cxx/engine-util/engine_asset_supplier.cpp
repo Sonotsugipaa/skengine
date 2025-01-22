@@ -135,7 +135,8 @@ namespace SKENGINE_NAME_NS {
 				auto ins = Bone {
 					.mesh = Mesh {
 						.index_count = uint32_t(mesh.indexCount),
-						.first_index = uint32_t(first_face.firstIndex) },
+						.first_index = uint32_t(first_face.firstIndex),
+						.cull_sphere_xyzr = { mesh.center[0], mesh.center[1], mesh.center[2], mesh.radius } },
 					.material_id = material_id,
 					.position_xyz  = { bone.relPosition[0], bone.relPosition[1], bone.relPosition[2] },
 					.direction_ypr = { bone.relRotation[0], bone.relRotation[1], bone.relRotation[2] },

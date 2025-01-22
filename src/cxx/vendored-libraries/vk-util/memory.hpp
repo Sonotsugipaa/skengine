@@ -121,6 +121,7 @@ namespace vkutil {
 		struct Info {
 			VkMemoryPropertyFlags memoryProperties;
 			uint32_t              memoryTypeIndex;
+			VkDeviceSize          size;
 		};
 
 		/// \brief Exactely equivalent to Buffer::create.
@@ -185,8 +186,6 @@ namespace vkutil {
 	template <typename HandleType>
 	class Duplex : public HandleType {
 	public:
-		size_t size() const noexcept { return mSize; };
-
 		void*       mappedPtr()       noexcept { return mMappedPtr; }
 		const void* mappedPtr() const noexcept { return mMappedPtr; }
 
@@ -200,7 +199,6 @@ namespace vkutil {
 		Duplex() = default;
 
 		ManagedBuffer mStagingBuffer;
-		size_t        mSize;
 		void*         mMappedPtr;
 	};
 
@@ -217,15 +215,16 @@ namespace vkutil {
 
 		void invalidate (VkCommandBuffer, VmaAllocator, std::span<const VkBufferCopy>);
 		void flush      (VkCommandBuffer, VmaAllocator, std::span<const VkBufferCopy>);
-		void invalidate (VkCommandBuffer cmd, VmaAllocator vma) { invalidate (cmd, vma, std::span<const VkBufferCopy>({ VkBufferCopy { .srcOffset = 0, .dstOffset = 0, .size = mSize } })); }
-		void flush      (VkCommandBuffer cmd, VmaAllocator vma) { flush      (cmd, vma, std::span<const VkBufferCopy>({ VkBufferCopy { .srcOffset = 0, .dstOffset = 0, .size = mSize } })); }
+		void invalidate (VkCommandBuffer cmd, VmaAllocator vma) { invalidate (cmd, vma, std::span<const VkBufferCopy>({ VkBufferCopy { .srcOffset = 0, .dstOffset = 0, .size = mInfo.size } })); }
+		void flush      (VkCommandBuffer cmd, VmaAllocator vma) { flush      (cmd, vma, std::span<const VkBufferCopy>({ VkBufferCopy { .srcOffset = 0, .dstOffset = 0, .size = mInfo.size } })); }
 
-		bool isHostVisible() const noexcept { return mBufferIsHostVisible; }
+		bool isHostVisible() const noexcept { return mBufferHostVisibility >= 1; }
+		bool isHostCoherent() const noexcept { return mBufferHostVisibility >= 2; }
 
 		ManagedBuffer detachStagingBuffer(VmaAllocator) && noexcept;
 
 	private:
-		bool mBufferIsHostVisible;
+		uint_least8_t mBufferHostVisibility; // 0: staged  1: visible  2: visible and coherent
 	};
 
 }

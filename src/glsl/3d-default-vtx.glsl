@@ -42,6 +42,7 @@ layout(location = 8) out mat3 frg_view3;
 struct Object {
 	mat4  model_transf;
 	vec4  color_mul;
+	vec4  cull_sphere_xyzr;
 	float rnd;
 	uint  draw_batch_idx;
 	bool  visible;

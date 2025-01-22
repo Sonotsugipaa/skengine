@@ -20,6 +20,7 @@ inline namespace shcmp {
 		#endif
 		r.SetSourceLanguage(shaderc_source_language_glsl);
 		r.SetTargetSpirv(shaderc_spirv_version_1_6);
+		r.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
 		return r;
 	} ();
 

@@ -8,14 +8,12 @@
 #include <atomic>
 #include <tuple>
 #include <concepts>
-#include <random>
 
 #include "atomic_id_gen.inl.hpp"
 
-#include <glm/ext/matrix_transform.hpp>
-#include <glm/ext/matrix_clip_space.hpp>
-
 #include <vk-util/error.hpp>
+
+#include <glm/ext/matrix_transform.hpp>
 
 
 
@@ -31,9 +29,7 @@
 
 namespace SKENGINE_NAME_NS {
 
-	namespace world {
-
-		// Define elsewhere
+	namespace world { // used here, defined elsewhere
 
 		void computeCullWorkgroupSizes(uint32_t dst[3], const VkPhysicalDeviceProperties& props);
 
@@ -56,21 +52,7 @@ namespace SKENGINE_NAME_NS {
 
 
 
-	namespace world { namespace {
-
-		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
-		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
-		B_(WorldRenderer::RDR_DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::RDR_NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::RDR_SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::RDR_EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
-		B_(WorldRenderer::RDR_MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
-		#undef B_
-
-		#define PI_ Renderer::PipelineInfo
-		constexpr auto world_renderer_subpass_info = PI_ {
-			.dsetLayoutBindings = PI_::DsetLayoutBindings::referenceTo(world_dset_layout_bindings) };
-		#undef PI_
+	namespace world { // Defined here, used elsewhere
 
 		constexpr auto light_storage_create_info(size_t light_count) {
 			vkutil::BufferCreateInfo r = { };
@@ -128,42 +110,9 @@ namespace SKENGINE_NAME_NS {
 		}
 
 
-		VkDescriptorPool create_gframe_dpool(VkDevice dev, const std::vector<WorldRenderer::GframeData>& gframes, uint32_t objStgCount) {
-			auto gframeCount = uint32_t(gframes.size());
-
-			VkDescriptorPoolSize sizes[] = {
-				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, gframeCount * 1 },
-				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-					(gframeCount * 1) +
-					(gframeCount * 3 * objStgCount) } };
-
-			VkDescriptorPoolCreateInfo dpc_info = { };
-			dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			dpc_info.poolSizeCount = std::size(sizes);
-			dpc_info.pPoolSizes    = sizes;
-			dpc_info.maxSets = gframeCount + (gframeCount * objStgCount);
-
-			VkDescriptorPool r;
-			VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, &r);
-			return r;
-		}
-
-
-		void validate_params(WorldRenderer::RdrParams& params) {
-			#define MAX_(M_, MAX_) { params.M_ = std::max<decltype(WorldRenderer::RdrParams::M_)>(MAX_, params.M_); }
-			MAX_(shadeStepCount, 0)
-			MAX_(ditheringSteps,  0)
-			#undef MAX_
-
-			#define UL_ [[unlikely]]
-			if(params.shadeStepSmoothness < 0.0f) UL_ params.shadeStepSmoothness = -1.0f - (-1.0f / -(-1.0f + params.shadeStepSmoothness)); // Negative values (interval (-1, 0)) behave strangely
-			#undef UL_
-		}
-
-
 		std::pair<vkutil::Buffer, size_t> create_obj_buffer(VmaAllocator vma, size_t count) {
 			vkutil::BufferCreateInfo bc_info = { };
-			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Instance);
+			bc_info.size  = std::bit_ceil(count) * sizeof(dev::Object);
 			bc_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 			vkutil::AllocationCreateInfo ac_info = { };
 			ac_info.requiredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
@@ -215,9 +164,77 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
+	}
+
+
+
+	namespace world { namespace {
+
+		#define B_(BINDING_, DSET_N_, DSET_T_, STAGES_) VkDescriptorSetLayoutBinding { .binding = BINDING_, .descriptorType = DSET_T_, .descriptorCount = DSET_N_, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .pImmutableSamplers = nullptr }
+		constexpr VkDescriptorSetLayoutBinding world_dset_layout_bindings[] = {
+		B_(WorldRenderer::RDR_DIFFUSE_TEX_BINDING,  1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_NORMAL_TEX_BINDING,   1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_SPECULAR_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_EMISSIVE_TEX_BINDING, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT),
+		B_(WorldRenderer::RDR_MATERIAL_UBO_BINDING, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_SHADER_STAGE_FRAGMENT_BIT) };
+		#undef B_
+
+		#define PI_ Renderer::PipelineInfo
+		constexpr auto world_renderer_subpass_info = PI_ {
+			.dsetLayoutBindings = PI_::DsetLayoutBindings::referenceTo(world_dset_layout_bindings) };
+		#undef PI_
+
+
+		VkDescriptorPool create_gframe_dpool(VkDevice dev, const std::vector<WorldRenderer::GframeData>& gframes, uint32_t objStgCount) {
+			auto gframeCount = uint32_t(gframes.size());
+
+			VkDescriptorPoolSize sizes[] = {
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+					(gframeCount * 1)+
+					(gframeCount * 1 * objStgCount) },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					(gframeCount * 1) +
+					(gframeCount * 3 * objStgCount) } };
+
+			VkDescriptorPoolCreateInfo dpc_info = { };
+			dpc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			dpc_info.poolSizeCount = std::size(sizes);
+			dpc_info.pPoolSizes    = sizes;
+			dpc_info.maxSets = gframeCount + (gframeCount * objStgCount);
+
+			VkDescriptorPool r;
+			VK_CHECK(vkCreateDescriptorPool, dev, &dpc_info, nullptr, &r);
+			return r;
+		}
+
+
+		void validate_params(WorldRenderer::RdrParams& params) {
+			#define MAX_(M_, MAX_) { params.M_ = std::max<decltype(WorldRenderer::RdrParams::M_)>(MAX_, params.M_); }
+			MAX_(shadeStepCount, 0)
+			MAX_(ditheringSteps,  0)
+			#undef MAX_
+
+			#define UL_ [[unlikely]]
+			if(params.shadeStepSmoothness < 0.0f) UL_ params.shadeStepSmoothness = -1.0f - (-1.0f / -(-1.0f + params.shadeStepSmoothness)); // Negative values (interval (-1, 0)) behave strangely
+			#undef UL_
+		}
+
+
+		vkutil::BufferDuplex create_cull_pass_ubo(VmaAllocator vma) {
+			vkutil::BufferCreateInfo bc_info = { };
+			bc_info.size  = sizeof(dev::CullPassUbo);
+			bc_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+			vkutil::AllocationCreateInfo ac_info = { };
+			ac_info.preferredMemFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+			ac_info.vmaUsage          = vkutil::VmaAutoMemoryUsage::eAutoPreferDevice;
+			auto r = vkutil::BufferDuplex::create(vma, bc_info, ac_info, vkutil::HostAccess::eWr);
+			return r;
+		}
+
 
 		auto destroy_gframe_data(VmaAllocator vma, WorldRenderer::GframeData& gframeData) {
 			for(auto& b : gframeData.osData) {
+				vkutil::BufferDuplex::destroy(vma, b.cullPassUbo);
 				vkutil::Buffer::destroy(vma, b.objBfCopy.first);
 				vkutil::Buffer::destroy(vma, b.objIdBfCopy.first);
 				vkutil::Buffer::destroy(vma, b.drawCmdBfCopy.first);
@@ -242,7 +259,8 @@ namespace SKENGINE_NAME_NS {
 		.pointLightDistanceThreshold = 1.0f / 256.0f /* Good enough for 24-bit colors, I'd hope */,
 		.shadeStepSmoothness         = 0.0f,
 		.shadeStepExponent           = 1.0f,
-		.ditheringSteps              = 256.0f
+		.ditheringSteps              = 256.0f,
+		.cullingEnabled              = true
 	};
 
 
@@ -347,10 +365,13 @@ namespace SKENGINE_NAME_NS {
 			dslb[1].binding = CULL_OBJ_ID_STG_BINDING;
 			dslb[2] = dslb[1];
 			dslb[2].binding = CULL_CMD_BINDING;
+			dslb[3] = dslb[1];
+			dslb[3].binding = CULL_UBO_BINDING;
+			dslb[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			static_assert(CULL_OBJ_STG_BINDING    == RDR_OBJ_STG_BINDING);    // The same layout is reused between the two stages
 			static_assert(CULL_OBJ_ID_STG_BINDING == RDR_OBJ_ID_STG_BINDING); // ^^^
 
-			dslc_info.bindingCount = 3; assert(dslc_info.bindingCount <= std::size(dslb));
+			dslc_info.bindingCount = 4; assert(dslc_info.bindingCount <= std::size(dslb));
 			VK_CHECK(vkCreateDescriptorSetLayout, dev, &dslc_info, nullptr, &wrss.objDsetLayout);
 
 			dslb[0] = { };
@@ -477,6 +498,7 @@ namespace SKENGINE_NAME_NS {
 				world::resize_obj_buffer     (vma, &data.objBfCopy,     os.getDrawCount());
 				world::resize_obj_id_buffer  (vma, &data.objIdBfCopy,   os.getDrawCount());
 				world::resize_draw_cmd_buffer(vma, &data.drawCmdBfCopy, os.getDrawBatchCount());
+				data.cullPassUbo = world::create_cull_pass_ubo(vma);
 				++ i;
 			}
 		};
@@ -521,223 +543,6 @@ namespace SKENGINE_NAME_NS {
 						VK_CHECK(vkAllocateDescriptorSets, dev, &dsa_info, &osd.objDset);
 					}
 				}
-			}
-		}
-	}
-
-
-	void WorldRenderer::duringPrepareStage(ConcurrentAccess& ca, const DrawInfo& drawInfo, VkCommandBuffer cmd) {
-		auto& e   = ca.engine();
-		auto& egf = ca.getGframeData(drawInfo.gframeIndex);
-		auto& wgf = mState.gframes[drawInfo.gframeIndex];
-		auto& ls  = lightStorage();
-		auto& al  = getAmbientLight();
-		auto& ubo = * wgf.frameUbo.mappedPtr<dev::FrameUniform>();
-		auto& renderExtent = ca.engine().getRenderExtent();
-		auto& objStorages = *mState.objectStorages;
-		auto  dev = e.getDevice();
-		auto  vma = e.getVmaAllocator();
-		auto  all = glm::length(al);
-
-		if(mState.lightStorageOod) {
-			uint32_t new_ls_size = mState.rayLights.size() + mState.pointLights.size();
-			world::set_light_buffer_capacity(vma, &mState.lightStorage, new_ls_size);
-
-			mState.lightStorage.rayCount   = mState.rayLights.size();
-			mState.lightStorage.pointCount = mState.pointLights.size();
-			auto& ray_count = mState.lightStorage.rayCount;
-			for(uint32_t i = 0; auto& rl : mState.rayLights) {
-				auto& dst = *reinterpret_cast<dev::RayLight*>(mState.lightStorage.mappedPtr + i);
-				dst.direction     = glm::vec4(- glm::normalize(rl.second.direction), 1.0f);
-				dst.color         = glm::vec4(glm::normalize(rl.second.color), rl.second.intensity);
-				dst.aoa_threshold = rl.second.aoa_threshold;
-				++ i;
-			}
-			for(uint32_t i = ray_count; auto& pl : mState.pointLights) {
-				auto& dst = *reinterpret_cast<dev::PointLight*>(mState.lightStorage.mappedPtr + i);
-				dst.position    = glm::vec4(pl.second.position, 1.0f);
-				dst.color       = glm::vec4(glm::normalize(pl.second.color), pl.second.intensity);
-				dst.falloff_exp = pl.second.falloff_exp;
-				++ i;
-			}
-
-			mState.lightStorage.buffer.flush(vma);
-			mState.lightStorageDsetsOod = true;
-			mState.lightStorageOod = false;
-		}
-
-		auto rng  = std::minstd_rand(std::chrono::steady_clock::now().time_since_epoch().count());
-		auto dist = std::uniform_real_distribution(0.0f, 1.0f);
-		ubo.shade_step_count       = mState.params.shadeStepCount;
-		ubo.shade_step_smooth      = mState.params.shadeStepSmoothness;
-		ubo.shade_step_exp         = mState.params.shadeStepExponent;
-		ubo.dithering_steps        = mState.params.ditheringSteps;
-		ubo.rnd                    = dist(rng);
-		ubo.time_delta             = std::float32_t(egf.frame_delta);
-		ubo.p_light_dist_threshold = mState.params.pointLightDistanceThreshold;
-		ubo.flags                  = dev::FrameUniformFlags(dev::FRAME_UNI_ZERO);
-		ubo.ambient_lighting       = glm::vec4((all > 0)? glm::normalize(al) : al, all);
-		ubo.view_transf            = getViewTransf();
-		ubo.view_pos               = glm::inverse(ubo.view_transf) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-		ubo.projview_transf        = ubo.proj_transf * ubo.view_transf;
-		ubo.ray_light_count        = ls.rayCount;
-		ubo.point_light_count      = ls.pointCount;
-		if(wgf.lastRenderExtent != renderExtent) [[unlikely]] {
-			wgf.lastRenderExtent = renderExtent;
-			mState.projTransfOod = true;
-		}
-		if(mState.projTransfOod) [[unlikely]] {
-			float aspectRatio = double(renderExtent.width) / double(renderExtent.height);
-			ubo.proj_transf = glm::perspective<float>(mState.projInfo.verticalFov, aspectRatio, mState.projInfo.zNear, mState.projInfo.zFar);
-			ubo.proj_transf[1][1] *= -1.0f; // Clip +y is view -y
-			ubo.projview_transf = ubo.proj_transf * ubo.view_transf;
-		}
-		wgf.frameUbo.flush(cmd, vma);
-
-		for(auto& os : objStorages) os.commitObjects(cmd);
-
-		bool light_buffer_resized = wgf.lightStorageCapacity != ls.bufferCapacity;
-		if(light_buffer_resized) {
-			mState.logger.trace("Resizing light storage: {} -> {}", wgf.lightStorageCapacity, ls.bufferCapacity);
-			vkutil::ManagedBuffer::destroy(vma, wgf.lightStorage);
-
-			vkutil::BufferCreateInfo bc_info = { };
-			bc_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-			bc_info.size  = ls.bufferCapacity * sizeof(dev::Light);
-			wgf.lightStorage = vkutil::ManagedBuffer::createStorageBuffer(vma, bc_info);
-
-			mState.lightStorageDsetsOod = true;
-			wgf.lightStorageCapacity = ls.bufferCapacity;
-		}
-
-		if(mState.lightStorageDsetsOod) {
-			for(auto& wgf : mState.gframes) wgf.frameDsetOod = true;
-			mState.lightStorageDsetsOod = false;
-		}
-
-		if(wgf.frameDsetOod) {
-			world::update_light_storage_dset(dev, wgf.lightStorage.value, wgf.lightStorageCapacity, wgf.frameDset);
-			wgf.frameDsetOod = false;
-		}
-
-		if(true /* Optimizable, but not worth the effort */) {
-			VkBufferCopy cp = { };
-			cp.size = (ls.rayCount + ls.pointCount) * sizeof(dev::Light);
-			vkCmdCopyBuffer(cmd, ls.buffer.value, wgf.lightStorage, 1, &cp);
-		}
-
-		{ // Prepare the cull pass; populate the draw command buffer copy and write the dset
-			assert(wgf.osData.size() == objStorages.size());
-			for(size_t osIdx = 0; auto& os : objStorages) {
-				auto& gfOsData = wgf.osData[osIdx];
-				size_t objBytes   = os.getDrawCount()      * sizeof(dev::Instance);
-				size_t objIdBytes = os.getDrawCount()      * sizeof(dev::ObjectId);
-				size_t cmdBytes   = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
-				world::resize_obj_buffer     (vma, &gfOsData.objBfCopy,     os.getDrawCount());
-				world::resize_obj_id_buffer  (vma, &gfOsData.objIdBfCopy,   os.getDrawCount());
-				world::resize_draw_cmd_buffer(vma, &gfOsData.drawCmdBfCopy, os.getDrawBatchCount());
-				VkBufferMemoryBarrier2 bars[2] = { };
-				bars[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-				bars[0].buffer = gfOsData.objBfCopy.first; bars[0].size = objBytes;
-				bars[0].srcStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-				bars[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT   | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-				bars[0].dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-				bars[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				bars[1] = bars[0];
-				bars[1].buffer = gfOsData.drawCmdBfCopy.first; bars[1].size = cmdBytes;
-				bars[1].srcStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-				bars[1].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT   | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-				bars[1].dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-				bars[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				VkDependencyInfo depInfo = { };
-				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-				depInfo.bufferMemoryBarrierCount = std::size(bars); depInfo.pBufferMemoryBarriers = bars;
-				vkCmdPipelineBarrier2(cmd, &depInfo);
-				auto cpBf = [&](VkBuffer src, std::pair<vkutil::Buffer, size_t>& dst, VkDeviceSize bytes) {
-					VkBufferCopy cp = { 0, 0, bytes };
-					vkCmdCopyBuffer(cmd, src, dst.first, 1, &cp);
-				};
-				os.waitUntilReady();
-				cpBf(os.getObjectBuffer().value,      gfOsData.objBfCopy,     objBytes);
-				cpBf(os.getDrawCommandBuffer().value, gfOsData.drawCmdBfCopy, cmdBytes);
-				bars[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				bars[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-				bars[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				bars[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-				vkCmdPipelineBarrier2(cmd, &depInfo);
-				VkDescriptorBufferInfo dbInfos[3] = {
-					{ gfOsData.objBfCopy.first,     0, objBytes },
-					{ gfOsData.objIdBfCopy.first,   0, objIdBytes },
-					{ gfOsData.drawCmdBfCopy.first, 0, cmdBytes } };
-				VkWriteDescriptorSet wr[std::size(dbInfos)];
-				wr[0] = { };
-				wr[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				wr[0].dstSet = gfOsData.objDset;
-				wr[0].dstBinding = CULL_OBJ_STG_BINDING;
-				wr[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				wr[0].descriptorCount = 1;
-				wr[0].pBufferInfo = dbInfos + 0;
-				wr[1] = wr[0];
-				wr[1].dstBinding = CULL_OBJ_ID_STG_BINDING;
-				wr[1].pBufferInfo = dbInfos + 1;
-				wr[2] = wr[0];
-				wr[2].dstBinding = CULL_CMD_BINDING;
-				wr[2].pBufferInfo = dbInfos + 2;
-				vkUpdateDescriptorSets(dev, std::size(wr), wr, 0, nullptr);
-				++ osIdx;
-			}
-		}
-
-		{ // Run the cull pass
-			uint32_t dispatchXyz[3];
-			world::computeCullWorkgroupSizes(dispatchXyz, ca.engine().getPhysDeviceProperties());
-
-			for(size_t osIdx = 0; auto& os : objStorages) {
-				auto&    gfOsData      = wgf.osData[osIdx];
-				uint32_t drawCount     = os.getDrawCount();
-				uint32_t groupCountX   = drawCount / dispatchXyz[0];
-				if(drawCount % dispatchXyz[0] > 0) ++ groupCountX; // ceil behavior
-				if(groupCountX > 0) {
-					VkDescriptorSet dsets[] = { gfOsData.objDset };
-					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mState.cullPassPipeline);
-					vkCmdBindDescriptorSets(
-						cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mState.sharedState->cullPassPipelineLayout,
-						0, std::size(dsets), dsets, 0, nullptr );
-					vkCmdPushConstants(
-						cmd,
-						mState.sharedState->cullPassPipelineLayout,
-						VK_SHADER_STAGE_COMPUTE_BIT,
-						0, sizeof(uint32_t), &drawCount );
-					VkBufferMemoryBarrier2 bars[3];
-					VkDependencyInfo depInfo = { };
-					{ // Barrier boilerplate ( {0,1,2} -> { obj, objidx, drawcmd } )
-						depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-						depInfo.bufferMemoryBarrierCount = std::size(bars); depInfo.pBufferMemoryBarriers = bars;
-						bars[0] = { };
-						bars[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-						bars[0].buffer = gfOsData.objBfCopy.first;   bars[0].size = os.getDrawCount() * sizeof(dev::Instance);
-						bars[1] = bars[0];
-						bars[1].buffer = gfOsData.objIdBfCopy.first; bars[1].size = os.getDrawCount() * sizeof(dev::ObjectId);
-						bars[2] = bars[0];
-						bars[2].buffer = gfOsData.objBfCopy.first;   bars[2].size = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
-					}
-					bars[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-					bars[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-					bars[1].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;   bars[1].srcAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-					bars[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-					bars[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;       bars[2].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-					bars[2].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[2].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-					vkCmdPipelineBarrier2(cmd, &depInfo);
-					vkCmdDispatch(cmd, groupCountX, 1, 1);
-					bars[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-					bars[0].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;  bars[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-					bars[1].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[1].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-					bars[1].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;   bars[1].dstAccessMask = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-					bars[2].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; bars[2].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-					bars[2].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;  bars[2].dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-					vkCmdPipelineBarrier2(cmd, &depInfo);
-				}
-				++ osIdx;
 			}
 		}
 	}
@@ -866,7 +671,10 @@ namespace SKENGINE_NAME_NS {
 
 	void WorldRenderer::setViewRotation(const glm::vec3& ypr, bool lazy) noexcept {
 		{ // Normalize the direction values
-			constexpr auto pi2 = 2.0f * std::numbers::pi_v<float>;
+			#ifndef VS_CODE_HEADER_LINTING_WORKAROUND
+				constexpr
+			#endif
+			auto pi2 = 2.0f * std::numbers::pi_v<float>;
 			#define NORMALIZE_(I_) { if(mState.viewDirYpr[I_] >= pi2) [[unlikely]] { \
 				mState.viewDirYpr[I_] = std::floor(mState.viewDirYpr[I_] / pi2) * pi2; }}
 			NORMALIZE_(0)

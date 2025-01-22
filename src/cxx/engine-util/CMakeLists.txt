@@ -9,6 +9,7 @@ add_library(engine-util
 	engine_asset_supplier_texture.cpp
 	object_storage.cpp
 	world_renderer_pipeline.cpp
+	world_renderer_prepare.cpp
 	world_renderer.cpp
 	ui_renderer.cpp
 	gui.cpp )

@@ -24,67 +24,11 @@ namespace SKENGINE_NAME_NS::world {
 
 
 
-		// https://vkguide.dev/docs/gpudriven/compute_culling/
-		constexpr std::string_view cullCompShader =
-			"#version 460\n"
-			"\n"
-			"layout(constant_id = 0) const uint LOCAL_SIZE_X = 16;\n"
-			"layout(constant_id = 1) const uint LOCAL_SIZE_Y = 1;\n"
-			"layout(constant_id = 2) const uint LOCAL_SIZE_Z = 1;\n"
-			"\n"
-			"layout(\n"
-				"local_size_x_id = 0,\n"
-				"local_size_y_id = 1,\n"
-				"local_size_z_id = 2\n"
-			") in;\n"
-			"\n"
-			"layout(push_constant) uniform constants {\n"
-				"uint objCount;\n"
-			"} pc;\n"
-			"\n"
-			"struct Object {"
-				"mat4  model_transf;"
-				"vec4  color_mul;"
-				"float rnd;"
-				"uint  draw_batch_idx;"
-				"bool  visible;"
-				"uint  unused1;"
-			"};"
-			"struct DrawBatch {\n"
-				"uint indexCount;\n"
-				"uint instanceCount;\n"
-				"uint firstIndex;\n"
-				"int  vertexOffset;\n"
-				"uint firstInstance;\n"
-			"};\n"
-			"\n"
-			"layout(std430, set = 0, binding = 0) /*readonly*/ buffer ObjectBuffer {\n"
-				"Object p[];\n"
-			"} obj_buffer;\n"
-			"layout(std430, set = 0, binding = 1) writeonly buffer ObjectIdBuffer {\n"
-				"uint p[];\n"
-			"} obj_id_buffer;\n"
-			"layout(std430, set = 0, binding = 2) buffer DrawBatchBuffer {\n"
-				"DrawBatch p[];\n"
-			"} draw_batch_buffer;\n"
-			"\n"
-			"bool isVisible(uint idx) {\n"
-				"return obj_buffer.p[idx].visible;\n"
-			"}\n"
-			"\n"
-			"void main() {\n"
-				"uint invocId = gl_GlobalInvocationID.x;\n"
-				"if(invocId < pc.objCount) {\n"
-					"uint objIdx = invocId;\n"
-					"bool visible = isVisible(objIdx);\n"
-					"if(visible) {\n"
-						"uint batchIdx = obj_buffer.p[invocId].draw_batch_idx;\n"
-						"uint insertAt = atomicAdd(draw_batch_buffer.p[batchIdx].instanceCount, 1);\n"
-						"uint instIdx = draw_batch_buffer.p[batchIdx].firstInstance + insertAt;\n"
-						"obj_id_buffer.p[instIdx] = objIdx;\n"
-					"}\n"
-				"}\n"
-			"}\n";
+		// The file included below defines `constexpr const char* cullCompShader`.
+		// This may look like some kind of "clever" hack, but I did this just because
+		// it makes GLSL syntax errors clearer - since the error message's lines
+		// match the source code.
+		#include "world_renderer_pipeline_cull_shader.glsl.cpp"
 
 	}
 

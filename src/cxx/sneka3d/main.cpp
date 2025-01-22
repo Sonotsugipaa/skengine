@@ -81,18 +81,27 @@ namespace sneka {
 	float discreteObjRotation(T x) {
 		constexpr auto quarter = std::numbers::pi_v<float> / 2.0f;
 		switch(x) {
-			case  0: return           0.0f;
-			case  1: return quarter * 0.1f;
-			case  2: return quarter * 0.9f;
-			case  3: return quarter * 1.0f;
-			case  4: return quarter * 1.1f;
-			case  5: return quarter * 1.9f;
-			case  6: return quarter * 2.0f;
-			case  7: return quarter * 2.1f;
-			case  8: return quarter * 2.9f;
-			case  9: return quarter * 3.0f;
-			case 10: return quarter * 3.1f;
-			case 11: return quarter * 3.9f;
+			case  0: return           0.00f;
+			case  1: return quarter * 0.05f;
+			case  2: return quarter * 0.95f;
+			case  3: return quarter * 1.00f;
+			case  4: return quarter * 1.05f;
+			case  5: return quarter * 1.95f;
+			case  6: return quarter * 2.00f;
+			case  7: return quarter * 2.05f;
+			case  8: return quarter * 2.95f;
+			case  9: return quarter * 3.00f;
+			case 10: return quarter * 3.05f;
+			case 11: return quarter * 3.95f;
+			case 12: return           0.00f;
+			case 13: return quarter * 0.1f;
+			case 14: return quarter * 0.9f;
+			case 15: return quarter * 1.1f;
+			case 16: return quarter * 1.9f;
+			case 17: return quarter * 2.1f;
+			case 18: return quarter * 2.9f;
+			case 19: return quarter * 3.1f;
+			case 20: return quarter * 3.9f;
 			default: assert(false /* Should not happen */); return 0.0f;
 		}
 	}
@@ -131,12 +140,13 @@ namespace sneka {
 			ske::AnimationSet<glm::vec3> playerMovementAnim;
 			ske::AnimationValue<glm::vec3> playerHeadPos;
 			ske::AnimationValue<glm::vec3> camRotation;
-			ske::AnimId cameraAnimId;
-			signed char lastDir[2];
-			float       headYawTarget;
-			float       speedBase;
-			float       speedBoost;
-			QuitReason  quitReason;
+			ske::AnimId   cameraAnimId;
+			signed char   lastDir[2];
+			unsigned char enableCulling;
+			float         headYawTarget;
+			float         speedBase;
+			float         speedBoost;
+			QuitReason    quitReason;
 			void init() {
 				playerMovementAnim = { };
 				playerHeadPos      = { };
@@ -144,6 +154,7 @@ namespace sneka {
 				cameraAnimId       = idgen::invalidId<ske::AnimId>();
 				lastDir[0]         =  0;
 				lastDir[1]         = -1;
+				enableCulling      = 0b11;
 				headYawTarget      = 0.0f;
 				speedBase          = speedBaseDefault;
 				speedBoost         = -0.5f * speedBase;
@@ -306,8 +317,7 @@ namespace sneka {
 			ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
 			ske::ObjectStorage& playerOs  = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
-			auto& state = *this->sharedState;
-			state.init();
+			sharedState->init();
 			pointObjects.clear();
 
 			{ // Input management
@@ -334,8 +344,14 @@ namespace sneka {
 					}
 				};
 				static constexpr auto rotate = [](CallbackSharedState& state, signed char dir) {
-					constexpr auto pi = std::numbers::pi_v<float>;
-					constexpr auto pi2 = 2.0f * pi;
+					#ifdef VS_CODE_HEADER_LINTING_WORKAROUND
+						#define CONSTEXPR_ (void)0;
+					#else
+						#define CONSTEXPR_ constexpr
+					#endif
+					CONSTEXPR_ auto pi = std::numbers::pi_v<float>;
+					CONSTEXPR_ auto pi2 = 2.0f * pi;
+					#undef CONSTEXPR_
 					signed char lastDir0 = state.lastDir[0];
 					auto cam = state.camRotation.getValue();
 					state.lastDir[0] = -dir * state.lastDir[1];
@@ -357,6 +373,7 @@ namespace sneka {
 				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
 				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
 				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quitReason = QuitReason::eUserInput; });
+				bindKeyPressCb(SDLK_c, "general", [sharedState](auto&, auto) { sharedState->enableCulling = sharedState->enableCulling ^ 0b01; });
 				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [sharedState](auto&, auto) { sharedState->speedBoost = speedBoostFromInput; });
 			}
 
@@ -417,7 +434,7 @@ namespace sneka {
 					newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
 					newObject.scale_xyz.z *= invert? -1.0f : +1.0f;
 					newObject.direction_ypr = {
-						discreteObjRotation(std::uniform_int_distribution<uint_fast8_t>(0, 11)(rng)),
+						discreteObjRotation(std::uniform_int_distribution<uint_fast8_t>(0, 20)(rng)),
 						0.0f,
 						0.0f };
 					assert(x < world.width());
@@ -442,7 +459,7 @@ namespace sneka {
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				tryCreate(sceneryOs, mdlIds.scenery);
-				state.camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
+				sharedState->camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
 				wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
 				light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
 					.position = { },
@@ -462,6 +479,7 @@ namespace sneka {
 				updateViewPosRot(0.0);
 			}
 
+			sharedState->enableCulling = 0b11 * wr.isFrustumCullingEnabled();
 			sharedState->quitReason = QuitReason::eNoQuit;
 		}
 
@@ -565,6 +583,14 @@ namespace sneka {
 
 			deltaAvg = std::min(tickreg::delta_t(0.5), deltaAvg);
 
+			bool cullingWasEnabled = (sharedState->enableCulling & 0b10) == 0b10;
+			bool cullingIsEnabled  = (sharedState->enableCulling & 0b01) == 0b01;
+			if(cullingWasEnabled != cullingIsEnabled) [[unlikely]] {
+				sharedState->enableCulling = cullingIsEnabled | (cullingIsEnabled << 1);
+				rproc->worldRenderer()->setFrustumCulling(cullingIsEnabled);
+				logger.info("{}abled frustum culling", cullingIsEnabled? "En":"Dis");
+			}
+
 			updateViewPosRot(deltaAvg);
 		}
 
@@ -611,7 +637,7 @@ int main(int argn, char** argv) {
 
 	const auto worldRdrParams = []() {
 		auto params = WorldRenderer::RdrParams::defaultParams;
-		params.fovY                        = glm::radians(90.0f);
+		params.fovY                        = glm::radians(80.0f);
 		params.shadeStepCount              = 7;
 		params.pointLightDistanceThreshold = 1.0f / 64.0f;
 		params.shadeStepSmoothness         = 1.0f;

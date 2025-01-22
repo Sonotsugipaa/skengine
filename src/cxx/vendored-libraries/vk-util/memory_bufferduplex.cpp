@@ -18,10 +18,9 @@ namespace vkutil {
 		BufferDuplex r;
 
 		if(bc_info.size == 0) {
-			r.mBufferIsHostVisible = false;
+			r.mBufferHostVisibility = 0;
 			r.mInfo          = { };
 			r.mMappedPtr     = nullptr;
-			r.mSize          = 0;
 			r.mStagingBuffer = { };
 			return r;
 		}
@@ -35,12 +34,11 @@ namespace vkutil {
 		r.value = local_buffer;
 		r.alloc = local_buffer;
 		r.mInfo = local_buffer.info();
-		r.mSize = local_bc_info.size;
 
 		if(local_buffer.info().memoryProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
 			// Use the local buffer itself as the staging buffer
 			r.mStagingBuffer = std::move(local_buffer);
-			r.mBufferIsHostVisible = true;
+			r.mBufferHostVisibility = (local_buffer.info().memoryProperties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)? 2 : 1;
 		} else {
 			// Create a staging buffer
 			try {
@@ -56,7 +54,7 @@ namespace vkutil {
 				ManagedBuffer::destroy(allocator, local_buffer);
 				std::rethrow_exception(std::current_exception());
 			}
-			r.mBufferIsHostVisible = false;
+			r.mBufferHostVisibility = 0;
 		}
 
 		r.mMappedPtr = r.mStagingBuffer.map<void>(allocator);
@@ -67,7 +65,7 @@ namespace vkutil {
 
 	void BufferDuplex::destroy(VmaAllocator allocator, BufferDuplex& buffer) noexcept {
 		buffer.mStagingBuffer.unmap(allocator);
-		if(! buffer.mBufferIsHostVisible) ManagedBuffer::destroy(allocator, buffer.mStagingBuffer);
+		if(buffer.mBufferHostVisibility < 1) ManagedBuffer::destroy(allocator, buffer.mStagingBuffer);
 		vmaDestroyBuffer(allocator, buffer.value, buffer.alloc);
 	}
 
@@ -127,7 +125,7 @@ namespace vkutil {
 
 
 	void BufferDuplex::invalidate(VkCommandBuffer cmd, VmaAllocator allocator, std::span<const VkBufferCopy> ranges) {
-		if(! mBufferIsHostVisible) {
+		if(mBufferHostVisibility < 1) {
 			// The buffer needs to be transfered back to the host
 
 			assert(cmd != nullptr);
@@ -145,7 +143,7 @@ namespace vkutil {
 			VK_CHECK(vmaFlushAllocation, allocator, mStagingBuffer, range.dstOffset, range.size);
 		}
 
-		if(! mBufferIsHostVisible) {
+		if(mBufferHostVisibility < 1) {
 			// The buffer needs to be committed to the device
 
 			assert(cmd != nullptr);
@@ -156,7 +154,7 @@ namespace vkutil {
 
 	ManagedBuffer BufferDuplex::detachStagingBuffer(VmaAllocator allocator) && noexcept {
 		vmaUnmapMemory(allocator, mStagingBuffer);
-		if(! mBufferIsHostVisible) {
+		if(mBufferHostVisibility < 1) {
 			ManagedBuffer::destroy(allocator, mStagingBuffer);
 		}
 		return *this;

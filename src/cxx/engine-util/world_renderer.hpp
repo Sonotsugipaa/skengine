@@ -24,6 +24,22 @@
 
 namespace SKENGINE_NAME_NS {
 
+	namespace dev {
+
+		struct CullPassUbo {
+			ALIGNF32(4) glm::mat4      view_transf;
+			ALIGNF32(4) std::float32_t frustum_lrtb[4];
+			ALIGNF32(2) std::float32_t z_range[2];
+			ALIGNI32(2) uint32_t       padding0[2];
+			ALIGNI32(1) bool           frustum_culling_enabled;
+			ALIGNI32(1) uint32_t       padding1[3];
+		};
+		static_assert(sizeof(CullPassUbo) == 64+16+8+8+16);
+
+	}
+
+
+
 	/// \brief Data that is shared between all WorldRenderers, and allows
 	///        them to share ObjectStorage instances and viceversa.
 	///
@@ -51,6 +67,7 @@ namespace SKENGINE_NAME_NS {
 			std::float32_t shadeStepSmoothness;
 			std::float32_t shadeStepExponent;
 			std::float32_t ditheringSteps;
+			bool cullingEnabled;
 		};
 
 		struct ProjectionInfo {
@@ -108,6 +125,7 @@ namespace SKENGINE_NAME_NS {
 				std::pair<vkutil::Buffer, size_t> objBfCopy;
 				std::pair<vkutil::Buffer, size_t> objIdBfCopy;
 				std::pair<vkutil::Buffer, size_t> drawCmdBfCopy;
+				vkutil::BufferDuplex cullPassUbo;
 				VkDescriptorSet objDset;
 			};
 			std::vector<OsData> osData;
@@ -139,6 +157,7 @@ namespace SKENGINE_NAME_NS {
 		static constexpr uint32_t CULL_OBJ_STG_BINDING = 0;
 		static constexpr uint32_t CULL_OBJ_ID_STG_BINDING = 1;
 		static constexpr uint32_t CULL_CMD_BINDING = 2;
+		static constexpr uint32_t CULL_UBO_BINDING = 3;
 
 		template <typename K, typename V> using Umap = std::unordered_map<K, V>;
 		using RayLights   = Umap<ObjectId, RayLight>;
@@ -214,6 +233,9 @@ namespace SKENGINE_NAME_NS {
 		const PointLight& getPointLight    (ObjectId) const;
 		RayLight&         modifyRayLight   (ObjectId);
 		PointLight&       modifyPointLight (ObjectId);
+
+		void setFrustumCulling(bool enabled) noexcept { mState.params.cullingEnabled = enabled; }
+		bool isFrustumCullingEnabled() noexcept { return mState.params.cullingEnabled; }
 
 		VmaAllocator vma() const noexcept { return mState.vma; }
 

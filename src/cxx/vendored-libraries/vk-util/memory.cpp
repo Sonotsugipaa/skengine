@@ -127,6 +127,7 @@ namespace vkutil {
 
 		VK_CHECK(vmaCreateBuffer, allocator, &vk_bc_info, &vma_ac_info, &r.value, &r.alloc, &a_info);
 		r.mInfo.memoryTypeIndex = a_info.memoryType;
+		r.mInfo.size = vk_bc_info.size;
 		vmaGetMemoryTypeProperties(allocator, r.mInfo.memoryTypeIndex, &r.mInfo.memoryProperties);
 
 		return r;

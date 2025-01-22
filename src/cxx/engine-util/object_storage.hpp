@@ -43,9 +43,10 @@ namespace SKENGINE_NAME_NS {
 		enum class FrameUniformFlags : dev_flags_e { };
 
 
-		struct Instance {
+		struct Object {
 			ALIGNF32(1) glm::mat4 model_transf;
 			ALIGNF32(1) glm::vec4 color_mul;
+			ALIGNF32(1) glm::vec4 cull_sphere_xyzr;
 			ALIGNF32(1) std::float32_t rnd;
 			ALIGNI32(1) uint32_t draw_batch_idx;
 			ALIGNI32(1) bool     visible;
@@ -70,7 +71,9 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) std::float32_t m5_unused;
 			ALIGNF32(1) std::float32_t m6_unused;
 		};
+		#ifndef VS_CODE_HEADER_LINTING_WORKAROUND
 		static_assert(std::is_layout_compatible_v<Light, RayLight> && sizeof(Light) == sizeof(RayLight));
+		#endif
 
 		struct PointLight {
 			ALIGNF32(4) glm::vec4 position;
@@ -80,7 +83,9 @@ namespace SKENGINE_NAME_NS {
 			ALIGNF32(1) std::float32_t m5_unused;
 			ALIGNF32(1) std::float32_t m6_unused;
 		};
+		#ifndef VS_CODE_HEADER_LINTING_WORKAROUND
 		static_assert(std::is_layout_compatible_v<Light, PointLight> && sizeof(Light) == sizeof(PointLight));
+		#endif
 
 
 		struct FrameUniform {
@@ -139,6 +144,7 @@ namespace SKENGINE_NAME_NS {
 	struct Mesh {
 		uint32_t index_count;
 		uint32_t first_index;
+		glm::vec4 cull_sphere_xyzr;
 	};
 
 
@@ -332,7 +338,13 @@ namespace SKENGINE_NAME_NS {
 				struct {
 					glm::vec3 object, bone, bone_instance;
 				} scale;
-				glm::mat4* dst;
+				struct {
+					glm::vec4 cull_sphere;
+				} mesh;
+				struct {
+					glm::mat4* model_transf;
+					glm::vec4* cull_sphere;
+				} dst;
 			};
 			using JobQueue = std::deque<Job>;
 			std::mutex              mutex;
