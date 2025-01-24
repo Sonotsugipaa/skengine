@@ -135,6 +135,7 @@ namespace sneka {
 			float       speedBase;
 			float       speedBoost;
 			QuitReason  quitReason;
+			bool        requestMapRegen;
 			void init() {
 				playerMovementAnim = { };
 				playerHeadPos      = { };
@@ -146,6 +147,7 @@ namespace sneka {
 				speedBase          = speedBaseDefault;
 				speedBoost         = -0.5f * speedBase;
 				quitReason         = QuitReason::eNoQuit;
+				requestMapRegen    = false;
 			}
 			CallbackSharedState() { init(); }
 		};
@@ -332,8 +334,14 @@ namespace sneka {
 					}
 				};
 				static constexpr auto rotate = [](CallbackSharedState& state, signed char dir) {
-					constexpr auto pi = std::numbers::pi_v<float>;
-					constexpr auto pi2 = 2.0f * pi;
+					#ifdef VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND
+						#define CONSTEXPR_ (void)0;
+					#else
+						#define CONSTEXPR_ constexpr
+					#endif
+					CONSTEXPR_ auto pi = std::numbers::pi_v<float>;
+					CONSTEXPR_ auto pi2 = 2.0f * pi;
+					#undef CONSTEXPR_
 					signed char lastDir0 = state.lastDir[0];
 					auto cam = state.camRotation.getValue();
 					state.lastDir[0] = -dir * state.lastDir[1];
@@ -355,6 +363,7 @@ namespace sneka {
 				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
 				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
 				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quitReason = QuitReason::eUserInput; });
+				bindKeyPressCb(SDLK_r, "general", [sharedState](auto&, auto) { sharedState->requestMapRegen = true; });
 				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [sharedState](auto&, auto) { sharedState->speedBoost = speedBoostFromInput; });
 			}
 
@@ -497,9 +506,24 @@ namespace sneka {
 
 			{
 				auto macrotickLock = std::unique_lock(macrotickMutex);
+
+				{ // This block is not macrotick-related, but it's a potential race condition nevertheless
+					if(shState.requestMapRegen) {
+						shState.requestMapRegen = false;
+						createWorld(worldFilename);
+						shState.quitReason = QuitReason::eGameEnd;
+					}
+				}
+
 				if(macrotickProgress >= 1.0f) [[unlikely]] {
-					constexpr auto pi = std::numbers::pi_v<float>;
-					constexpr auto pi2 = 2.0f * pi;
+					#ifdef VS_CODE_HEADER_CHAIN_LINTING_WORKAROUND
+						#define CONSTEXPR_ (void)0;
+					#else
+						#define CONSTEXPR_ constexpr
+					#endif
+					CONSTEXPR_ auto pi = std::numbers::pi_v<float>;
+					CONSTEXPR_ auto pi2 = 2.0f * pi;
+					#undef CONSTEXPR_
 
 					-- macrotickProgress;
 					if(inputMan.isCommandActive(cmdBoost)) shState.speedBoost = speedBoostFromInput;
@@ -525,7 +549,7 @@ namespace sneka {
 							if(pointObjects.empty()) {
 								logger.info("Conglaturations! Shine get!");
 								createWorld(worldFilename);
-								sharedState->quitReason = QuitReason::eGameEnd;
+								shState.quitReason = QuitReason::eGameEnd;
 							}
 						}
 					}
