@@ -151,12 +151,13 @@ namespace sneka {
 		};
 
 		struct ModelIdStorage {
-			ske::ModelId scenery;
-			ske::ModelId playerHead;
-			ske::ModelId boost;
-			ske::ModelId point;
-			ske::ModelId obstacle;
-			ske::ModelId wall;
+			static constexpr ske::ModelId noModel = idgen::invalidId<ske::ModelId>();
+			ske::ModelId scenery    = noModel;
+			ske::ModelId playerHead = noModel;
+			ske::ModelId boost      = noModel;
+			ske::ModelId point      = noModel;
+			ske::ModelId obstacle   = noModel;
+			ske::ModelId wall       = noModel;
 		};
 
 		ske::Engine* engine;
@@ -197,7 +198,7 @@ namespace sneka {
 			auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
 			auto* sideLengthEnvvarEnd = sideLengthEnvvar.data() + sideLengthEnvvar.size();
 			uint64_t sideLength = std::strtoull(sideLengthEnvvar.data(), &sideLengthEnvvarEnd, 10);
-			if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 51; }
+			if(sideLengthEnvvar.data() == sideLengthEnvvarEnd) { sideLength = 53; }
 			if(sideLength % 2 == 0) ++ sideLength;
 			world = World::initEmpty(sideLength, sideLength);
 			if(startPos.x == UINT64_MAX && startPos.y == UINT64_MAX) {
@@ -358,17 +359,17 @@ namespace sneka {
 			}
 
 			{ // Load models
-				auto trySetModel = [&](std::string_view filename) {
-					try { return assetCache->setModelFromFile(filename); }
+				auto trySetModel = [&](ske::ModelId* dst, std::string_view filename) {
+					if(*dst != idgen::invalidId<ske::ModelId>()) return;
+					try { *dst = assetCache->setModelFromFile(filename); }
 					catch(posixfio::Errcode& e) { logger.error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
-					return idgen::invalidId<ske::ModelId>();
 				};
-				mdlIds.scenery    = trySetModel(world.getSceneryModel());
-				mdlIds.playerHead = trySetModel(world.getPlayerHeadModel());
-				mdlIds.boost      = trySetModel(world.getObjBoostModel());
-				mdlIds.point      = trySetModel(world.getObjPointModel());
-				mdlIds.obstacle   = trySetModel(world.getObjObstacleModel());
-				mdlIds.wall       = trySetModel(world.getObjWallModel());
+				trySetModel(&mdlIds.scenery,    world.getSceneryModel());
+				trySetModel(&mdlIds.playerHead, world.getPlayerHeadModel());
+				trySetModel(&mdlIds.boost,      world.getObjBoostModel());
+				trySetModel(&mdlIds.point,      world.getObjPointModel());
+				trySetModel(&mdlIds.obstacle,   world.getObjObstacleModel());
+				trySetModel(&mdlIds.wall,       world.getObjWallModel());
 			}
 
 			{ // Setup animations
@@ -597,7 +598,7 @@ int main(int argn, char** argv) {
 	const auto enginePrefs = []() {
 		auto prefs = EnginePreferences::default_prefs;
 		prefs.init_present_extent = { 700, 500 };
-		prefs.max_render_extent   = { 0, 0 };
+		prefs.max_render_extent   = { 0, 500 };
 		prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
 		prefs.target_framerate    = 72.0f;
 		prefs.target_tickrate     = 60.0f;
