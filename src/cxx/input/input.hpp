@@ -138,7 +138,9 @@ inline namespace input {
 	template <typename T>
 	concept CommandCallbackFunction = requires (T t, Context ctx, Input i) {
 		t(ctx, i);
-		[](T tr) { T tl = tr; (void) tl /* GCC complains that tl is unused... really? */; };
+		#ifndef VS_CODE_HEADER_LINTING_WORKAROUND
+			[](T tr) { T tl = std::move(tr); (void) tl /* GCC complains that tl is unused... really? */; };
+		#endif
 	};
 
 	template <typename T>
