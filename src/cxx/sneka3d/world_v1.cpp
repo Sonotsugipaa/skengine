@@ -149,10 +149,10 @@ namespace sneka {
 			switch(GridObjectClass(src.data[0])) {
 				default: throw BadFile { BadFile::eBadAttribData, fileCursorAtAttrib + sizeof(uint8_t) }; break;
 				case eNoObject: return;
-				case eBoost   : dst->objBoost    = std::move(r); break;
-				case ePoint   : dst->objPoint    = std::move(r); break;
-				case eObstacle: dst->objObstacle = std::move(r); break;
-				case eWall    : dst->objWall     = std::move(r); break;
+				case eBoost   : dst->objBoost   .push_back(std::string(r)); break;
+				case ePoint   : dst->objPoint   .push_back(std::string(r)); break;
+				case eObstacle: dst->objObstacle.push_back(std::string(r)); break;
+				case eWall    : dst->objWall    .push_back(std::string(r)); break;
 			}
 		}
 
@@ -289,6 +289,9 @@ namespace sneka {
 					fileCursor += wr;
 				}
 			};
+			const auto writeObjMdlAttribs = [&](GridObjectClass objClass, const std::vector<std::string>& attribs) {
+				for(const auto& attrib : attribs) writeObjMdlAttrib(objClass, attrib);
+			};
 			write(uint64_t(magicNo));
 			write(uint64_t(src.world_version));
 			write(uint64_t(src.world_width));
@@ -296,10 +299,10 @@ namespace sneka {
 			writeAttribStr(AttributeType::eSceneryModel,    src.world_models.scenery);
 			writeAttribUint64(AttributeType::eEntryPoint,   src.world_entryPoint, 2);
 			writeAttribStr(AttributeType::ePlayerHeadModel, src.world_models.playerHead);
-			writeObjMdlAttrib(GridObjectClass::eBoost,    src.world_models.objBoost);
-			writeObjMdlAttrib(GridObjectClass::ePoint,    src.world_models.objPoint);
-			writeObjMdlAttrib(GridObjectClass::eObstacle, src.world_models.objObstacle);
-			writeObjMdlAttrib(GridObjectClass::eWall,     src.world_models.objWall);
+			writeObjMdlAttribs(GridObjectClass::eBoost,    src.world_models.objBoost);
+			writeObjMdlAttribs(GridObjectClass::ePoint,    src.world_models.objPoint);
+			writeObjMdlAttribs(GridObjectClass::eObstacle, src.world_models.objObstacle);
+			writeObjMdlAttribs(GridObjectClass::eWall,     src.world_models.objWall);
 			write(uint32_t(v1::AttributeType::eEndOfAttribs));
 			write(uint32_t(0));
 			size_t padding = (4096 - (fileCursor % 4096)) % 4096; // 0->0, 1->4095, 4095->1, 4096->0

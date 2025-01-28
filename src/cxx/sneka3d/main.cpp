@@ -31,7 +31,8 @@ namespace sneka {
 	constexpr size_t OBJSTG_SCENERY_IDX = 0;
 	constexpr size_t OBJSTG_OBJECTS_IDX = 1;
 	constexpr size_t OBJSTG_PLAYER_IDX  = 2;
-	constexpr size_t OBJSTG_COUNT       = 3;
+	constexpr size_t OBJSTG_POINTS_IDX  = 3;
+	constexpr size_t OBJSTG_COUNT       = 4;
 
 
 
@@ -169,10 +170,10 @@ namespace sneka {
 			static constexpr ske::ModelId noModel = idgen::invalidId<ske::ModelId>();
 			ske::ModelId scenery    = noModel;
 			ske::ModelId playerHead = noModel;
-			ske::ModelId boost      = noModel;
-			ske::ModelId point      = noModel;
-			ske::ModelId obstacle   = noModel;
-			ske::ModelId wall       = noModel;
+			std::vector<ske::ModelId> boost;
+			std::vector<ske::ModelId> point;
+			std::vector<ske::ModelId> obstacle;
+			std::vector<ske::ModelId> wall;
 		};
 
 		ske::Engine* engine;
@@ -226,10 +227,12 @@ namespace sneka {
 			world.entryPointY() = startPos.y;
 			world.setSceneryModel("world1-scenery.fma");
 			world.setPlayerHeadModel("default-player-head.fma");
-			world.setObjBoostModel("default-boost.fma");
-			world.setObjPointModel("default-point.fma");
-			world.setObjObstacleModel("crate-obstacle.fma");
-			world.setObjWallModel("crate-wall.fma");
+			world.addObjBoostModel("default-boost.fma");
+			world.addObjPointModel("default-point.fma");
+			world.addObjObstacleModel("crate-obstacle.fma");
+			world.addObjObstacleModel("chair-bundle.fma");
+			world.addObjWallModel("crate-wall.fma");
+			world.addObjWallModel("prism-wall.fma");
 			world.toFile(worldFilename);
 		}
 
@@ -319,6 +322,7 @@ namespace sneka {
 			ske::ObjectStorage& sceneryOs = rproc->getObjectStorage(OBJSTG_SCENERY_IDX);
 			ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
 			ske::ObjectStorage& playerOs  = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
+			ske::ObjectStorage& pointOs   = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 			sharedState->init();
 			pointObjects.clear();
@@ -382,17 +386,42 @@ namespace sneka {
 			}
 
 			{ // Load models
+				auto checkModelListNotEmpty = [&](auto& mdls, std::string_view objTypeDesc) {
+					if(! mdls.empty()) [[likely]] return;
+					std::string msg = fmt::format("{} model list is empty", objTypeDesc);
+					logger.error("{}", msg);
+					throw std::runtime_error(std::move(msg));
+				};
+				auto modelLoadFail = [&](std::string_view mdl, posixfio::Errcode err) {
+					logger.error("Failed to load file for model \"{}\" (errno {})", mdl, err.errcode); };
+				auto boostMdls    = world.getObjBoostModels();    checkModelListNotEmpty(boostMdls,    "Boost");
+				auto pointMdls    = world.getObjPointModels();    checkModelListNotEmpty(pointMdls,    "Point");
+				auto obstacleMdls = world.getObjObstacleModels(); checkModelListNotEmpty(obstacleMdls, "Obstacle");
+				auto wallMdls     = world.getObjWallModels();     checkModelListNotEmpty(wallMdls,     "Wall");
+				#warning "TODO: `BasicAssetCache::setModelFromFile` should throw when the file cannot be loaded, but doesn't"
 				auto trySetModel = [&](ske::ModelId* dst, std::string_view filename) {
-					if(*dst != idgen::invalidId<ske::ModelId>()) return;
+					if(*dst != ModelIdStorage::noModel) return;
+					*dst = ModelIdStorage::noModel;
 					try { *dst = assetCache->setModelFromFile(filename); }
-					catch(posixfio::Errcode& e) { logger.error("Failed to load file for model \"{}\" (errno {})", filename, e.errcode); }
+					catch(posixfio::Errcode& e) { modelLoadFail(filename, e.errcode); }
+				};
+				auto resetModelList = [&](std::vector<ske::ModelId>* dst) {
+					for(auto& mdl : *dst) assetCache->unsetModel(mdl);
+					dst->clear();
+				};
+				auto trySetModels = [&](std::vector<ske::ModelId>* dst, auto& mdls) {
+					resetModelList(dst);
+					for(auto& mdl : mdls) {
+						try { dst->push_back(assetCache->setModelFromFile(mdl)); }
+						catch(posixfio::Errcode& e) { modelLoadFail(mdl, e.errcode); }
+					}
 				};
 				trySetModel(&mdlIds.scenery,    world.getSceneryModel());
 				trySetModel(&mdlIds.playerHead, world.getPlayerHeadModel());
-				trySetModel(&mdlIds.boost,      world.getObjBoostModel());
-				trySetModel(&mdlIds.point,      world.getObjPointModel());
-				trySetModel(&mdlIds.obstacle,   world.getObjObstacleModel());
-				trySetModel(&mdlIds.wall,       world.getObjWallModel());
+				trySetModels(&mdlIds.boost,    boostMdls   );
+				trySetModels(&mdlIds.point,    pointMdls   );
+				trySetModels(&mdlIds.obstacle, obstacleMdls);
+				trySetModels(&mdlIds.wall,     wallMdls    );
 			}
 
 			{ // Setup animations
@@ -406,6 +435,7 @@ namespace sneka {
 				float yGridCenter = - (float(world.height() - 1.0f) / 2.0f);
 				worldOffset = { int64_t(xGridCenter), int64_t(yGridCenter) };
 				auto& tc = engine->getTransferContext();
+				auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
 				auto newObject = ske::ObjectStorage::NewObject {
 					{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
 				auto tryCreate = [&](ske::ObjectStorage& os, ske::ModelId mdl) {
@@ -414,9 +444,13 @@ namespace sneka {
 					return os.createObject(tc, newObject);
 					return idgen::invalidId<ske::ObjectId>();
 				};
+				auto rndMdlFrom = [&](const std::vector<ske::ModelId>& mdls) {
+					assert(! mdls.empty());
+					return mdls[std::uniform_int_distribution<size_t>(0, mdls.size() - 1)(rng)];
+				};
 				auto insPoint = [&](ske::ObjectStorage& os) {
 					using V = decltype(pointObjects)::value_type;
-					auto p = tryCreate(os, mdlIds.point);
+					auto p = tryCreate(os, rndMdlFrom(mdlIds.point));
 					auto pos = worldToGrid(newObject.position_xyz);
 					if(p != idgen::invalidId<ske::ObjectId>()) {
 						auto l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
@@ -432,7 +466,6 @@ namespace sneka {
 				};
 				for(size_t y = 0; y < world.height(); ++ y)
 				for(size_t x = 0; x < world.width();  ++ x) {
-					auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
 					bool invert = std::uniform_int_distribution<unsigned>(0, 1)(rng) == 1;
 					newObject.position_xyz = { + float(x) - xGridCenter, 0.0f, - float(y) - yGridCenter };
 					newObject.scale_xyz.x *= invert? -1.0f : +1.0f;
@@ -444,10 +477,10 @@ namespace sneka {
 					assert(x < world.width());
 					assert(y < world.height());
 					switch(world.tile(x, y)) {
-						case GridObjectClass::eBoost:    tryCreate(objectsOs, mdlIds.boost); break;
-						case GridObjectClass::ePoint:    insPoint (objectsOs); break;
-						case GridObjectClass::eObstacle: tryCreate(objectsOs, mdlIds.obstacle); break;
-						case GridObjectClass::eWall:     tryCreate(objectsOs, mdlIds.wall); break;
+						case GridObjectClass::eBoost:    tryCreate(objectsOs, rndMdlFrom(mdlIds.boost)); break;
+						case GridObjectClass::ePoint:    insPoint (pointOs); break;
+						case GridObjectClass::eObstacle: tryCreate(objectsOs, rndMdlFrom(mdlIds.obstacle)); break;
+						case GridObjectClass::eWall:     tryCreate(objectsOs, rndMdlFrom(mdlIds.wall)); break;
 						default:
 							logger.warn("World object at ({}, {}) has unknown type {}", x, y, grid_object_class_e(world.tile(x, y)));
 							[[fallthrough]];
@@ -556,8 +589,8 @@ namespace sneka {
 					{ // Player-environment interaction
 						auto obj = pointObjects.find({ gridPos.x, gridPos.y });
 						if(obj != pointObjects.end()) [[unlikely]] {
-							ske::ObjectStorage& objectsOs = rproc->getObjectStorage(OBJSTG_OBJECTS_IDX);
-							objectsOs.removeObject(engine->getTransferContext(), obj->second.first);
+							ske::ObjectStorage& pointsOs = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
+							pointsOs.removeObject(engine->getTransferContext(), obj->second.first);
 							if(obj->second.second != idgen::invalidId<ske::ObjectId>())
 								rproc->worldRenderer()->removeLight(obj->second.second);
 							pointObjects.erase(obj);
@@ -645,7 +678,7 @@ int main(int argn, char** argv) {
 	const auto enginePrefs = []() {
 		auto prefs = EnginePreferences::default_prefs;
 		prefs.init_present_extent = { 700, 500 };
-		prefs.max_render_extent   = { 0, 500 };
+		prefs.max_render_extent   = { 0, 0 };
 		prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
 		prefs.target_framerate    = 72.0f;
 		prefs.target_tickrate     = 60.0f;

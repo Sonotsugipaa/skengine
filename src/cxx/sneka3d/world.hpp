@@ -3,6 +3,7 @@
 #include <cstring>
 #include <bit>
 #include <memory>
+#include <vector>
 
 #include <posixfio_tl.hpp>
 
@@ -93,18 +94,22 @@ namespace sneka {
 		void toFile(const char* filename);
 
 
-		const auto& getSceneryModel() const noexcept { return world_models.scenery; }
+		const auto& getSceneryModel() const noexcept    { return world_models.scenery; }
 		const auto& getPlayerHeadModel() const noexcept { return world_models.playerHead; }
-		const auto& getObjBoostModel() const noexcept { return world_models.objBoost; }
-		const auto& getObjPointModel() const noexcept { return world_models.objPoint; }
-		const auto& getObjWallModel() const noexcept { return world_models.objWall; }
-		const auto& getObjObstacleModel() const noexcept { return world_models.objObstacle; }
-		void setSceneryModel(std::string_view name) { world_models.scenery = std::string(name); }
+		auto getObjBoostModels() const noexcept   { return std::span<const std::string>(world_models.objBoost); }
+		auto getObjPointModels() const noexcept   { return std::span<const std::string>(world_models.objPoint); }
+		auto getObjWallModels() const noexcept    { return std::span<const std::string>(world_models.objWall); }
+		auto getObjObstacleModels() const noexcept { return std::span<const std::string>(world_models.objObstacle); }
+		void setSceneryModel(std::string_view name)    { world_models.scenery = std::string(name); }
 		void setPlayerHeadModel(std::string_view name) { world_models.playerHead = std::string(name); }
-		void setObjBoostModel(std::string_view name) { world_models.objBoost = std::string(name); }
-		void setObjPointModel(std::string_view name) { world_models.objPoint = std::string(name); }
-		void setObjWallModel(std::string_view name) { world_models.objWall = std::string(name); }
-		void setObjObstacleModel(std::string_view name) { world_models.objObstacle = std::string(name); }
+		void addObjBoostModel(std::string_view name)    { world_models.objBoost.push_back(std::string(name)); }
+		void addObjPointModel(std::string_view name)    { world_models.objPoint.push_back(std::string(name)); }
+		void addObjWallModel(std::string_view name)     { world_models.objWall.push_back(std::string(name)); }
+		void addObjObstacleModel(std::string_view name) { world_models.objObstacle.push_back(std::string(name)); }
+		void removeObjBoostModel(std::string_view name)    { std::erase(world_models.objBoost, name); }
+		void removeObjPointModel(std::string_view name)    { std::erase(world_models.objPoint, name); }
+		void removeObjWallModel(std::string_view name)     { std::erase(world_models.objWall, name); }
+		void removeObjObstacleModel(std::string_view name) { std::erase(world_models.objObstacle, name); }
 
 		auto  width () const { return world_width ; }
 		auto  height() const { return world_height; }
@@ -118,10 +123,10 @@ namespace sneka {
 		struct ModelStrings {
 			std::string scenery;
 			std::string playerHead;
-			std::string objBoost;
-			std::string objPoint;
-			std::string objObstacle;
-			std::string objWall;
+			std::vector<std::string> objBoost;
+			std::vector<std::string> objPoint;
+			std::vector<std::string> objObstacle;
+			std::vector<std::string> objWall;
 		} world_models;
 		MemoryRange world_mem;
 		byte* world_rawGrid;
