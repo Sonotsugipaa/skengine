@@ -335,7 +335,4 @@ namespace SKENGINE_NAME_NS {
 	inline RenderProcess&        ConcurrentAccess::getRenderProcess   ()           noexcept { return ca_engine->mRenderProcess; }
 	inline uint_fast32_t         ConcurrentAccess::currentFrameNumber ()     const noexcept { return ca_engine->mGframeCounter; }
 
-
-	constexpr VkDevice vmaGetAllocatorDevice(VmaAllocator vma) noexcept { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; }
-
 }

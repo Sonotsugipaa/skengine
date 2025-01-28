@@ -7,6 +7,7 @@ add_library(engine-util
 	engine_asset_supplier.cpp
 	engine_asset_supplier_material.cpp
 	engine_asset_supplier_texture.cpp
+	object_storage_sorting.cpp
 	object_storage.cpp
 	world_renderer_pipeline.cpp
 	world_renderer_prepare.cpp

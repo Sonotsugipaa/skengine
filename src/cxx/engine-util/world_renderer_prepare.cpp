@@ -11,7 +11,7 @@
 
 namespace SKENGINE_NAME_NS {
 
-	namespace world { // used here, defined elsewhere
+	namespace world { // Used here, defined elsewhere
 
 		void computeCullWorkgroupSizes(uint32_t dst[3], const VkPhysicalDeviceProperties& props);
 

@@ -43,6 +43,9 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
+	constexpr VkDevice vmaGetAllocatorDevice(VmaAllocator vma) noexcept { VmaAllocatorInfo r; vmaGetAllocatorInfo(vma, &r); return r.device; }
+
+
 	constexpr bool operator==(const VkExtent2D& lh, const VkExtent2D& rh) noexcept {
 		return (lh.width == rh.width) && (lh.height == rh.height);
 	}
