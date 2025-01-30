@@ -310,6 +310,12 @@ namespace SKENGINE_NAME_NS {
 			bool      hidden;
 		};
 
+		template <typename Id> requires std::is_scoped_enum_v<Id>
+		struct BadId : public std::runtime_error {
+			Id id;
+			BadId(Id id_): runtime_error(fmt::format("bad id {}", std::underlying_type_t<Id>(id_))), id(id_) { }
+		};
+
 		struct ModelData : DevModel {
 			ModelId id;
 		};
@@ -381,7 +387,7 @@ namespace SKENGINE_NAME_NS {
 		static void destroy(TransferContext, ObjectStorage&);
 
 		[[nodiscard]] ObjectId createObject (TransferContext, const NewObject&);
-		void                   removeObject (TransferContext, ObjectId) noexcept;
+		void                   removeObject (TransferContext, ObjectId);
 		void                   clearObjects (TransferContext) noexcept;
 		std::optional<ModifiableObject> modifyObject (ObjectId) noexcept;
 		std::optional<const Object*>    getObject    (ObjectId) const noexcept;

@@ -32,7 +32,7 @@ namespace SKENGINE_NAME_NS {
 
 	namespace {
 
-		constexpr float  UNBOUND_DRAW_BATCH_LOAD_FAC = 8.0;
+		constexpr float UNBOUND_DRAW_BATCH_LOAD_FAC = 8.0;
 
 
 		void commit_draw_batches(
@@ -78,7 +78,7 @@ namespace SKENGINE_NAME_NS {
 			job.mesh      = { .cull_sphere = { src_bone.mesh.cull_sphere_xyzr } };
 			job.dst = { &dst->model_transf, &dst->cull_sphere_xyzr };
 			mtxAssembler.queue.push_back(job);
-		};
+		}
 
 	}
 
@@ -149,10 +149,10 @@ namespace SKENGINE_NAME_NS {
 	}
 
 
-	void ObjectStorage::removeObject(TransferContext transfCtx, ObjectId id) noexcept {
+	void ObjectStorage::removeObject(TransferContext transfCtx, ObjectId id) {
 		assert(mVma != nullptr);
 
-		auto  obj_iter = assert_not_end_(mObjects, id);
+		auto  obj_iter = mObjects.find(id); if(obj_iter == mObjects.end()) throw BadId<ObjectId>(id);
 		auto  obj      = std::move(obj_iter->second);
 		auto& model    = assert_not_end_(mModels, obj.first.model_id)->second;
 
