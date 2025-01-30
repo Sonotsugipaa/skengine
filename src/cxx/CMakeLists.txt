@@ -27,5 +27,4 @@ add_subdirectory(gridlogic)
 add_subdirectory(input)
 
 add_subdirectory(sneka3d)
-#add_subdirectory(main)
 add_subdirectory(png-to-fmat)
