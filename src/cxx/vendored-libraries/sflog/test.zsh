@@ -28,7 +28,7 @@ srcpath="$(realpath --relative-to=$dstpath/$config src)"
 
 cd "$dstpath/$config"
 
-if [[ $generator = "Ninja" ]]; then if tty; then export CMAKE_COLOR_DIAGNOSTICS=ON; fi; fi
+if [[ $generator = "Ninja" ]]; then if tty -s; then export CMAKE_COLOR_DIAGNOSTICS=ON; fi; fi
 
 cmake -DCMAKE_BUILD_TYPE=$config -DSFLOG_BUILD_TEST=1 $srcpath -G $generator
 cmake --build "." --config $config

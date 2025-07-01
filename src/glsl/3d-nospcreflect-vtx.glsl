@@ -32,12 +32,11 @@ layout(location = 5) in uint  in_obj_idx;
 layout(location = 0) out vec4 frg_pos;
 layout(location = 1) out vec4 frg_col;
 layout(location = 2) out vec2 frg_tex;
-layout(location = 3) out vec2 frg_viewport_pos;
-layout(location = 4) out vec3 frg_nrm;
-layout(location = 5) out vec3 frg_viewspace_tanu;
-layout(location = 6) out vec3 frg_viewspace_tanv;
-layout(location = 7) out vec3 frg_viewspace_tanw;
-layout(location = 8) out mat3 frg_view3;
+layout(location = 3) out vec3 frg_nrm;
+layout(location = 4) out vec3 frg_viewspace_tanu;
+layout(location = 5) out vec3 frg_viewspace_tanv;
+layout(location = 6) out vec3 frg_viewspace_tanw;
+layout(location = 7) out mat3 frg_view3;
 
 struct Object {
 	mat4  model_transf;
@@ -64,7 +63,6 @@ void main() {
 	frg_pos     = worldspace_pos;
 	frg_col     = obj.color_mul;
 	frg_tex     = in_tex;
-	frg_viewport_pos = gl_Position.xy;
 
 	mat3 iview3      = inverse(mat3(frame_ubo.view_transf4));
 	mat3 view3       = transpose(iview3);
@@ -79,13 +77,9 @@ void main() {
 		vec3 viewspace_u   = view3 * worldspace_tanu;
 		vec3 viewspace_v   = view3 * worldspace_tanv;
 		vec3 viewspace_w   = view3 * worldspace_tanw;
-		mat3 tbn = transpose(inverse(mat3(
-			normalize(viewspace_u - (viewspace_w * dot(viewspace_w, viewspace_u))),
-			normalize(viewspace_v - (viewspace_w * dot(viewspace_w, viewspace_v))),
-			normalize(viewspace_w) )));
-		frg_viewspace_tanu = tbn[0];
-		frg_viewspace_tanv = tbn[1];
-		frg_viewspace_tanw = tbn[2];
+		frg_viewspace_tanu = viewspace_u - (viewspace_w * dot(viewspace_w, viewspace_u));
+		frg_viewspace_tanv = viewspace_v - (viewspace_w * dot(viewspace_w, viewspace_v));
+		frg_viewspace_tanw = viewspace_w;
 	}
 
 	frg_nrm = normalize(view3 * obj_transf3 * in_nrm);
