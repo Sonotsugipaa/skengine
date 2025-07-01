@@ -140,9 +140,10 @@ vec3 unorm_correct(vec3 v) {
 	return v / 255.0;
 }
 
-float shinify_exp(float x, float exp) {
+float shinify(float x, float exp) {
 	x = clamp(x, 0.0, 1.0);
-	return pow(x, exp);
+	exp = max(exp, 0.01);
+	return max((x * exp) + 1 - exp, 0);
 }
 
 float aoa_fade(float value, float angle_of_attack) {
@@ -169,8 +170,7 @@ float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, 
 	float lighting = dot(
 		view_dir,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
-	float light_exp = material_ubo.shininess;
-	lighting = shinify_exp(lighting, light_exp);
+	lighting = sin(shinify(asin(lighting), material_ubo.shininess));
 	angle_of_attack = aoa_with_threshold(angle_of_attack, aoa_threshold);
 	lighting        = aoa_with_threshold(lighting,        aoa_threshold);
 	lighting = aoa_fade(lighting, angle_of_attack);
@@ -252,7 +252,11 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 		float fragm_distance    = distance(frg_pos.xyz, point_light_buffer.lights[i].position.xyz);
 		float falloff_distance  = pow(fragm_distance, point_light_buffer.lights[i].falloff_exp);
 		float intensity_falloff = intensity / falloff_distance;
-		if(intensity_falloff < frame_ubo.p_light_dist_threshold) continue;
+		float shininess_mul     = shinify(intensity_falloff, material_ubo.shininess);
+		if(
+			max(intensity_falloff, intensity_falloff * shininess_mul)
+			< frame_ubo.p_light_dist_threshold
+		) continue;
 
 		light_dir = normalize(frg_view3 * light_dir);
 
@@ -264,6 +268,7 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aoa, aoa_threshold) );
 		float luminance_spc = (
 			intensity_falloff
+			* shininess_mul
 			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aoa, aoa_threshold) );
 
 		luminance.dfs.a += luminance_dfs;

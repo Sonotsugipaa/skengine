@@ -139,7 +139,10 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		auto        delta      = choose_delta(delta_avg, delta_last);
 		auto        concurrent_access = ConcurrentAccess(&e, true);
 		auto        waves = e.mRenderProcess.waveRange();
-		auto        steps = e.mRenderProcess.sortedStepRange();
+
+		#ifndef NDEBUG
+			auto steps = e.mRenderProcess.sortedStepRange(); // Used by an assertion
+		#endif
 
 		auto ifRenderer = [&] <typename Fn, typename... Args> (Renderer* rdr, Fn&& fn, Args&&... args) {
 			if(rdr != nullptr) (rdr->*std::forward<Fn>(fn))(std::forward<Args>(args)...);
@@ -284,14 +287,14 @@ struct SKENGINE_NAME_NS::Engine::Implementation {
 		e.mWaveFencesWaitCache.clear();
 		e.mWaveFencesWaitCache.reserve(e.mRenderProcess.waveCount());
 		if(e.mPrefs.wait_for_gframe) {
-			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
+			for(auto seqIdx = SeqIdx(0); [[maybe_unused]] auto wave : waves) {
 				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
 				e.mWaveFencesWaitCache.push_back(syncs.fences.prepare);
 				e.mWaveFencesWaitCache.push_back(syncs.fences.draw);
 				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);
 			}
 		} else {
-			for(auto seqIdx = SeqIdx(0); auto wave : waves) {
+			for(auto seqIdx = SeqIdx(0); [[maybe_unused]] auto wave : waves) {
 				auto& syncs = e.mRenderProcess.getDrawSyncPrimitives(seqIdx, sc_img_idx);
 				e.mWaveFencesWaitCache.push_back(syncs.fences.prepare);
 				seqIdx = SeqIdx(seq_idx_e(seqIdx) + 1);

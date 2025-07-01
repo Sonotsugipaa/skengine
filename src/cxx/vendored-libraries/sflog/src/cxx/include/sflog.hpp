@@ -53,26 +53,26 @@ namespace sflog {
 	constexpr Options defaultOptions = OptionBit::eUseAnsiSgr | OptionBit::eAutoFlush;
 
 
-	constexpr char ansiCsi[] = { 033, 0133 };
+	constexpr inline char ansiCsi[] = { 033, 0133 };
 	template <Level level> constexpr char levelAnsiSgr[5];
-	template <> constexpr char levelAnsiSgr<Level::eTrace   >[5] = { ansiCsi[0], ansiCsi[1], 071, 060, 0155 };
-	template <> constexpr char levelAnsiSgr<Level::eDebug   >[5] = { ansiCsi[0], ansiCsi[1], 063, 066, 0155 };
-	template <> constexpr char levelAnsiSgr<Level::eInfo    >[5] = { ansiCsi[0], ansiCsi[1], 063, 063, 0155 };
-	template <> constexpr char levelAnsiSgr<Level::eWarn    >[5] = { ansiCsi[0], ansiCsi[1], 063, 065, 0155 };
-	template <> constexpr char levelAnsiSgr<Level::eError   >[5] = { ansiCsi[0], ansiCsi[1], 063, 061, 0155 };
-	template <> constexpr char levelAnsiSgr<Level::eCritical>[5] = { ansiCsi[0], ansiCsi[1], 071, 061, 0155 };
-	template <Level level> constexpr std::string_view levelAnsiSgrView = std::string_view(levelAnsiSgr<level>, levelAnsiSgr<level> + std::size(levelAnsiSgr<level>));
+	template <> constexpr inline char levelAnsiSgr<Level::eTrace   >[5] = { ansiCsi[0], ansiCsi[1], 071, 060, 0155 };
+	template <> constexpr inline char levelAnsiSgr<Level::eDebug   >[5] = { ansiCsi[0], ansiCsi[1], 063, 066, 0155 };
+	template <> constexpr inline char levelAnsiSgr<Level::eInfo    >[5] = { ansiCsi[0], ansiCsi[1], 063, 063, 0155 };
+	template <> constexpr inline char levelAnsiSgr<Level::eWarn    >[5] = { ansiCsi[0], ansiCsi[1], 063, 065, 0155 };
+	template <> constexpr inline char levelAnsiSgr<Level::eError   >[5] = { ansiCsi[0], ansiCsi[1], 063, 061, 0155 };
+	template <> constexpr inline char levelAnsiSgr<Level::eCritical>[5] = { ansiCsi[0], ansiCsi[1], 071, 061, 0155 };
+	template <Level level> constexpr inline std::string_view levelAnsiSgrView = std::string_view(levelAnsiSgr<level>, levelAnsiSgr<level> + std::size(levelAnsiSgr<level>));
 	constexpr char ansiResetSgr[] = { ansiCsi[0], ansiCsi[1], 0155 };
 	constexpr auto ansiResetSgrView = std::string_view(ansiResetSgr, ansiResetSgr + std::size(ansiResetSgr));
 
 	template <Level level> constexpr std::string_view levelStr;
-	template <> constexpr std::string_view levelStr<Level::eTrace>     = "Trace";
-	template <> constexpr std::string_view levelStr<Level::eDebug>     = "Debug";
-	template <> constexpr std::string_view levelStr<Level::eInfo>      = "Info";
-	template <> constexpr std::string_view levelStr<Level::eWarn>      = "Warn";
-	template <> constexpr std::string_view levelStr<Level::eError>     = "Error";
-	template <> constexpr std::string_view levelStr<Level::eCritical>  = "Critical";
-	template <> constexpr std::string_view levelStr<Level::eDisabled>  = "Disabled";
+	template <> constexpr inline std::string_view levelStr<Level::eTrace>     = "Trace";
+	template <> constexpr inline std::string_view levelStr<Level::eDebug>     = "Debug";
+	template <> constexpr inline std::string_view levelStr<Level::eInfo>      = "Info";
+	template <> constexpr inline std::string_view levelStr<Level::eWarn>      = "Warn";
+	template <> constexpr inline std::string_view levelStr<Level::eError>     = "Error";
+	template <> constexpr inline std::string_view levelStr<Level::eCritical>  = "Critical";
+	template <> constexpr inline std::string_view levelStr<Level::eDisabled>  = "Disabled";
 	constexpr std::string_view levelStrOf(Level l) { switch(l) {
 		#define CASE_(L_) case L_: return levelStr<L_>;
 		CASE_(Level::eTrace   )
@@ -116,13 +116,13 @@ namespace sflog {
 		};
 
 		template <typename... Args>
-		void formatTo(posixfio::FileView file, fmt::format_string<Args...> fmtStr, Args... args) {
+		void formatTo(posixfio::FileView file, fmt::format_string<Args...> fmtStr, Args&&... args) {
 			PosixfioInserter<posixfio::FileView> ins = { file };
 			fmt::format_to(ins, fmtStr, std::forward<Args>(args)...);
 		}
 
 		template <PosixfioOutputBufferType BufferType, typename... Args>
-		void formatTo(BufferType& buffer, fmt::format_string<Args...> fmtStr, Args... args) {
+		void formatTo(BufferType& buffer, fmt::format_string<Args...> fmtStr, Args&&... args) {
 			PosixfioInserter<BufferType> ins = { buffer };
 			fmt::format_to(ins, fmtStr, std::forward<Args>(args)...);
 		}
@@ -210,7 +210,7 @@ namespace sflog {
 		}
 
 
-		#define LOG_ALIAS_SIG_(UC_, LC_, REST_) template <typename... Args> void LC_##REST_(fmt::format_string<Args...> fmtStr, Args... args)
+		#define LOG_ALIAS_SIG_(UC_, LC_, REST_) template <typename... Args> void LC_##REST_(fmt::format_string<Args...> fmtStr, Args&&... args)
 		#define LOG_ALIAS_BODY_(UC_, LC_, REST_) l_log<Level::e##UC_##REST_, Args...>(fmtStr, std::forward<Args>(args)...);
 		#define LOG_ALIAS_(UC_, LC_, REST_) LOG_ALIAS_SIG_(UC_, LC_, REST_) { LOG_ALIAS_BODY_(UC_, LC_, REST_) }
 		LOG_ALIAS_(T,t,race)

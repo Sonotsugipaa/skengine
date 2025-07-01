@@ -136,10 +136,8 @@ namespace util {
 			return back<T>();
 		}
 
-		auto size()     const noexcept {
-			auto r = const_cast<TypeUnsafeVector*>(this)->tuv_size();
-			return r; }
-		auto capacity() const noexcept {return const_cast<TypeUnsafeVector*>(this)->tuv_capacity(); }
+		size_t size()     const noexcept { return const_cast<TypeUnsafeVector*>(this)->tuv_size(); }
+		size_t capacity() const noexcept { return const_cast<TypeUnsafeVector*>(this)->tuv_capacity(); }
 
 	private:
 		std::unique_ptr<std::byte[]> tuv_data;

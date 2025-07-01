@@ -1,6 +1,7 @@
 #include "ui.hpp"
 
 #include <cstring>
+#include <algorithm>
 
 
 

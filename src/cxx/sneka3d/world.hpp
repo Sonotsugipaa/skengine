@@ -4,6 +4,7 @@
 #include <bit>
 #include <memory>
 #include <vector>
+#include <span>
 
 #include <posixfio_tl.hpp>
 

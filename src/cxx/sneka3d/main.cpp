@@ -251,8 +251,6 @@ namespace sneka {
 				auto& state = *sharedState;
 				auto inputLock = std::unique_lock(inputManMutex);
 				auto viewRot = state.camRotation.getValue();
-				const auto playerHeadPos = state.playerHeadPos.getValue();
-				const auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
 				auto deltaSupertick = deltaAvg * macrotickFrequency;
 
 				{
@@ -265,6 +263,8 @@ namespace sneka {
 					state.playerMovementAnim.fwd(deltaSupertick * macrotickAnimRatio);
 				}
 
+				const auto playerHeadPos = state.playerHeadPos.getValue();
+				const auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
 				{
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
 					viewRotTransf = glm::rotate(viewRotTransf, +viewRot.x, { 0.0f, 1.0f, 0.0f });
@@ -553,16 +553,13 @@ namespace sneka {
 			if(resizeEvent.triggered) ca->setPresentExtent(VkExtent2D { uint32_t(resizeEvent.width), uint32_t(resizeEvent.height) });
 
 			{
-				auto macrotickLock = std::unique_lock(macrotickMutex);
-
-				{ // This block is not macrotick-related, but it's a potential race condition nevertheless
-					if(shState.requestMapRegen) {
-						shState.requestMapRegen = false;
-						createWorld(worldFilename);
-						shState.quitReason = QuitReason::eGameEnd;
-					}
+				if(shState.requestMapRegen) {
+					shState.requestMapRegen = false;
+					createWorld(worldFilename);
+					shState.quitReason = QuitReason::eGameEnd;
 				}
 
+				auto macrotickLock = std::unique_lock(macrotickMutex);
 				if(macrotickProgress >= 1.0f) [[unlikely]] {
 					#ifdef VS_CODE_HEADER_LINTING_WORKAROUND
 						#define CONSTEXPR_ (void)0;
