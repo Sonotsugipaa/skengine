@@ -193,6 +193,7 @@ namespace SKENGINE_NAME_NS {
 				depInfo.bufferMemoryBarrierCount = std::size(bars); depInfo.pBufferMemoryBarriers = bars;
 				vkCmdPipelineBarrier2(cmd, &depInfo);
 				auto cpBf = [&](VkBuffer src, std::pair<vkutil::Buffer, size_t>& dst, VkDeviceSize bytes) {
+					if(! dst.first.value) return;
 					VkBufferCopy cp = { 0, 0, bytes };
 					vkCmdCopyBuffer(cmd, src, dst.first, 1, &cp);
 				};

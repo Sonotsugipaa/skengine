@@ -84,13 +84,6 @@ namespace SKENGINE_NAME_NS {
 			.zNear       = brp_worldRdrParams.zNear,
 			.zFar        = brp_worldRdrParams.zFar };
 
-		constexpr WorldRenderer::PipelineParameters outlinePlParams = [&]() {
-			auto r = WorldRenderer::defaultPipelineParams;
-			r.cullMode = VK_CULL_MODE_FRONT_BIT;
-			r.shaderRequirement = ShaderRequirement { .name = "outline", .pipelineLayout = PipelineLayoutId::e3d };
-			return r;
-		} ();
-
 		brp_worldRenderer = std::make_shared<WorldRenderer>(WorldRenderer::create(
 			copyLogger(e.logger(), "WorldRdr"),
 			e.getVmaAllocator(),
@@ -98,7 +91,7 @@ namespace SKENGINE_NAME_NS {
 			brp_worldRendererSs,
 			brp_objStorages,
 			worldProj,
-			{ WorldRenderer::defaultPipelineParams, outlinePlParams } ));
+			{ WorldRenderer::defaultPipelineParams } ));
 
 		brp_uiRenderer = std::make_shared<UiRenderer>(UiRenderer::create(
 			e.getVmaAllocator(),
