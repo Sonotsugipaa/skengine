@@ -22,6 +22,7 @@ extern "C" {
 	#include <sys/stat.h>
 }
 
+#include "config/config.hpp"
 #include "worldgen.inl.hpp"
 
 
@@ -656,6 +657,69 @@ namespace sneka {
 
 
 
+namespace {
+
+	void readConfigFile(ske::EnginePreferences* ePrefs, ske::WorldRenderer::RdrParams* wrParams, sflog::Level* dstLogLevel, const char* filename, Logger& logger) {
+		using posixfio::OpenFlags;
+		using posixfio::Whence;
+		using posixfio::MemProtFlags;
+		using posixfio::MemMapFlags;
+		Settings settings;
+		settings.initialPresentExtent = { ePrefs->init_present_extent.width, ePrefs->init_present_extent.height };
+		settings.maxRenderExtent      = { ePrefs->max_render_extent.width, ePrefs->max_render_extent.height };
+		settings.presentMode          = [&]() { switch(ePrefs->present_mode) {
+			default: [[fallthrough]];
+			case VK_PRESENT_MODE_FIFO_KHR:      return PresentMode::eFifo;
+			case VK_PRESENT_MODE_IMMEDIATE_KHR: return PresentMode::eImmediate;
+			case VK_PRESENT_MODE_MAILBOX_KHR:   return PresentMode::eMailbox;
+		}} ();
+		settings.shadeStepCount               = wrParams->shadeStepCount;
+		settings.shadeStepSmooth              = wrParams->shadeStepSmoothness;
+		settings.shadeStepExponent            = wrParams->shadeStepExponent;
+		settings.ditheringSteps               = wrParams->ditheringSteps;
+		settings.framerateSamples             = ePrefs->framerate_samples;
+		settings.pointLightIntensityThreshold = wrParams->pointLightDistanceThreshold;
+		settings.targetFramerate              = ePrefs->target_framerate;
+		settings.targetTickrate               = ePrefs->target_tickrate;
+		settings.fieldOfView                  = glm::degrees(wrParams->fovY);
+		settings.logLevel                     = *dstLogLevel;
+
+		posixfio::File file;
+		try {
+			file = posixfio::File::open(filename, OpenFlags::eRdonly);
+		} catch(posixfio::Errcode& e) { switch(e.errcode) {
+			case ENOENT:
+				logger.error("\"config.cfg\" not found, using defaults");
+				return;
+			default:
+				std::rethrow_exception(std::current_exception());
+		} }
+		parseSettings(&settings, file.mmap(file.lseek(0, Whence::eEnd), MemProtFlags::eRead, MemMapFlags::ePrivate, 0), logger);
+
+		ePrefs->init_present_extent = { settings.initialPresentExtent.width, settings.initialPresentExtent.height };
+		ePrefs->max_render_extent   = { settings.maxRenderExtent.width, settings.maxRenderExtent.height };
+		ePrefs->present_mode        = [&]() { switch(settings.presentMode) {
+			default: std::unreachable(); [[fallthrough]];
+			case PresentMode::eImmediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+			case PresentMode::eFifo:      return VK_PRESENT_MODE_FIFO_KHR;
+			case PresentMode::eMailbox:   return VK_PRESENT_MODE_MAILBOX_KHR;
+		}} ();
+		wrParams->shadeStepCount              = settings.shadeStepCount;
+		wrParams->shadeStepSmoothness         = settings.shadeStepSmooth;
+		wrParams->shadeStepExponent           = settings.shadeStepExponent;
+		wrParams->ditheringSteps              = settings.ditheringSteps;
+		ePrefs->framerate_samples             = settings.framerateSamples;
+		wrParams->pointLightDistanceThreshold = settings.pointLightIntensityThreshold;
+		ePrefs->target_framerate              = settings.targetFramerate;
+		ePrefs->target_tickrate               = settings.targetTickrate;
+		wrParams->fovY                        = glm::radians(settings.fieldOfView);
+		*dstLogLevel = settings.logLevel;
+	}
+
+}
+
+
+
 int main(int argn, char** argv) {
 	using namespace std::string_view_literals;
 	using namespace ske;
@@ -672,27 +736,42 @@ int main(int argn, char** argv) {
 		logger.setLevel(sflog::Level::eDebug);
 	#endif
 
-	const auto enginePrefs = []() {
-		auto prefs = EnginePreferences::default_prefs;
-		prefs.init_present_extent = { 700, 500 };
-		prefs.max_render_extent   = { 0, 0 };
-		prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
-		prefs.target_framerate    = 72.0f;
-		prefs.target_tickrate     = 60.0f;
-		prefs.wait_for_gframe     = false;
-		prefs.framerate_samples   = 4;
-		return prefs;
-	} ();
+	const auto [ enginePrefs, worldRdrParams ] = [&]() {
+		struct {
+			ske::EnginePreferences ep = { };
+			ske::WorldRenderer::RdrParams wrp = { };
+		} r;
 
-	const auto worldRdrParams = []() {
-		auto params = WorldRenderer::RdrParams::defaultParams;
-		params.fovY                        = glm::radians(80.0f);
-		params.shadeStepCount              = 7;
-		params.pointLightDistanceThreshold = 1.0f / 64.0f;
-		params.shadeStepSmoothness         = 1.0f;
-		params.shadeStepExponent           = 4.0f;
-		params.ditheringSteps              = 256.0f;
-		return params;
+		r.ep = []() {
+			auto prefs = EnginePreferences::default_prefs;
+			prefs.init_present_extent = { 700, 500 };
+			prefs.max_render_extent   = { 0, 0 };
+			prefs.present_mode        = VK_PRESENT_MODE_MAILBOX_KHR;
+			prefs.target_framerate    = 72.0f;
+			prefs.target_tickrate     = 60.0f;
+			prefs.wait_for_gframe     = false;
+			prefs.framerate_samples   = 4;
+			return prefs;
+		} ();
+
+		r.wrp = []() {
+			auto params = WorldRenderer::RdrParams::defaultParams;
+			params.fovY                        = glm::radians(80.0f);
+			params.shadeStepCount              = 7;
+			params.pointLightDistanceThreshold = 1.0f / 64.0f;
+			params.shadeStepSmoothness         = 1.0f;
+			params.shadeStepExponent           = 4.0f;
+			params.ditheringSteps              = 256.0f;
+			return params;
+		} ();
+
+		{ // Read the config file
+			auto logLvl = logger.getLevel();
+			readConfigFile(&r.ep, &r.wrp, &logLvl, "config.cfg", logger);
+			logger.setLevel(sflog::Level::eDebug);
+		}
+
+		return r;
 	} ();
 
 	const auto uiRdrParams = []() {
@@ -727,9 +806,12 @@ int main(int argn, char** argv) {
 		BasicRenderProcess::destroy(*basic_rprocess, engine.getTransferContext());
 
 		logger.info("Successfully exiting the program.");
+		return EXIT_SUCCESS;
 	} catch(posixfio::Errcode& e) {
 		logger.error("Uncaught posixfio error: {}", e.errcode);
+		return EXIT_FAILURE;
 	} catch(vkutil::VulkanError& e) {
 		logger.error("Uncaught Vulkan error: {}", e.what());
+		return EXIT_FAILURE;
 	}
 }

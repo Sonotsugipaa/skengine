@@ -1,5 +1,9 @@
 find_package(glm)
 
+add_library(config-parser config/config.cpp)
+target_link_libraries(config-parser ctpg sflog)
+target_compile_options(config-parser PUBLIC -Wno-abi)
+
 add_executable(sneka3d
 	world_v1.cpp
 	main.cpp )
@@ -13,6 +17,7 @@ else()
 endif()
 
 target_link_libraries(sneka3d
+	config-parser
 	posixfio
 	engine
 	engine-util

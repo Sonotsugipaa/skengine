@@ -9,7 +9,8 @@ generator="${generator:-"Ninja"}"
 
 dstpath="${dstpath:-/tmp/game-engine-sketch}"
 pkgpath=$dstpath/${config}-pack
-srcassetpath="${srcassetpath:-"$(realpath ./assets)"}"
+srcpath="${srcpath:-${$(<<< .):a}}"
+srcassetpath="$srcpath/assets"
 binpath="$dstpath/$config"
 
 if [[ ! -d $binpath ]]; then
@@ -92,3 +93,6 @@ function copybin {
 	fi
 }
 copybin
+
+
+cp -ut $pkgpath $srcpath/src/config.cfg
