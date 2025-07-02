@@ -641,15 +641,15 @@ namespace SKENGINE_NAME_NS {
 			}
 			return i;
 		} ();
+		auto new_instance_count_ceil = std::bit_ceil(new_instance_count);
 
-		size_t new_size = new_instance_count * sizeof(dev::Object);
 		constexpr size_t shrink_fac = 4;
 
 		{ // Ensure the object buffer is big enough
+			auto new_size       = new_instance_count_ceil * sizeof(dev::Object);
 			bool size_too_small = (new_size > mObjectBuffer.second);
 			bool size_too_big   = (new_size < mObjectBuffer.second / shrink_fac);
 			if(size_too_small || size_too_big) {
-				auto new_instance_count_ceil = std::bit_ceil(new_instance_count);
 				mObjectsNeedRebuild = true;
 				mObjectsNeedFlush   = true;
 				debug::destroyedBuffer(mObjectBuffer.first, "object instances");
