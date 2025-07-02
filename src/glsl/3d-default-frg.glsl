@@ -140,10 +140,10 @@ vec3 unorm_correct(vec3 v) {
 	return v / 255.0;
 }
 
-float shinify(float x, float exp) {
+float shinify(float x, float shininess) {
 	x = clamp(x, 0.0, 1.0);
-	exp = max(exp, 0.01);
-	return max((x * exp) + 1 - exp, 0);
+	shininess = max(shininess, 0.01);
+	return max((x * shininess) + 1 - shininess, 0);
 }
 
 float aoa_fade(float value, float angle_of_attack) {
@@ -304,9 +304,10 @@ vec4 mix_weighted_colors(vec4 c0, vec4 c1) {
 
 
 void main() {
+	// This needs to be done here because of interpolation
 	mat3 tbn = mat3(
-		normalize(frg_viewspace_tanu),
-		normalize(frg_viewspace_tanv),
+		normalize(frg_viewspace_tanu - (frg_viewspace_tanw * dot(frg_viewspace_tanw, frg_viewspace_tanu))),
+		normalize(frg_viewspace_tanv - (frg_viewspace_tanw * dot(frg_viewspace_tanw, frg_viewspace_tanv))),
 		normalize(frg_viewspace_tanw) );
 
 	vec4 tex_dfs = texture(tex_dfsSampler, frg_tex);
