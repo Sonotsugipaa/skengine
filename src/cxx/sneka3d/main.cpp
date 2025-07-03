@@ -53,41 +53,64 @@ namespace sneka {
 
 	namespace anim {
 
+		template <typename T>
+		using AnimPtr = std::shared_ptr<ske::BasicAnimation<T>>;
+
+		template <ske::BasicAnimationValueType T>
+		using Var = ske::BasicAnimationVar<T>;
+
+		template <typename T>
+		struct Pair {
+			Var<T> var;
+			ske::AnimId id;
+
+			Pair() = default;
+
+			Pair(Var<T> var, ske::AnimId id): var(std::move(var)), id(id) { }
+
+			template <typename StdPair>
+			Pair(const StdPair& cp): var(cp.first->var()), id(cp.second) { }
+
+			template <typename StdPair>
+			Pair(StdPair&& cp): var(std::move(cp.first->var())), id(cp.second) { }
+		};
+
+
 		namespace target {
 
 			template <typename T>
-			class Linear : public ske::Animation<T> {
+			class Linear : public ske::BasicAnimation<T> {
 			public:
 				T beginning;
 				T dir;
 
-				Linear(ske::AnimationValue<T>& v, T beginning, T dir):
-					ske::Animation<T>(v),
+				Linear(Var<T> var, T beginning, T dir):
+					ske::BasicAnimation<T>(std::move(var)),
 					beginning(beginning),
 					dir(dir)
 				{ }
 
-				void animation_setProgress(T& dst, ske::anim_x_t x) noexcept override {
-					dst = beginning + (dir * x);
+				void animation_setProgress(ske::anim_x_t x) noexcept override {
+					this->value() = beginning + (dir * x);
 				}
 			};
 
 
 			template <typename T>
-			class EaseOut : public ske::Animation<T> {
+			class EaseOut : public ske::BasicAnimation<T> {
 			public:
 				T beginning;
 				T dir;
 
-				EaseOut(ske::AnimationValue<T>& v, T beginning, T dir):
-					ske::Animation<T>(v),
+				EaseOut(Var<T> var, T beginning, T dir):
+					ske::BasicAnimation<T>(std::move(var)),
 					beginning(beginning),
 					dir(dir)
 				{ }
 
-				void animation_setProgress(T& dst, ske::anim_x_t x) noexcept override {
+				void animation_setProgress(ske::anim_x_t x) noexcept override {
 					constexpr auto f = [](ske::anim_x_t x) { auto x2 = x*x; return (ske::anim_x_t(2) * x) - x2; };
-					dst = beginning + (dir * float(f(x)));
+					this->value() = beginning + (dir * float(f(x)));
 				}
 			};
 
@@ -98,39 +121,39 @@ namespace sneka {
 		namespace inplace {
 
 			template <typename T>
-			class SwingBack : public ske::Animation<T> {
+			class SwingBack : public ske::BasicAnimation<T> {
 			public:
 				T beginning;
 				ske::anim_x_t inflexPoint;
 
-				SwingBack(ske::AnimationValue<T>& v, T beginning, ske::anim_x_t inflexPoint):
-					ske::Animation<T>(v),
+				SwingBack(Var<T> var, T beginning, ske::anim_x_t inflexPoint):
+					ske::BasicAnimation<T>(std::move(var)),
 					beginning(beginning),
 					inflexPoint(inflexPoint)
 				{ }
 
-				void animation_setProgress(T& dst, ske::anim_x_t x) noexcept override {
+				void animation_setProgress(ske::anim_x_t x) noexcept override {
 					constexpr auto f = [](ske::anim_x_t x) { auto x2 = x*x; return (x2 - x) * ske::anim_x_t(4); };
-					dst = beginning + (inflexPoint * f(x));
+					this->value() = beginning + (inflexPoint * f(x));
 				}
 			};
 
 
-			class VecSwingBack : public ske::Animation<glm::vec3> {
+			class VecSwingBack : public ske::BasicAnimation<glm::vec3> {
 			public:
 				glm::vec3 beginning;
 				glm::vec3 inflexPoints;
 
-				VecSwingBack(ske::AnimationValue<glm::vec3>& v, glm::vec3 beginning, glm::vec3 inflexPoints):
-					ske::Animation<glm::vec3>(v),
+				VecSwingBack(Var<glm::vec3> var, glm::vec3 beginning, glm::vec3 inflexPoints):
+					ske::BasicAnimation<glm::vec3>(std::move(var)),
 					beginning(beginning),
 					inflexPoints(inflexPoints)
 				{ }
 
-				void animation_setProgress(glm::vec3& dst, ske::anim_x_t x) noexcept override {
+				void animation_setProgress(ske::anim_x_t x) noexcept override {
 					constexpr auto f = [](ske::anim_x_t x) { auto x2 = x*x; return (x2 - x) * ske::anim_x_t(4); };
 					x = f(x);
-					dst = beginning + glm::vec3(
+					this->value() = beginning + glm::vec3(
 						inflexPoints.x * x,
 						inflexPoints.y * x,
 						inflexPoints.z * x );
@@ -200,10 +223,10 @@ namespace sneka {
 		static constexpr const char* worldFilename = "world.wrd";
 		static constexpr float cameraDistance = 2.5f;
 		static constexpr float cameraPitch = 0.75f;
-		static constexpr float speedBaseDefault = 2.0f;
+		static constexpr float speedBaseDefault = 2.5f;
 		static constexpr float speedBoostDecayDn = 0.5f;
 		static constexpr float speedBoostDecayUp = 0.2f;
-		static constexpr float speedBoostFromInput = speedBoostDecayDn * 5.0f;
+		static constexpr float speedBoostFromInput = speedBoostDecayDn * 4.0f;
 
 		enum class QuitReason : unsigned char {
 			eNoQuit = 1,
@@ -214,10 +237,11 @@ namespace sneka {
 		struct CallbackSharedState {
 			std::mutex animMutex;
 			LogicFn selectedLogic;
-			ske::AnimationSet<glm::vec3> playerMovementAnim;
-			ske::AnimationValue<glm::vec3> playerHeadPos;
-			ske::AnimationValue<glm::vec3> camRotation;
-			ske::AnimId   cameraAnimId;
+			ske::AnimationSet playerMovementAnimSet;
+			anim::Var<glm::vec3> playerHeadPos;
+			anim::Var<glm::vec3> camRotation;
+			ske::AnimId   playerHeadPosAnimId;
+			ske::AnimId   camRotationAnimId;
 			signed char   lastDir[2];
 			unsigned char enableCulling;
 			float         headYawTarget;
@@ -226,19 +250,18 @@ namespace sneka {
 			QuitReason    quitReason;
 			bool          requestMapRegen;
 			void init() {
-				selectedLogic      = &Loop::snekaLogic;
-				playerMovementAnim = { };
-				playerHeadPos      = { };
-				camRotation        = { };
-				cameraAnimId       = idgen::invalidId<ske::AnimId>();
-				lastDir[0]         =  0;
-				lastDir[1]         = -1;
-				enableCulling      = 0b11;
-				headYawTarget      = 0.0f;
-				speedBase          = speedBaseDefault;
-				speedBoost         = -0.5f * speedBase;
-				quitReason         = QuitReason::eNoQuit;
-				requestMapRegen    = false;
+				selectedLogic         = &Loop::snekaLogic;
+				playerMovementAnimSet = { };
+				playerHeadPosAnimId   = idgen::invalidId<ske::AnimId>();
+				camRotationAnimId     = idgen::invalidId<ske::AnimId>();
+				lastDir[0]            =  0;
+				lastDir[1]            = -1;
+				enableCulling         = 0b11;
+				headYawTarget         = 0.0f;
+				speedBase             = speedBaseDefault;
+				speedBoost            = -0.5f * speedBase;
+				quitReason            = QuitReason::eNoQuit;
+				requestMapRegen       = false;
 			}
 			CallbackSharedState() { init(); }
 		};
@@ -340,8 +363,8 @@ namespace sneka {
 			constexpr float macrotickAnimRatio = 0.99f; // Used to encourage macrotick-tied animations to finish after the macrotick (ideally being interrupted)
 
 			auto& shState = *sharedState;
-			auto targetViewRot = shState.camRotation.getValue();
-			auto deltaSupertick = deltaAvg * macrotickFrequency;
+			auto targetViewRot = *shState.camRotation;
+			const auto deltaSupertick = deltaAvg * macrotickFrequency;
 
 			{ // Macrotick progress
 				auto macrotickLock = std::unique_lock(macrotickMutex);
@@ -349,7 +372,7 @@ namespace sneka {
 			}
 
 			{ // Animation
-				auto& playerHeadPos = shState.playerHeadPos.getValue();
+				auto& playerHeadPos = shState.playerHeadPos.value();
 				auto lock = std::unique_lock(shState.animMutex);
 				{ // Set view
 					glm::mat4 viewRotTransf = glm::mat4(1.0f);
@@ -379,7 +402,7 @@ namespace sneka {
 						mod->direction_ypr = newHeadRot; }
 				}
 
-				shState.playerMovementAnim.fwd(deltaSupertick * macrotickAnimRatio);
+				shState.playerMovementAnimSet.fwd(deltaSupertick * macrotickAnimRatio);
 			}
 		}
 
@@ -402,7 +425,7 @@ namespace sneka {
 				else if(shState.speedBoost < 0.0f) shState.speedBoost = std::min(0.0f, shState.speedBoost + speedBoostDecayUp);
 				inputLock.unlock();
 
-				const auto worldPos = shState.playerHeadPos.getValue();
+				const auto worldPos = *shState.playerHeadPos;
 				const auto gridPos = worldToGrid(worldPos);
 				auto xApprox = std::floorf(worldPos.x + 0.5f);
 				auto zApprox = std::floorf(worldPos.z + 0.5f);
@@ -433,8 +456,8 @@ namespace sneka {
 					shState.headYawTarget = yaw;
 					{ // Animation mutex lock
 						auto lock = std::unique_lock(shState.animMutex);
-						shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
-						playerHeadPosAnimId = shState.playerMovementAnim.start<anim::target::Linear<glm::vec3>>(
+						shState.playerMovementAnimSet.interrupt(shState.playerHeadPosAnimId);
+						shState.playerHeadPosAnimId = shState.playerMovementAnimSet.start<anim::target::Linear<glm::vec3>>(
 							ske::AnimEndAction::ePause,
 							shState.playerHeadPos,
 							worldPos,
@@ -451,7 +474,7 @@ namespace sneka {
 
 			auto& shState = *sharedState;
 			auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
-			const auto worldPos = shState.playerHeadPos.getValue();
+			const auto worldPos = *shState.playerHeadPos;
 
 			using dir_e = unsigned char;
 			enum Dir : dir_e { dirNone, dirFwd, dirBwd, dirLft, dirRgt };
@@ -479,10 +502,10 @@ namespace sneka {
 				auto animLock = std::unique_lock(shState.animMutex);
 
 				if(playerHeadPosAnimId == idgen::invalidId<ske::AnimId>()) {
-					shState.playerMovementAnim.interrupt(playerHeadPosAnimId);
+					shState.playerMovementAnimSet.interrupt(playerHeadPosAnimId);
 					playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
 				}
-				shState.playerHeadPos.setValue({ xTarget, 0.0f, zTarget });
+				*shState.playerHeadPos = { xTarget, 0.0f, zTarget };
 
 				const auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
 				if(dirLateral && (shState.headYawTarget - playerHeadDir.x <= YAW_SNAP_THRESHOLD)) [[unlikely]] {
@@ -545,7 +568,7 @@ namespace sneka {
 
 			{ // Input management
 				auto inputLock = std::unique_lock(inputManMutex);
-				auto sharedState = this->sharedState;
+				auto shStateCopy = sharedState;
 				auto bindKeyPressCb = [&](SDL_KeyCode kc, std::string ctx, ske::CommandCallbackFunction auto cb) {
 					auto key = ske::InputMapKey { ske::inputIdFromSdlKey(kc), ske::InputState::eActivated };
 					auto cbPtr = std::make_shared<ske::CommandCallbackWrapper<decltype(cb)>>(std::move(cb));
@@ -567,8 +590,8 @@ namespace sneka {
 					}
 				};
 				static constexpr auto rotate = [](CallbackSharedState& state, signed char dir) {
-					rotateIvec(state.lastDir[0], state.lastDir[1], dir);
-					auto cam = state.camRotation.getValue();
+					if(dir != 0) [[likely]] rotateIvec(state.lastDir[0], state.lastDir[1], dir);
+					auto cam = *state.camRotation;
 					auto yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
 
 					#define UNLIKELY_WHILE_(COND_, EXPR_) if(COND_) [[unlikely]] { do { EXPR_; } while(COND_); }
@@ -579,8 +602,8 @@ namespace sneka {
 					{
 						auto lock = std::unique_lock(state.animMutex);
 						auto yawDiff = yawTarget - cam.x;
-						state.playerMovementAnim.interrupt(state.cameraAnimId);
-						state.cameraAnimId = state.playerMovementAnim.start<anim::target::EaseOut<glm::vec3>>(
+						state.playerMovementAnimSet.interrupt(state.camRotationAnimId);
+						state.camRotationAnimId = state.playerMovementAnimSet.start<anim::target::EaseOut<glm::vec3>>(
 							ske::AnimEndAction::eClampThenPause,
 							state.camRotation,
 							cam,
@@ -600,13 +623,13 @@ namespace sneka {
 				cmdBwd = bindKeyHoldCb(SDLK_s, "general", nullptr);
 				cmdLft = bindKeyHoldCb(SDLK_a, "general", nullptr);
 				cmdRgt = bindKeyHoldCb(SDLK_d, "general", nullptr);
-				bindKeyPressCb(SDLK_a, "general", [sharedState](auto&, auto) { rotate(*sharedState, +1); });
-				bindKeyPressCb(SDLK_d, "general", [sharedState](auto&, auto) { rotate(*sharedState, -1); });
-				bindKeyPressCb(SDLK_q, "general", [sharedState](auto&, auto) { sharedState->quitReason = QuitReason::eUserInput; });
-				bindKeyPressCb(SDLK_c, "general", [sharedState](auto&, auto) { sharedState->enableCulling = sharedState->enableCulling ^ 0b01; });
-				bindKeyPressCb(SDLK_r, "general", [sharedState](auto&, auto) { sharedState->requestMapRegen = true; });
-				bindKeyPressCb(SDLK_f, "general", [sharedState](auto&, auto) { cycleLogic(*sharedState); });
-				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [sharedState](auto&, auto) { sharedState->speedBoost = speedBoostFromInput; });
+				bindKeyPressCb(SDLK_a, "general", [shStateCopy](auto&, auto) { rotate(*shStateCopy, +1); });
+				bindKeyPressCb(SDLK_d, "general", [shStateCopy](auto&, auto) { rotate(*shStateCopy, -1); });
+				bindKeyPressCb(SDLK_q, "general", [shStateCopy](auto&, auto) { shStateCopy->quitReason = QuitReason::eUserInput; });
+				bindKeyPressCb(SDLK_c, "general", [shStateCopy](auto&, auto) { shStateCopy->enableCulling = shStateCopy->enableCulling ^ 0b01; });
+				bindKeyPressCb(SDLK_r, "general", [shStateCopy](auto&, auto) { shStateCopy->requestMapRegen = true; });
+				bindKeyPressCb(SDLK_f, "general", [shStateCopy](auto&, auto) { cycleLogic(*shStateCopy); });
+				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [shStateCopy](auto&, auto) { shStateCopy->speedBoost = speedBoostFromInput; });
 			}
 
 			{ // Load models
@@ -650,6 +673,8 @@ namespace sneka {
 			{ // Setup animations
 				macrotickProgress = 0.0f;
 				playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
+				*sharedState->playerHeadPos = { };
+				*sharedState->camRotation = { 0.0f, cameraPitch, 0.0f };
 			}
 
 			{ // Set up the world
@@ -719,7 +744,6 @@ namespace sneka {
 				newObject.direction_ypr = { };
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				tryCreate(sceneryOs, mdlIds.scenery);
-				sharedState->camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
 				auto genSkyLight = [&](const glm::vec3& center, glm::vec2 offset) {
 					skyLights.push_back(wr.createRayLight(ske::WorldRenderer::NewRayLight {
 						.direction = { center.x + offset.x, center.y, center.z + offset.y },

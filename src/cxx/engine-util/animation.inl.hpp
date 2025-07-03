@@ -21,79 +21,78 @@ namespace SKENGINE_NAME_NS {
 	enum class AnimId : anim_id_e { };
 
 
-	template <typename T>
-	requires std::is_trivially_copyable_v<T>
-	class AnimationValue {
-	public:
-		using ValueType = T;
-
-		AnimationValue(): ap_value(std::make_shared<T>(T())) { }
-		AnimationValue(T value): ap_value(std::make_shared<T>(std::move(value))) { }
-		AnimationValue(const AnimationValue&) = default;
-		AnimationValue(AnimationValue&&) = default;
-		~AnimationValue() = default;
-		AnimationValue& operator=(const AnimationValue&) = default;
-		AnimationValue& operator=(AnimationValue&&) = default;
-
-		void reset() { ap_value.reset(); }
-
-		const T& getValue() const noexcept { return *ap_value; }
-		void setValue(T value) noexcept { *ap_value = std::move(value); }
-
-		auto getValuePtr() noexcept { return std::weak_ptr<T>(ap_value); }
-
-	private:
-		std::shared_ptr<T> ap_value;
-	};
-
-
-	template <typename T>
-	requires std::is_trivially_copyable_v<T>
 	class Animation {
 	public:
-		using ValueType = T;
-
-		Animation(): anim_value_ref(), anim_x(0) { }
-		Animation(nullptr_t): Animation() { }
-		Animation(AnimationValue<T>& v): anim_value_ref(v.getValuePtr()), anim_x(0) { }
+		Animation(): anim_x(0) { }
 		virtual ~Animation() = default;
 
-		virtual void animation_setProgress(T& value, anim_x_t progress) noexcept = 0;
-		virtual void restart() noexcept { }
-
 		auto getProgress() const noexcept { return anim_x; }
+		void setProgress(anim_x_t x) noexcept { anim_x = x; animation_setProgress(anim_x); }
 
-		auto setProgress(anim_x_t x) noexcept { if(! anim_value_ref.expired()) [[likely]] {
-			animation_setProgress(*anim_value_ref.lock(), x);
-		} }
-
-		void reset() noexcept { if(! anim_value_ref.expired()) [[likely]] {
-			animation_setProgress(*anim_value_ref.lock(), anim_x_t(0));
+		void reset() noexcept {
+			setProgress(anim_x_t(0));
 			anim_x = anim_x_t(0);
-		} }
+		}
 
-		void fwd(anim_x_t xDelta) noexcept { if(! anim_value_ref.expired()) [[likely]] {
-			anim_x += std::max(xDelta, - anim_x);
-			animation_setProgress(*anim_value_ref.lock(), anim_x + xDelta);
-		} }
+		void fwd(anim_x_t xDelta) noexcept {
+			xDelta = std::max(xDelta, - anim_x);
+			setProgress(anim_x + xDelta);
+		}
 
-		void fwdUpTo(anim_x_t xDelta, anim_x_t limit) noexcept { if(! anim_value_ref.expired()) [[likely]] {
-			xDelta += std::clamp(xDelta - anim_x, anim_x_t(0), limit - anim_x);
-			animation_setProgress(*anim_value_ref.lock(), anim_x + xDelta);
-		} }
+	protected:
+		virtual void animation_setProgress(anim_x_t progress) noexcept = 0;
 
 	private:
-		std::weak_ptr<T> anim_value_ref;
 		anim_x_t anim_x;
 	};
 
 
-	template <typename T, typename ValueType>
+	template <typename T>
+	concept BasicAnimationValueType = requires {
+		std::make_shared<T>();
+	};
+
+
+	template <BasicAnimationValueType T>
+	class BasicAnimationVar {
+	public:
+		BasicAnimationVar(): bav_valuePtr(std::make_shared<T>()) { }
+
+		auto& operator*(this auto& self) noexcept { return *self.bav_valuePtr; }
+		auto& operator->(this auto& self) noexcept { return *self.bav_valuePtr; }
+		auto& value(this auto& self) noexcept { return *self; }
+
+	protected:
+		std::shared_ptr<T> bav_valuePtr;
+	};
+
+
+	template <BasicAnimationValueType value_type_tp>
+	class BasicAnimation : public Animation {
+	public:
+		using ValueType = value_type_tp;
+		using VarType = BasicAnimationVar<ValueType>;
+
+		BasicAnimation(BasicAnimationVar<ValueType> var): ba_var(std::move(var)) { }
+		BasicAnimation(const BasicAnimation&) = default;
+		BasicAnimation(BasicAnimation&&) = default;
+		virtual ~BasicAnimation() = default;
+		BasicAnimation& operator=(const BasicAnimation&) = default;
+		BasicAnimation& operator=(BasicAnimation&&) = default;
+
+		auto& value(this auto& self) noexcept { return *self.ba_var; }
+		auto var() const noexcept { return ba_var; }
+
+	private:
+		VarType ba_var;
+	};
+
+
+	template <typename T>
 	concept AnimationType =
 		std::is_copy_assignable_v<T> &&
-		requires (T t, T&& rt, ValueType& tr) {
-			t.animation_setProgress(tr, anim_x_t(0.1));
-			t.restart();
+		requires (T t) {
+			t.animation_setProgress(anim_x_t(0.1));
 			t.fwd(anim_x_t(0.1));
 		};
 
@@ -113,18 +112,16 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	template <typename T>
-	requires std::is_trivially_copyable_v<T>
 	class AnimationSet {
 	public:
-		template <AnimationType<T> Anim, typename... ConstrArgs>
+		template <AnimationType Anim, typename... ConstrArgs>
 		auto start(AnimEndAction endAction, ConstrArgs&&... animConstructorArgs) {
 			auto id = anim_set_idGenerator.generate();
 			try {
 				auto animPtr = std::make_shared<Anim>(std::forward<ConstrArgs>(animConstructorArgs)...);
 				anim_set_activeAnims.insert(std::pair(
 					id,
-					std::pair(std::move(animPtr), endAction) ));
+					std::pair(animPtr, endAction) ));
 				return id;
 			} catch(...) {
 				anim_set_idGenerator.recycle(id);
@@ -132,14 +129,14 @@ namespace SKENGINE_NAME_NS {
 			}
 		}
 
-		template <AnimationType<T> Anim, typename... ConstrArgs>
+		template <AnimationType Anim, typename... ConstrArgs>
 		auto startAhead(AnimEndAction endAction, anim_x_t timeOffset, ConstrArgs&&... animConstructorArgs) {
 			auto id = anim_set_idGenerator.generate();
 			try {
 				auto animPtr = std::make_shared<Anim>(std::forward<ConstrArgs>(animConstructorArgs)...);
 				anim_set_activeAnims.insert(std::pair(
 					id,
-					std::pair(std::move(animPtr), endAction) ));
+					std::pair(animPtr, endAction) ));
 				animPtr->setProgress(timeOffset);
 				return id;
 			} catch(...) {
@@ -179,8 +176,8 @@ namespace SKENGINE_NAME_NS {
 		void resume(AnimId id) {
 			auto anim = anim_set_pausedAnims.find(id);
 			if(anim != anim_set_pausedAnims.end())
-			if(anim->second.first->getProgress < anim_x_t(1)) {
-				anim_set_activeAnims.insert(std::move(anim_set_pausedAnims));
+			if(anim->second.first->getProgress() < anim_x_t(1)) {
+				anim_set_activeAnims.insert_range(std::move(anim_set_pausedAnims));
 				anim_set_pausedAnims.erase(id);
 			}
 		}
@@ -188,7 +185,7 @@ namespace SKENGINE_NAME_NS {
 		void pause(AnimId id) {
 			auto anim = anim_set_activeAnims.find(id);
 			if(anim != anim_set_activeAnims.end()) {
-				anim_set_pausedAnims.insert(std::move(anim_set_activeAnims));
+				anim_set_pausedAnims.insert_range(std::move(anim_set_activeAnims));
 				anim_set_activeAnims.erase(id);
 			}
 		}
@@ -241,8 +238,8 @@ namespace SKENGINE_NAME_NS {
 		}
 
 	private:
-		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation<T>>, AnimEndAction>> anim_set_activeAnims;
-		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation<T>>, AnimEndAction>> anim_set_pausedAnims;
+		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation>, AnimEndAction>> anim_set_activeAnims;
+		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation>, AnimEndAction>> anim_set_pausedAnims;
 		idgen::IdGenerator<AnimId> anim_set_idGenerator;
 	};
 
