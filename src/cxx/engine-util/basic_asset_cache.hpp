@@ -111,6 +111,7 @@ namespace SKENGINE_NAME_NS {
 
 	private:
 		struct Source {
+			std::string name;
 			std::string filename;
 		};
 

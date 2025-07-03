@@ -341,7 +341,6 @@ namespace sneka {
 
 			auto& shState = *sharedState;
 			auto targetViewRot = shState.camRotation.getValue();
-			auto currentViewRot = wr.getViewRotation();
 			auto deltaSupertick = deltaAvg * macrotickFrequency;
 
 			{ // Macrotick progress
@@ -572,8 +571,7 @@ namespace sneka {
 					auto cam = state.camRotation.getValue();
 					auto yawTarget = std::atan2f(state.lastDir[0], -state.lastDir[1]);
 
-					bool camRotWrapped = false;
-					#define UNLIKELY_WHILE_(COND_, EXPR_) if(COND_) [[unlikely]] { camRotWrapped = true; do { EXPR_; } while(COND_); }
+					#define UNLIKELY_WHILE_(COND_, EXPR_) if(COND_) [[unlikely]] { do { EXPR_; } while(COND_); }
 					UNLIKELY_WHILE_(yawTarget - cam.x >= +PI, yawTarget -= PI2);
 					UNLIKELY_WHILE_(yawTarget - cam.x <= -PI, yawTarget += PI2);
 					#undef UNLIKELY_WHILE_
@@ -624,12 +622,11 @@ namespace sneka {
 				auto pointMdls    = world.getObjPointModels();    checkModelListNotEmpty(pointMdls,    "Point");
 				auto obstacleMdls = world.getObjObstacleModels(); checkModelListNotEmpty(obstacleMdls, "Obstacle");
 				auto wallMdls     = world.getObjWallModels();     checkModelListNotEmpty(wallMdls,     "Wall");
-				#warning "TODO: `BasicAssetCache::setModelFromFile` should throw when the file cannot be loaded, but doesn't"
 				auto trySetModel = [&](ske::ModelId* dst, std::string_view filename) {
 					if(*dst != ModelIdStorage::noModel) return;
 					*dst = ModelIdStorage::noModel;
 					try { *dst = assetCache->setModelFromFile(filename); }
-					catch(posixfio::Errcode& e) { modelLoadFail(filename, e.errcode); }
+					catch(posixfio::Errcode& e) { modelLoadFail(filename, e.errcode); *dst = idgen::invalidId<ske::ModelId>(); }
 				};
 				auto resetModelList = [&](std::vector<ske::ModelId>* dst) {
 					for(auto& mdl : *dst) assetCache->unsetModel(mdl);
@@ -956,7 +953,7 @@ int main(int argn, char** argv) {
 		{ // Read the config file
 			auto logLvl = logger.getLevel();
 			readConfigFile(&r.ep, &r.wrp, &logLvl, "config.cfg", logger);
-			logger.setLevel(sflog::Level::eDebug);
+			logger.setLevel(logLvl);
 		}
 
 		return r;

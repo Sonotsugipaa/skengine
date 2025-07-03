@@ -27,7 +27,6 @@ namespace SKENGINE_NAME_NS {
 		// Seek an existing ref
 		auto found = bac_mdlMmaps.find(id);
 		if(found == bac_mdlMmaps.end()) throw UnregisteredModelError(id);
-		++ found->second.refCount;
 
 		// If the ref is not already cached, load it
 		if(! found->second.data.isValid()) {
@@ -51,7 +50,7 @@ namespace SKENGINE_NAME_NS {
 					mtlFilename.append(bac_filenamePrefix);
 					mtlFilename.append(mtlName);
 					MaterialRef newMtl = {
-						.src      = { .filename = std::move(mtlFilename) },
+						.src      = { .name = std::string(mtlName), .filename = std::move(mtlFilename) },
 						.data     = nullptr,
 						.desc     = { },
 						.refCount = 0 };
@@ -63,6 +62,7 @@ namespace SKENGINE_NAME_NS {
 				}
 			}
 
+			++ found->second.refCount;
 			assert(found->second.data.isValid());
 		}
 
@@ -77,7 +77,6 @@ namespace SKENGINE_NAME_NS {
 		// Seek an existing ref
 		auto found = bac_mtlMmaps.find(id);
 		if(found == bac_mtlMmaps.end()) throw UnregisteredMaterialError(id);
-		++ found->second.refCount;
 
 		// If the ref is not already cached, load it
 		if(! found->second.data.isValid()) {
@@ -97,6 +96,7 @@ namespace SKENGINE_NAME_NS {
 			assert(found->second.data.isValid());
 		}
 
+		++ found->second.refCount;
 		return found->second.desc;
 	}
 
@@ -146,12 +146,16 @@ namespace SKENGINE_NAME_NS {
 		mdlFilename.append(bac_filenamePrefix);
 		mdlFilename.append(filename);
 		ModelRef newMdl = {
-			.src      = { .filename = std::move(mdlFilename) },
+			.src      = { .name = std::string(filename), .filename = std::move(mdlFilename) },
 			.data     = nullptr,
 			.desc     = { },
 			.refCount = 0 };
 		auto newId = bac_mdlIdGen.generate();
 		bac_mdlMmaps.insert({ newId, std::move(newMdl) });
+		try { // Request and release the data, to preemptively cache it or trigger errors
+			aci_requestModelData(newId);
+			aci_releaseModelData(newId);
+		} catch(...) { unsetModel(newId); std::rethrow_exception(std::current_exception()); }
 		bac_logger.info("Associated model {} with file \"{}{}\"", model_id_e(newId), bac_filenamePrefix, filename);
 		return newId;
 	}
@@ -180,13 +184,17 @@ namespace SKENGINE_NAME_NS {
 		mtlFilename.append(bac_filenamePrefix);
 		mtlFilename.append(filename);
 		MaterialRef newMtl = {
-			.src      = { .filename = std::move(mtlFilename) },
+			.src      = { .name = name, .filename = std::move(mtlFilename) },
 			.data     = nullptr,
 			.desc     = { },
 			.refCount = 0 };
 		auto newId = bac_mtlIdGen.generate();
 		bac_mtlMmaps.insert({ newId, std::move(newMtl) });
 		bac_mtlNameMap.insert({ std::move(name), newId });
+		try { // Request and release the data, to preemptively cache it or trigger errors
+			aci_requestMaterialData(newId);
+			aci_releaseMaterialData(newId);
+		} catch(...) { unsetMaterial(newId); std::rethrow_exception(std::current_exception()); }
 		bac_logger.info("Associated material {} with file \"{}{}\"", material_id_e(newId), bac_filenamePrefix, filename);
 		return newId;
 	}
@@ -203,6 +211,7 @@ namespace SKENGINE_NAME_NS {
 			bac_logger.warn(" (This will probably cause a memory leak if the application");
 			bac_logger.warn(" assumes that the material has been forgotten)");
 		} else {
+			bac_mtlNameMap.erase(found->second.src.name);
 			bac_mtlMmaps.erase(id);
 			bac_mtlIdGen.recycle(id);
 		}
