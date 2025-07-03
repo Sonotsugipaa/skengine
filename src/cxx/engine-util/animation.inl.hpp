@@ -102,21 +102,23 @@ namespace SKENGINE_NAME_NS {
 	template <ConcurrentAnimationValueType T>
 	class ConcurrentAnimationVar {
 	public:
-		#warning "TODO: add a permanent addend"
-
 		using ValueType = T;
 
 		using token_e = size_t; // Most likely well aligned for a std::map key+value pair
 		enum class Token { };
 
-		ConcurrentAnimationVar(): bav_sharedState(std::make_shared<SharedState>()) { }
+		ConcurrentAnimationVar(ValueType initialOffset = ValueType()):
+			bav_offset(std::move(initialOffset)),
+			bav_sharedState(std::make_shared<SharedState>())
+		{ }
 
-		auto value() const noexcept { auto r = T(); for(auto&& v : bav_sharedState->values) r = r + v.second; return r; }
+		auto value() const noexcept { auto r = bav_offset; for(auto&& v : bav_sharedState->values) r = r + v.second; return r; }
+		auto& offset(this auto& self) noexcept { return self.bav_offset; }
 
 	protected:
 		friend ConcurrentAnimation<T>;
 		struct SharedState { Token tokenCtr = Token(0); std::map<Token, T> values; };
-public:
+		ValueType bav_offset;
 		std::shared_ptr<SharedState> bav_sharedState;
 	};
 
@@ -144,6 +146,7 @@ public:
 		}
 
 		virtual ~ConcurrentAnimation() {
+			if(Animation::getProgress() != anim_x_t(0.0)) ca_var.offset() = ca_var.offset() + value();
 			ca_var.bav_sharedState->values.erase(ca_token);
 		}
 
@@ -185,13 +188,13 @@ public:
 	class AnimationSet {
 	public:
 		template <AnimationType Anim, typename... ConstrArgs>
-		auto start(AnimEndAction endAction, ConstrArgs&&... animConstructorArgs) {
+		auto start(anim_x_t duration, AnimEndAction endAction, ConstrArgs&&... animConstructorArgs) {
 			auto id = anim_set_idGenerator.generate();
 			try {
 				auto animPtr = std::make_shared<Anim>(std::forward<ConstrArgs>(animConstructorArgs)...);
 				anim_set_activeAnims.insert(std::pair(
 					id,
-					std::pair(animPtr, endAction) ));
+					AnimEntry { animPtr, anim_x_t(1) / duration, endAction } ));
 				return id;
 			} catch(...) {
 				anim_set_idGenerator.recycle(id);
@@ -200,13 +203,13 @@ public:
 		}
 
 		template <AnimationType Anim, typename... ConstrArgs>
-		auto startAhead(AnimEndAction endAction, anim_x_t timeOffset, ConstrArgs&&... animConstructorArgs) {
+		auto startAhead(anim_x_t duration, AnimEndAction endAction, anim_x_t timeOffset, ConstrArgs&&... animConstructorArgs) {
 			auto id = anim_set_idGenerator.generate();
 			try {
 				auto animPtr = std::make_shared<Anim>(std::forward<ConstrArgs>(animConstructorArgs)...);
 				anim_set_activeAnims.insert(std::pair(
 					id,
-					std::pair(animPtr, endAction) ));
+					AnimEntry { animPtr, anim_x_t(1) / duration, endAction } ));
 				animPtr->setProgress(timeOffset);
 				return id;
 			} catch(...) {
@@ -219,7 +222,7 @@ public:
 			using enum AnimEndAction;
 			auto anim = anim_set_activeAnims.find(id);
 			if(anim != anim_set_activeAnims.end()) {
-				switch(anim->second.second) {
+				switch(anim->second.endAction) {
 					default: [[fallthrough]];
 					case eRepeat: [[fallthrough]];
 					case ePause: [[fallthrough]];
@@ -227,7 +230,7 @@ public:
 						break;
 					case eClampThenPause: [[fallthrough]];
 					case eClampThenTerminate:
-						anim->second.first->setProgress(anim_x_t(1));
+						anim->second.anim->setProgress(anim_x_t(1));
 						break;
 				}
 				anim_set_activeAnims.erase(anim);
@@ -246,7 +249,7 @@ public:
 		void resume(AnimId id) {
 			auto anim = anim_set_pausedAnims.find(id);
 			if(anim != anim_set_pausedAnims.end())
-			if(anim->second.first->getProgress() < anim_x_t(1)) {
+			if(anim->second.anim->getProgress() < anim_x_t(1)) {
 				anim_set_activeAnims.insert_range(std::move(anim_set_pausedAnims));
 				anim_set_pausedAnims.erase(id);
 			}
@@ -266,21 +269,21 @@ public:
 			auto iter = anim_set_activeAnims.begin();
 			const auto end = anim_set_activeAnims.end();
 			while(iter != end) {
-				auto& anim = *iter->second.first;
-				anim.fwd(xDelta);
+				auto& anim = *iter->second.anim;
+				anim.fwd(xDelta * iter->second.frequency);
 				if(anim.getProgress() >= anim_x_t(1)) [[unlikely]] stopIds.insert(iter->first);
 				++ iter;
 			}
 			for(auto id : stopIds) {
 				auto anim = anim_set_activeAnims.find(id);
-				switch(anim->second.second) {
+				switch(anim->second.endAction) {
 					default: [[fallthrough]];
 					case eTerminate:
 						anim_set_activeAnims.erase(anim);
 						anim_set_idGenerator.recycle(id);
 						break;
 					case eClampThenTerminate:
-						anim->second.first->setProgress(anim_x_t(1));
+						anim->second.anim->setProgress(anim_x_t(1));
 						anim_set_activeAnims.erase(anim);
 						anim_set_idGenerator.recycle(id);
 						break;
@@ -289,12 +292,12 @@ public:
 						anim_set_activeAnims.erase(id);
 						break;
 					case eClampThenPause:
-						anim->second.first->setProgress(anim_x_t(1));
+						anim->second.anim->setProgress(anim_x_t(1));
 						anim_set_pausedAnims.insert(std::move(*anim));
 						anim_set_activeAnims.erase(id);
 						break;
 					case eRepeat:
-						anim->second.first->reset();
+						anim->second.anim->reset();
 						break;
 				}
 			}
@@ -308,8 +311,13 @@ public:
 		}
 
 	private:
-		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation>, AnimEndAction>> anim_set_activeAnims;
-		std::unordered_map<AnimId, std::pair<std::shared_ptr<Animation>, AnimEndAction>> anim_set_pausedAnims;
+		struct AnimEntry {
+			std::shared_ptr<Animation> anim;
+			anim_x_t frequency;
+			AnimEndAction endAction;
+		};
+		std::unordered_map<AnimId, AnimEntry> anim_set_activeAnims;
+		std::unordered_map<AnimId, AnimEntry> anim_set_pausedAnims;
 		idgen::IdGenerator<AnimId> anim_set_idGenerator;
 	};
 

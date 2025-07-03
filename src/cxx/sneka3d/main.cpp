@@ -227,31 +227,39 @@ namespace sneka {
 		struct CallbackSharedState {
 			std::mutex animMutex;
 			LogicFn selectedLogic;
-			ske::AnimationSet playerMovementAnimSet;
+			ske::AnimationSet macrotickSyncedAnimSet;
+			ske::AnimationSet steadyAnimSet;
 			anim::BasicVar<glm::vec3> playerHeadPos;
+			anim::BasicVar<glm::vec3> playerHeadDir;
 			anim::BasicVar<glm::vec3> camRotation;
 			anim::ConcrVar<glm::vec3> playerHeadPosMisc;
 			anim::ConcrVar<float>     playerHeadDirMisc;
 			ske::AnimId   camRotationAnimId;
 			signed char   lastDir[2];
 			unsigned char enableCulling;
-			float         headYawTarget;
 			float         speedBase;
 			float         speedBoost;
 			QuitReason    quitReason;
 			bool          requestMapRegen;
+			bool changedDirectionSinceLastMacrotick; // Rolls off the tongue
 			void init() {
-				selectedLogic         = &Loop::snekaLogic;
-				playerMovementAnimSet = { };
-				camRotationAnimId     = idgen::invalidId<ske::AnimId>();
-				lastDir[0]            =  0;
-				lastDir[1]            = -1;
-				enableCulling         = 0b11;
-				headYawTarget         = 0.0f;
-				speedBase             = speedBaseDefault;
-				speedBoost            = -0.5f * speedBase;
-				quitReason            = QuitReason::eNoQuit;
-				requestMapRegen       = false;
+				selectedLogic          = &Loop::snekaLogic;
+				macrotickSyncedAnimSet = { };
+				steadyAnimSet          = { };
+				playerHeadPos          = { };
+				playerHeadDir          = { };
+				camRotation            = { };
+				playerHeadPosMisc      = { };
+				playerHeadDirMisc      = { };
+				camRotationAnimId      = idgen::invalidId<ske::AnimId>();
+				lastDir[0]             =  0;
+				lastDir[1]             = -1;
+				enableCulling          = 0b11;
+				speedBase              = speedBaseDefault;
+				speedBoost             = -0.5f * speedBase;
+				quitReason             = QuitReason::eNoQuit;
+				requestMapRegen        = false;
+				changedDirectionSinceLastMacrotick = false;
 			}
 			CallbackSharedState() { init(); }
 		};
@@ -377,22 +385,15 @@ namespace sneka {
 
 				// Animate player head
 				if(this->playerHead != idgen::invalidId<ske::ObjectId>()) {
-					auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
-					float yawDiff;
-					auto setYawDiff = [&]() { yawDiff = playerHeadDir.x - shState.headYawTarget; };
-					setYawDiff();
-					#define UNLIKELY_WHILE_(COND_, EXPR_) if(COND_) [[unlikely]] { do { EXPR_; } while(COND_); }
-					UNLIKELY_WHILE_(yawDiff >= +PI, playerHeadDir.x -= PI2; setYawDiff());
-					UNLIKELY_WHILE_(yawDiff <= -PI, playerHeadDir.x += PI2; setYawDiff());
-					#undef UNLIKELY_WHILE_
-					auto newHeadRot = playerHeadDir;
-					newHeadRot.x = biasedAverage(newHeadRot.x, shState.headYawTarget, headRotBias * deltaAvg);
 					{ auto mod = plrOs.modifyObject(this->playerHead);
 						mod->position_xyz = playerHeadPos + shState.playerHeadPosMisc.value();
-						mod->direction_ypr = newHeadRot + shState.playerHeadDirMisc.value(); }
+						mod->direction_ypr = shState.playerHeadDir.value() + shState.playerHeadDirMisc.value(); }
 				}
 
-				shState.playerMovementAnimSet.fwd(deltaSupertick * macrotickAnimRatio);
+				{ // Advance animation sets
+					shState.macrotickSyncedAnimSet.fwd(deltaSupertick * macrotickAnimRatio);
+					shState.steadyAnimSet         .fwd(deltaAvg);
+				}
 			}
 		}
 
@@ -409,6 +410,8 @@ namespace sneka {
 					if(inputMan.isCommandActive(cmdBoost)) shState.speedBoost = speedBoostFromInput;
 				}
 				macrotickFrequency = shState.speedBase + shState.speedBoost;
+				bool changedDir = shState.changedDirectionSinceLastMacrotick;
+				shState.changedDirectionSinceLastMacrotick = false;
 				macrotickLock.unlock();
 
 				if     (shState.speedBoost > 0.0f) shState.speedBoost = std::max(0.0f, shState.speedBoost - speedBoostDecayDn);
@@ -442,12 +445,31 @@ namespace sneka {
 					auto xDiff = (xApprox - shState.lastDir[0]) - worldPos.x;
 					auto zDiff = (zApprox + shState.lastDir[1]) - worldPos.z;
 					auto yaw = std::atan2f(+shState.lastDir[0], -shState.lastDir[1]);
-					shState.headYawTarget = yaw;
 					{ // Animation mutex lock
 						auto lock = std::unique_lock(shState.animMutex);
-						shState.playerMovementAnimSet.interrupt(playerHeadPosAnimId);
-						playerHeadPosAnimId = shState.playerMovementAnimSet.start<anim::target::Linear<glm::vec3>>(
-							ske::AnimEndAction::ePause,
+						if(changedDir) {
+							auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
+							auto curDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
+							auto targetDir = curDir;
+							targetDir.x = yaw;
+							#define UNLIKELY_WHILE_(COND_, EXPR_) if(COND_) [[unlikely]] { do { EXPR_; } while(COND_); }
+							UNLIKELY_WHILE_(targetDir.x - curDir.x >= +PI, targetDir.x -= PI2);
+							UNLIKELY_WHILE_(targetDir.x - curDir.x <= -PI, targetDir.x += PI2);
+							#undef UNLIKELY_WHILE_
+							shState.steadyAnimSet.start<anim::inplace::VecSwingBack<typename ske::ConcurrentAnimation<glm::vec3>>>(
+								0.3, ske::AnimEndAction::eClampThenTerminate,
+								shState.playerHeadPosMisc,
+								glm::vec3 { },
+								glm::vec3 { 0.0f, 0.3f, 0.0f } );
+							shState.steadyAnimSet.start<anim::target::Linear<glm::vec3>>(
+								0.3, ske::AnimEndAction::eClampThenTerminate,
+								shState.playerHeadDir,
+								curDir,
+								targetDir - curDir );
+						}
+						shState.macrotickSyncedAnimSet.interrupt(playerHeadPosAnimId);
+						playerHeadPosAnimId = shState.macrotickSyncedAnimSet.start<anim::target::Linear<glm::vec3>>(
+							1.0, ske::AnimEndAction::ePause,
 							shState.playerHeadPos,
 							worldPos,
 							glm::vec3 { xDiff, 0.0f, zDiff } );
@@ -485,28 +507,26 @@ namespace sneka {
 			{ // Player movement
 				auto xTarget = (worldPos.x + (tickreg::delta_t(shState.lastDir[0]) * speed));
 				auto zTarget = (worldPos.z - (tickreg::delta_t(shState.lastDir[1]) * speed));
-				auto& [ xDir, zDir ] = shState.lastDir;
 
 				auto animLock = std::unique_lock(shState.animMutex);
 
 				if(playerHeadPosAnimId == idgen::invalidId<ske::AnimId>()) {
-					shState.playerMovementAnimSet.interrupt(playerHeadPosAnimId);
+					shState.macrotickSyncedAnimSet.interrupt(playerHeadPosAnimId);
 					playerHeadPosAnimId = idgen::invalidId<ske::AnimId>();
 				}
 				*shState.playerHeadPos = { xTarget, 0.0f, zTarget };
-
-				const auto playerHeadDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
-				if(dirLateral && (shState.headYawTarget - playerHeadDir.x <= YAW_SNAP_THRESHOLD)) [[unlikely]] {
-					auto yaw = std::atan2f(-xDir, +zDir);
-					rotateIvec<decltype(xDir)>(xDir, zDir, (dir == dirLft)? 1:-1);
-					shState.headYawTarget += yaw;
-				}
 			}
 		}
 
 
 		void setLogic(LogicFn fn) {
-			{ auto lock = std::unique_lock(macrotickMutex); macrotickProgress = 1; }
+			{ // Macrotick related resets
+				auto lock = std::unique_lock(macrotickMutex);
+				macrotickProgress = 1;
+				sharedState->speedBase = speedBaseDefault;
+				sharedState->speedBoost = 0.0f;
+				sharedState->changedDirectionSinceLastMacrotick = true;
+			}
 			auto lock = std::unique_lock(inputManMutex);
 			sharedState->selectedLogic = fn;
 			currentLogic = fn;
@@ -590,17 +610,13 @@ namespace sneka {
 					{
 						auto lock = std::unique_lock(state.animMutex);
 						auto yawDiff = yawTarget - cam.x;
-						state.playerMovementAnimSet.interrupt(state.camRotationAnimId);
-						state.camRotationAnimId = state.playerMovementAnimSet.start<anim::target::EaseOut<glm::vec3>>(
-							ske::AnimEndAction::eClampThenPause,
+						state.changedDirectionSinceLastMacrotick = true;
+						state.macrotickSyncedAnimSet.interrupt(state.camRotationAnimId);
+						state.camRotationAnimId = state.macrotickSyncedAnimSet.start<anim::target::EaseOut<glm::vec3>>(
+							1.0, ske::AnimEndAction::eClampThenPause,
 							state.camRotation,
 							cam,
 							glm::vec3 { yawDiff, 0.0f, 0.0f } );
-						state.playerMovementAnimSet.start<anim::inplace::VecSwingBack<typename ske::ConcurrentAnimation<glm::vec3>>>(
-							ske::AnimEndAction::eTerminate,
-							state.playerHeadPosMisc,
-							glm::vec3 { },
-							glm::vec3 { 0.0f, 0.3f, 0.0f } );
 					}
 				};
 				static constexpr auto cycleLogic = [](CallbackSharedState& state) {
