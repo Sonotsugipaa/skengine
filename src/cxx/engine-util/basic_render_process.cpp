@@ -142,36 +142,19 @@ namespace SKENGINE_NAME_NS {
 		brp_worldRenderer->setRtargetId_TMP_UGLY_NAME(brp_worldRtarget);
 		brp_uiRenderer->setSrcRtargetId_TMP_UGLY_NAME(brp_worldRtarget);
 
-		Atch worldColAtch0 = {
+		Atch worldColAtch = {
 			.rtarget = brp_worldRtarget,
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-		Atch worldColAtch1 = {
-			.rtarget = brp_worldRtarget,
-			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
 		Atch uiColAtch = {
 			.rtarget = brp_uiRtarget,
 			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,  .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,  .storeOp = VK_ATTACHMENT_STORE_OP_STORE };
-		auto worldSp1Dep = RpDesc::Subpass::Dependency {
-			.srcSubpass = 0,
-			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // The first subpass is where values are cleared, otherwise the second subpass could begin as soon as the depth atch is written
-			.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-			.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-			.dependencyFlags = { } };
 		worldRpDesc.subpasses.push_back(SpDesc {
-			.inputAttachments = { }, .colorAttachments = { worldColAtch0 },
+			.inputAttachments = { }, .colorAttachments = { worldColAtch },
 			.subpassDependencies = { },
 			.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
 			.depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-			.depthRtarget = brp_depthRtarget });
-		worldRpDesc.subpasses.push_back(SpDesc {
-			.inputAttachments = { }, .colorAttachments = { worldColAtch1 },
-			.subpassDependencies = { worldSp1Dep },
-			.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .depthStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.depthInitialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, .depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 			.depthRtarget = brp_depthRtarget });
 		worldRpDesc.framebufferSize = renderExt3d;
 		uiRpDesc.subpasses.push_back(SpDesc {
@@ -191,7 +174,6 @@ namespace SKENGINE_NAME_NS {
 		const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
 		VkClearValue depthClr = { .depthStencil { .depth = 1.0f, .stencil = 0 } };
 		VkClearValue worldClr[4] = {
-			{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr,
 			{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr };
 		VkClearValue uiClr[2] = {
 			{ .color = { 0.0f,   0.0f,   0.0f,   0.0f } }, depthClr };

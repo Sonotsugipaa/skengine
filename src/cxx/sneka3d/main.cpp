@@ -265,9 +265,9 @@ namespace sneka {
 		std::mutex macrotickMutex;
 		LogicFn currentLogic;
 		ske::AnimId playerHeadPosAnimId;
+		std::vector<ske::ObjectId> skyLights;
 		ske::ObjectId light0;
 		ske::ObjectId light1;
-		ske::ObjectId skyLight;
 		ske::ObjectId scenery;
 		ske::ObjectId playerHead;
 		ske::CommandId cmdBoost;
@@ -461,7 +461,7 @@ namespace sneka {
 			Dir dir = dirNone;
 			{ // Check for user input
 				auto inputLock = std::unique_lock(inputManMutex);
-				if(inputMan.isCommandActive(cmdBoost)) speed = deltaAvg * speedBoostFromInput;
+				if(inputMan.isCommandActive(cmdBoost)) speed = deltaAvg * (speedBaseDefault + speedBoostFromInput);
 				if     (inputMan.isCommandActive(cmdFwd)) dir = dirFwd;
 				else if(inputMan.isCommandActive(cmdBwd)) dir = dirBwd;
 				else if(inputMan.isCommandActive(cmdLft)) dir = dirLft;
@@ -723,7 +723,24 @@ namespace sneka {
 				newObject.scale_xyz = { 1.0f, 1.0f, 1.0f };
 				tryCreate(sceneryOs, mdlIds.scenery);
 				sharedState->camRotation.setValue({ 0.0f, cameraPitch, 0.0f });
-				wr.setAmbientLight({ 0.1f, 0.1f, 0.1f });
+				auto genSkyLight = [&](const glm::vec3& center, glm::vec2 offset) {
+					skyLights.push_back(wr.createRayLight(ske::WorldRenderer::NewRayLight {
+						.direction = { center.x + offset.x, center.y, center.z + offset.y },
+						.color = { 0.9f, 0.9f, 1.0f },
+						.intensity = 0.07f,
+						.aoaThreshold = 0.2f }) );
+				};
+				auto skyLightCenter = glm::vec3 { -0.1f, -1.0f, +0.1f };
+				genSkyLight(skyLightCenter, {  0.00f,  0.00f });
+				genSkyLight(skyLightCenter, { +0.50f,  0.00f });
+				genSkyLight(skyLightCenter, {  0.00f, +0.50f });
+				genSkyLight(skyLightCenter, { -0.50f,  0.00f });
+				genSkyLight(skyLightCenter, {  0.00f, -0.50f });
+				genSkyLight(skyLightCenter, { +0.25f, +0.25f });
+				genSkyLight(skyLightCenter, { -0.25f, -0.25f });
+				genSkyLight(skyLightCenter, { -0.25f, +0.25f });
+				genSkyLight(skyLightCenter, { +0.25f, -0.25f });
+				wr.setAmbientLight({ 0.01f, 0.01f, 0.01f });
 				light0 = wr.createPointLight(ske::WorldRenderer::NewPointLight {
 					.position = { },
 					.color = { 0.4f, 0.4f, 1.0f },
@@ -734,11 +751,6 @@ namespace sneka {
 					.color = { 0.9f, 0.9f, 1.0f },
 					.intensity = 12.0f,
 					.falloffExponent = 0.9f });
-				skyLight = wr.createRayLight(ske::WorldRenderer::NewRayLight {
-					.direction = { 0.0f, -1.0f, 0.0f },
-					.color = { 0.9f, 0.9f, 1.0f },
-					.intensity = 0.7f,
-					.aoaThreshold = 0.3f });
 				updateViewPosRot(0.0);
 			}
 

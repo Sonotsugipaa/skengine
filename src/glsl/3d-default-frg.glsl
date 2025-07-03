@@ -71,6 +71,7 @@ layout(location = 8) in mat3 frg_view3;
 layout(location = 0) out vec4 out_col;
 
 const float normal_backface_bias = 0.1;
+const float threshold_limit      = 1.0 - (1.0 / 65536.0);
 const float pi                   = 3.14159265358;
 const uint  flag_hdr_enabled     = 1;
 
@@ -109,6 +110,12 @@ float random1from2(vec2 v) {
 	return randomFloatFromUint(h);
 }
 
+// [-pi/2, pi/2] -> [-1, 1]
+float asin_sq_norm(float x) { return asin(x) / (pi/2); }
+
+// [-1, 1] -> [-pi/2, pi/2]
+float sin_sq_denorm(float x) { return sin(x * (pi/2)); }
+
 
 float unorm_dither(float v) {
 	const float steps = frame_ubo.dithering_steps;
@@ -140,19 +147,26 @@ vec3 unorm_correct(vec3 v) {
 	return v / 255.0;
 }
 
-float shinify(float x, float shininess) {
-	x = clamp(x, 0.0, 1.0);
-	shininess = max(shininess, 0.01);
-	return max((x * shininess) + 1 - shininess, 0);
+float shinify(float x, const float shininess) {
+	x = clamp(x, 0.0, 1.0); // Should be unnecessary, consider removing this line
+	// This is the equation I came up with by trial and error, throw it in kmplot or something
+	// g(x) = ln(x+1) / ln(2)
+	// f(x, k) = (k*((k*x - k + 1)^(1/k))) - (i(k) - 1)
+	float r = (shininess * x) - shininess + 1.0;
+	r = shininess * pow(r, 1.0 / shininess);
+	r = r - (log2(shininess + 1) - 1);
+	return r;
 }
 
-float aoa_fade(float value, float angle_of_attack) {
-	float fade = angle_of_attack / normal_backface_bias;
+float aoa_fade(float value, float angle_of_attack, float threshold) {
+	float fade = max(0, angle_of_attack + threshold) / normal_backface_bias;
 	return value * clamp(fade, 0, 1);
 }
 
 float aoa_with_threshold(float value, float threshold) {
-	return min(value * (threshold + 1.0), 1.0);
+	threshold = min(threshold, threshold_limit);
+	threshold = 1.0 / (1.0 - threshold);
+	return clamp(value * threshold, 0.0, 1.0);
 }
 
 vec3 color_rgb_non_zero(vec4 v) {
@@ -170,19 +184,22 @@ float compute_flat_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, 
 	float lighting = dot(
 		view_dir,
 		reflect(light_dir_viewspace, tex_nrm_viewspace) );
-	lighting = sin(shinify(asin(lighting), material_ubo.shininess));
-	angle_of_attack = aoa_with_threshold(angle_of_attack, aoa_threshold);
-	lighting        = aoa_with_threshold(lighting,        aoa_threshold);
-	lighting = aoa_fade(lighting, angle_of_attack);
+	float aoa_multiplier = aoa_with_threshold(lighting, aoa_threshold);
+	lighting = lighting * aoa_multiplier;
+	lighting =
+		sin_sq_denorm(
+			clamp(
+				shinify(asin_sq_norm(lighting), material_ubo.shininess),
+				0.0, 1.0 ) );
+	lighting = aoa_fade(lighting, angle_of_attack, aoa_threshold);
 	lighting = max(lighting, 0);
 	return lighting;
 }
 
 float compute_rough_reflection(vec3 tex_nrm_viewspace, vec3 light_dir_viewspace, float angle_of_attack, float aoa_threshold) {
 	float lighting = dot(tex_nrm_viewspace, light_dir_viewspace);
-	lighting        = aoa_with_threshold(lighting,        aoa_threshold);
-	angle_of_attack = aoa_with_threshold(angle_of_attack, aoa_threshold);
-	lighting = aoa_fade(lighting, angle_of_attack);
+	lighting = aoa_with_threshold(lighting, aoa_threshold);
+	lighting = aoa_fade(lighting, angle_of_attack, aoa_threshold);
 	lighting = max(lighting, 0);
 	return lighting;
 }
@@ -268,7 +285,6 @@ LuminanceInfo sum_point_lighting(vec3 tex_nrm_viewspace, vec3 view_dir) {
 			* compute_rough_reflection(tex_nrm_viewspace, light_dir, aoa, aoa_threshold) );
 		float luminance_spc = (
 			intensity_falloff
-			* shininess_mul
 			* compute_flat_reflection(tex_nrm_viewspace, light_dir, view_dir, aoa, aoa_threshold) );
 
 		luminance.dfs.a += luminance_dfs;
