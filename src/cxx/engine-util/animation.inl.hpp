@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <set>
+#include <map>
 #include <unordered_map>
 #include <concepts>
 
@@ -26,8 +27,10 @@ namespace SKENGINE_NAME_NS {
 		Animation(): anim_x(0) { }
 		virtual ~Animation() = default;
 
+		virtual void animation_onSetProgress(anim_x_t progress) noexcept = 0;
+
 		auto getProgress() const noexcept { return anim_x; }
-		void setProgress(anim_x_t x) noexcept { anim_x = x; animation_setProgress(anim_x); }
+		void setProgress(anim_x_t x) noexcept { anim_x = x; animation_onSetProgress(anim_x); }
 
 		void reset() noexcept {
 			setProgress(anim_x_t(0));
@@ -38,9 +41,6 @@ namespace SKENGINE_NAME_NS {
 			xDelta = std::max(xDelta, - anim_x);
 			setProgress(anim_x + xDelta);
 		}
-
-	protected:
-		virtual void animation_setProgress(anim_x_t progress) noexcept = 0;
 
 	private:
 		anim_x_t anim_x;
@@ -56,6 +56,8 @@ namespace SKENGINE_NAME_NS {
 	template <BasicAnimationValueType T>
 	class BasicAnimationVar {
 	public:
+		using ValueType = T;
+
 		BasicAnimationVar(): bav_valuePtr(std::make_shared<T>()) { }
 
 		auto& operator*(this auto& self) noexcept { return *self.bav_valuePtr; }
@@ -70,10 +72,9 @@ namespace SKENGINE_NAME_NS {
 	template <BasicAnimationValueType value_type_tp>
 	class BasicAnimation : public Animation {
 	public:
-		using ValueType = value_type_tp;
-		using VarType = BasicAnimationVar<ValueType>;
+		using VarType = BasicAnimationVar<value_type_tp>;
 
-		BasicAnimation(BasicAnimationVar<ValueType> var): ba_var(std::move(var)) { }
+		BasicAnimation(BasicAnimationVar<value_type_tp> var): ba_var(std::move(var)) { }
 		BasicAnimation(const BasicAnimation&) = default;
 		BasicAnimation(BasicAnimation&&) = default;
 		virtual ~BasicAnimation() = default;
@@ -89,11 +90,80 @@ namespace SKENGINE_NAME_NS {
 
 
 	template <typename T>
+	concept ConcurrentAnimationValueType = BasicAnimationValueType<T> && requires (T t, T& tr) {
+		{ tr = t };
+		{ t + t } -> std::convertible_to<T>;
+		{ t + t + t } -> std::convertible_to<T>;
+	};
+
+
+	template <ConcurrentAnimationValueType> class ConcurrentAnimation;
+
+	template <ConcurrentAnimationValueType T>
+	class ConcurrentAnimationVar {
+	public:
+		#warning "TODO: add a permanent addend"
+
+		using ValueType = T;
+
+		using token_e = size_t; // Most likely well aligned for a std::map key+value pair
+		enum class Token { };
+
+		ConcurrentAnimationVar(): bav_sharedState(std::make_shared<SharedState>()) { }
+
+		auto value() const noexcept { auto r = T(); for(auto&& v : bav_sharedState->values) r = r + v.second; return r; }
+
+	protected:
+		friend ConcurrentAnimation<T>;
+		struct SharedState { Token tokenCtr = Token(0); std::map<Token, T> values; };
+public:
+		std::shared_ptr<SharedState> bav_sharedState;
+	};
+
+
+	template <ConcurrentAnimationValueType value_type_tp>
+	class ConcurrentAnimation : public Animation {
+	public:
+		using VarType = ConcurrentAnimationVar<value_type_tp>;
+
+		ConcurrentAnimation(const ConcurrentAnimation&) = delete;
+		ConcurrentAnimation(ConcurrentAnimation&&) = default;
+		ConcurrentAnimation& operator=(const ConcurrentAnimation&) = delete;
+		ConcurrentAnimation& operator=(ConcurrentAnimation&&) = default;
+
+		ConcurrentAnimation(ConcurrentAnimationVar<value_type_tp> var):
+			ca_var(std::move(var))
+		{
+			auto& tokenCtr = ca_var.bav_sharedState->tokenCtr;
+			bool tokenIsUnique;
+			do {
+				ca_token = typename VarType::Token(tokenCtr);
+				tokenCtr = typename VarType::Token(typename VarType::token_e(tokenCtr) + 1);
+				tokenIsUnique = ca_var.bav_sharedState->values.try_emplace(ca_token, value_type_tp { }).second;
+			} while(! tokenIsUnique);
+		}
+
+		virtual ~ConcurrentAnimation() {
+			ca_var.bav_sharedState->values.erase(ca_token);
+		}
+
+		auto& value() noexcept { return ca_var.bav_sharedState->values.at(ca_token); }
+
+	private:
+		VarType::Token ca_token;
+		VarType ca_var;
+	};
+
+
+	template <typename T>
 	concept AnimationType =
-		std::is_copy_assignable_v<T> &&
+		(std::is_copy_assignable_v<T> || std::is_move_assignable_v<T>) &&
 		requires (T t) {
-			t.animation_setProgress(anim_x_t(0.1));
+			typename T::VarType;
+			typename T::VarType::ValueType;
+			t.animation_onSetProgress(anim_x_t(0.1));
 			t.fwd(anim_x_t(0.1));
+			{ t.value() } -> std::convertible_to<typename T::VarType::ValueType>;
 		};
 
 
