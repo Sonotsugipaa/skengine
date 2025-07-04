@@ -36,12 +36,39 @@ namespace sneka {
 		T x;
 		T y;
 
+		constexpr Vec2() = default;
+		constexpr Vec2(const T& x, const T& y): x(x), y(y) { }
+		constexpr Vec2(const Vec2&) = default;
+		constexpr Vec2(Vec2&&) = default;
+		Vec2& operator=(const Vec2&) = default;
+		Vec2& operator=(Vec2&&) = default;
+
 		constexpr auto hash() const noexcept { return hashValues<size_t>(x, y); }
-		constexpr bool operator==(this auto& l, const Vec2& r) noexcept { return (l.x == r.x) && (l.y == r.y); }
+
+		template <std::integral U>
+		constexpr auto operator<=>(const Vec2<U>& r) const noexcept {
+			auto& l = *this;
+			bool xeq = l.x == r.x;
+			bool yeq = l.y == r.y;
+			bool xlt = l.x < r.x;
+			bool ylt = l.y < r.y;
+			if(xeq && yeq) return (1<=>1);
+			if(ylt || (yeq && xlt)) return (1<=>2);
+			return (2<=>1);
+		}
+
+		template <std::integral U>
+		constexpr bool operator==(const Vec2<U>& r) const noexcept { return x == r.x && y == r.y; };
 
 		template <std::integral U> requires (! std::same_as<U, T>)
 		constexpr operator Vec2<U>() const noexcept { return { U(x), U(y) }; }
 	};
+	static_assert(Vec2 { 1, 1 } == Vec2 { 1, 1 });
+	static_assert(Vec2 { 1, 1 } != Vec2 { 1, 2 });
+	static_assert(Vec2 { 1, 1 } <  Vec2 { 1, 2 });
+	static_assert(Vec2 { 1, 1 } <= Vec2 { 1, 2 });
+	static_assert(Vec2 { 1, 1 } >= Vec2 { 1, 0 });
+	static_assert(Vec2 { 1, 1 } >  Vec2 { 1, 0 });
 
 
 	using grid_object_class_e = uint8_t;

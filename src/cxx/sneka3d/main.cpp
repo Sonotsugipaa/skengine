@@ -23,7 +23,7 @@ extern "C" {
 }
 
 #include "config/config.hpp"
-#include "worldgen.inl.hpp"
+#include "worldgen.hpp"
 
 
 
@@ -214,9 +214,10 @@ namespace sneka {
 		static constexpr float cameraDistance = 2.5f;
 		static constexpr float cameraPitch = 0.75f;
 		static constexpr float speedBaseDefault = 2.5f;
+		static constexpr float speedBoostIncrement = 0.8f;
 		static constexpr float speedBoostDecayDn = 0.5f;
-		static constexpr float speedBoostDecayUp = 0.2f;
-		static constexpr float speedBoostFromInput = speedBoostDecayDn * 4.0f;
+		static constexpr float speedBoostDecayUp = 0.1f;
+		static constexpr float speedBoostFromInputMax = 3.0f;
 
 		enum class QuitReason : unsigned char {
 			eNoQuit = 1,
@@ -241,6 +242,7 @@ namespace sneka {
 			float         speedBoost;
 			QuitReason    quitReason;
 			bool          requestMapRegen;
+			bool          requestSpeedBoost;
 			bool changedDirectionSinceLastMacrotick; // Rolls off the tongue
 			void init() {
 				selectedLogic          = &Loop::snekaLogic;
@@ -259,6 +261,7 @@ namespace sneka {
 				speedBoost             = -0.5f * speedBase;
 				quitReason             = QuitReason::eNoQuit;
 				requestMapRegen        = false;
+				requestSpeedBoost      = false;
 				changedDirectionSinceLastMacrotick = false;
 			}
 			CallbackSharedState() { init(); }
@@ -313,7 +316,7 @@ namespace sneka {
 		}
 
 
-		void createWorld(const char* worldFilename, Vec2<uint64_t> startPos = { UINT64_MAX, UINT64_MAX }) {
+		void createWorld(const char* worldFilename) {
 			constexpr uint64_t defaultSideLength = 53;
 			auto sideLengthEnvvar = sneka::getenv("SNEKA_NEWWORLD_SIDE");
 			auto sideLength = decltype(numstr::repToNum<uint64_t>(std::string()))(defaultSideLength);
@@ -330,14 +333,9 @@ namespace sneka {
 			}
 			if(sideLength % uint64_t(2) == 0) sideLength = sideLength.value() + uint64_t(1);
 			world = World::initEmpty(sideLength, sideLength);
-			if(startPos.x == UINT64_MAX && startPos.y == UINT64_MAX) {
-				startPos.x = sideLength / uint64_t(2);
-				startPos.y = sideLength / uint64_t(2); }
 			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				generateWorld(logger, world, nullptr, startPos, std::minstd_rand(NOW_));
+				auto startPos = generateWorld(logger, world, nullptr, std::nullopt, NOW_);
 			#undef NOW_
-			world.entryPointX() = startPos.x;
-			world.entryPointY() = startPos.y;
 			world.setSceneryModel("world1-scenery.fma");
 			world.setPlayerHeadModel("default-player-head.fma");
 			world.addObjBoostModel("default-boost.fma");
@@ -406,16 +404,22 @@ namespace sneka {
 			auto inputLock = std::unique_lock(inputManMutex);
 			if(macrotickProgress >= 1.0f) [[unlikely]] {
 				-- macrotickProgress;
-				{ // Check and set the speed boost value according to user input
-					if(inputMan.isCommandActive(cmdBoost)) shState.speedBoost = speedBoostFromInput;
+				bool boostCmdActive = inputMan.isCommandActive(cmdBoost);
+				if(shState.requestSpeedBoost) {
+					shState.speedBoost = std::min(
+						shState.speedBoost + speedBoostIncrement,
+						speedBoostFromInputMax );
 				}
 				macrotickFrequency = shState.speedBase + shState.speedBoost;
 				bool changedDir = shState.changedDirectionSinceLastMacrotick;
 				shState.changedDirectionSinceLastMacrotick = false;
 				macrotickLock.unlock();
 
-				if     (shState.speedBoost > 0.0f) shState.speedBoost = std::max(0.0f, shState.speedBoost - speedBoostDecayDn);
-				else if(shState.speedBoost < 0.0f) shState.speedBoost = std::min(0.0f, shState.speedBoost + speedBoostDecayUp);
+				if(! boostCmdActive) {
+					shState.requestSpeedBoost = false;
+					if     (shState.speedBoost > 0.0f) shState.speedBoost = std::max(0.0f, shState.speedBoost - speedBoostDecayDn);
+					else if(shState.speedBoost < 0.0f) shState.speedBoost = std::min(0.0f, shState.speedBoost + speedBoostDecayUp);
+				}
 				inputLock.unlock();
 
 				const auto worldPos = *shState.playerHeadPos;
@@ -493,7 +497,7 @@ namespace sneka {
 			Dir dir = dirNone;
 			{ // Check for user input
 				auto inputLock = std::unique_lock(inputManMutex);
-				if(inputMan.isCommandActive(cmdBoost)) speed = deltaAvg * (speedBaseDefault + speedBoostFromInput);
+				if(inputMan.isCommandActive(cmdBoost)) speed = deltaAvg * (speedBaseDefault + speedBoostFromInputMax);
 				if     (inputMan.isCommandActive(cmdFwd)) dir = dirFwd;
 				else if(inputMan.isCommandActive(cmdBwd)) dir = dirBwd;
 				else if(inputMan.isCommandActive(cmdLft)) dir = dirLft;
@@ -638,7 +642,7 @@ namespace sneka {
 				bindKeyPressCb(SDLK_c, "general", [shStateCopy](auto&, auto) { shStateCopy->enableCulling = shStateCopy->enableCulling ^ 0b01; });
 				bindKeyPressCb(SDLK_r, "general", [shStateCopy](auto&, auto) { shStateCopy->requestMapRegen = true; });
 				bindKeyPressCb(SDLK_f, "general", [shStateCopy](auto&, auto) { cycleLogic(*shStateCopy); });
-				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [shStateCopy](auto&, auto) { shStateCopy->speedBoost = speedBoostFromInput; });
+				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [shStateCopy](auto&, auto) { shStateCopy->requestSpeedBoost = true; });
 			}
 
 			{ // Load models

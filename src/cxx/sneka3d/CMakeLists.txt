@@ -5,6 +5,7 @@ target_link_libraries(config-parser ctpg sflog)
 target_compile_options(config-parser PUBLIC -Wno-abi)
 
 add_executable(sneka3d
+	worldgen.cpp
 	world_v1.cpp
 	main.cpp )
 
