@@ -334,7 +334,7 @@ namespace sneka {
 			if(sideLength % uint64_t(2) == 0) sideLength = sideLength.value() + uint64_t(1);
 			world = World::initEmpty(sideLength, sideLength);
 			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				auto startPos = generateWorld(logger, world, nullptr, std::nullopt, NOW_);
+				generateWorld(logger, world, std::nullopt, NOW_);
 			#undef NOW_
 			world.setSceneryModel("world1-scenery.fma");
 			world.setPlayerHeadModel("default-player-head.fma");
@@ -717,7 +717,7 @@ namespace sneka {
 						auto l = wr.createPointLight(ske::WorldRenderer::NewPointLight {
 							.position = {
 								newObject.position_xyz.x,
-								0.6f,
+								0.4f,
 								newObject.position_xyz.z },
 							.color = { 1.0f, 1.0f, 0.0f },
 							.intensity = 0.25f,
@@ -861,6 +861,19 @@ namespace sneka {
 				sharedState->enableCulling = cullingIsEnabled | (cullingIsEnabled << 1);
 				rproc->worldRenderer()->setFrustumCulling(cullingIsEnabled);
 				logger.info("{}abled frustum culling", cullingIsEnabled? "En":"Dis");
+			}
+
+			{ // Animate point objects
+				ske::ObjectStorage& pointsOs = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
+				auto height = 0.1 * (1.0 - (glm::cos(3.0 * std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(std::chrono::steady_clock::now().time_since_epoch()).count() / 1000.0)));
+				for(auto&& pt : pointObjects) {
+					auto modObj = * pointsOs.modifyObject(pt.second.first);
+					modObj.position_xyz.y = height;
+					modObj.direction_ypr.x += deltaAvg * tickreg::delta_t(2.0);
+					modObj.direction_ypr.x = modObj.direction_ypr.x - (std::floor(modObj.direction_ypr.x / PI2) * PI2);
+					auto& modLgt = rproc->worldRenderer()->modifyPointLight(pt.second.second);
+					modLgt.position.y = height + 0.5;
+				}
 			}
 
 			updateViewPosRot(deltaAvg);
