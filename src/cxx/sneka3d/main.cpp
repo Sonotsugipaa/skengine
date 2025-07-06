@@ -337,9 +337,10 @@ namespace sneka {
 			}
 			if(sideLength % uint64_t(2) == 0) sideLength = sideLength.value() + uint64_t(1);
 			world = World::initEmpty(sideLength, sideLength);
-			#define NOW_ std::chrono::steady_clock::now().time_since_epoch().count()
-				generateWorld(logger, world, std::nullopt, NOW_);
-			#undef NOW_
+			auto worldSeed = std::chrono::duration_cast<std::chrono::duration<uint64_t, std::milli>>(std::chrono::steady_clock::now().time_since_epoch()).count();
+			worldSeed = std::rotl(worldSeed, 17) ^ std::rotr(worldSeed, 5) ^ std::rotl(worldSeed, 4) ^ std::rotr(worldSeed, 20);
+			logger.info("Generating world with seed: {:16x}", worldSeed);
+			generateWorld(logger, world, std::nullopt, worldSeed);
 			world.setSceneryModel("world1-scenery.fma");
 			world.setPlayerHeadModel("default-player-head.fma");
 			world.addObjBoostModel("default-boost.fma");

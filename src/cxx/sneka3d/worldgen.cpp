@@ -459,6 +459,14 @@ namespace sneka {
 				.pointObjProb = pointObjProb,
 				.pointObjContProb = pointObjContProb
 			};
+			{ // Find the starting point
+				auto originZone = Pos(actualOrigin.x / w, actualOrigin.y / h);
+				auto zoneRng = mkRngFromPos(seed, originZone);
+				auto mzRect = getZoneRect(originZone, avgZoneSize, worldBounds);
+				auto xDist = std::uniform_int_distribution(mzRect.left, mzRect.right);
+				auto yDist = std::uniform_int_distribution(mzRect.top, mzRect.bottom);
+				actualOrigin = Pos(xDist(zoneRng), yDist(zoneRng));
+			}
 			for(scomp_t x = 0; x < zoneCountHoz; ++x)
 			for(scomp_t y = 0; y < zoneCountVrt; ++y) {
 				auto midZone = Pos(x, y);
