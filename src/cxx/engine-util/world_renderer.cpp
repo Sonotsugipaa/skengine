@@ -577,6 +577,7 @@ namespace SKENGINE_NAME_NS {
 				auto  batches  = objStorage.getDrawBatches();
 				auto& gfOsData = wgf.osData[osIdx];
 
+				if(gfOsData.objIdBfCopy.second < 1) continue;
 				if(batches.empty()) continue;
 
 				ModelId    last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));

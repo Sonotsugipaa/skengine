@@ -885,8 +885,10 @@ namespace sneka {
 					modObj.position_xyz.y = height;
 					modObj.direction_ypr.x += deltaAvg * tickreg::delta_t(2.0);
 					modObj.direction_ypr.x = modObj.direction_ypr.x - (std::floor(modObj.direction_ypr.x / PI2) * PI2);
-					auto& modLgt = rproc->worldRenderer()->modifyPointLight(pt.second.second);
-					modLgt.position.y = height + 0.5;
+					if(pt.second.second != idgen::invalidId<ske::ObjectId>()) {
+						auto& modLgt = rproc->worldRenderer()->modifyPointLight(pt.second.second);
+						modLgt.position.y = height + 0.5;
+					}
 				}
 			}
 
