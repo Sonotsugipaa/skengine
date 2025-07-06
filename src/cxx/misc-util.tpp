@@ -7,8 +7,6 @@
 #include <memory>
 #include <cassert>
 
-#include "misc-util.tpp.d/numstr.tpp"
-
 
 
 namespace util {

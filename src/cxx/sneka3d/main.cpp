@@ -25,6 +25,9 @@ extern "C" {
 #include "config/config.hpp"
 #include "worldgen.hpp"
 
+#include <misc-util.tpp.d/numstr.tpp>
+#include <misc-util.tpp.d/rwmutex.tpp>
+
 
 
 namespace sneka {
@@ -283,6 +286,7 @@ namespace sneka {
 		std::shared_ptr<ske::BasicRenderProcess> rproc;
 		std::shared_ptr<CallbackSharedState> sharedState;
 		ske::InputManager inputMan;
+		util::RwMutex engineStateMutex;
 		ModelIdStorage mdlIds;
 		BasicUmap<Vec2<int64_t>, std::pair<ske::ObjectId, ske::ObjectId>> pointObjects;
 		std::mutex inputManMutex;
@@ -428,9 +432,12 @@ namespace sneka {
 				auto zApprox = std::floorf(worldPos.z + 0.5f);
 
 				{ // Player-environment interaction
+					auto esRdLock = engineStateMutex.acquireReadLock();
 					auto obj = pointObjects.find({ gridPos.x, gridPos.y });
 					if(obj != pointObjects.end()) [[unlikely]] {
 						ske::ObjectStorage& pointsOs = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
+						esRdLock = nullptr;
+						auto esWrLock = engineStateMutex.acquireWriteLock();
 						pointsOs.removeObject(engine->getTransferContext(), obj->second.first);
 						if(obj->second.second != idgen::invalidId<ske::ObjectId>())
 							rproc->worldRenderer()->removeLight(obj->second.second);
@@ -450,9 +457,11 @@ namespace sneka {
 					auto zDiff = (zApprox + shState.lastDir[1]) - worldPos.z;
 					auto yaw = std::atan2f(+shState.lastDir[0], -shState.lastDir[1]);
 					{ // Animation mutex lock
-						auto lock = std::unique_lock(shState.animMutex);
+						auto animLock = std::unique_lock(shState.animMutex);
+						inputLock.lock();
 						if(changedDir) {
 							auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
+							auto esRdLock = engineStateMutex.acquireReadLock();
 							auto curDir = [&]() { auto r = plrOs.getObject(this->playerHead); return (r.has_value()? r.value()->direction_ypr : glm::vec3 { }); } ();
 							auto targetDir = curDir;
 							targetDir.x = yaw;
@@ -477,6 +486,7 @@ namespace sneka {
 							shState.playerHeadPos,
 							worldPos,
 							glm::vec3 { xDiff, 0.0f, zDiff } );
+						inputLock.unlock();
 					}
 				}
 			}
@@ -524,6 +534,7 @@ namespace sneka {
 
 
 		void setLogic(LogicFn fn) {
+			auto lock = std::unique_lock(inputManMutex);
 			{ // Macrotick related resets
 				auto lock = std::unique_lock(macrotickMutex);
 				macrotickProgress = 1;
@@ -531,7 +542,6 @@ namespace sneka {
 				sharedState->speedBoost = 0.0f;
 				sharedState->changedDirectionSinceLastMacrotick = true;
 			}
-			auto lock = std::unique_lock(inputManMutex);
 			sharedState->selectedLogic = fn;
 			currentLogic = fn;
 		}
@@ -575,7 +585,7 @@ namespace sneka {
 			ske::ObjectStorage& pointOs   = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
 			ske::WorldRenderer& wr = * rproc->worldRenderer();
 			sharedState->init();
-			pointObjects.clear();
+			engineStateMutex.write([&]() { pointObjects.clear(); });
 			setLogic(&Loop::snekaLogic);
 
 			{ // Input management
@@ -697,6 +707,7 @@ namespace sneka {
 				worldOffset = { int64_t(xGridCenter), int64_t(yGridCenter) };
 				auto& tc = engine->getTransferContext();
 				auto rng = std::minstd_rand(std::chrono::system_clock::now().time_since_epoch().count());
+				auto engineStateLock = engineStateMutex.acquireWriteLock();
 				auto newObject = ske::ObjectStorage::NewObject {
 					{ }, { }, { }, { 1.0f, 1.0f, 1.0f }, false };
 				auto tryCreate = [&](ske::ObjectStorage& os, ske::ModelId mdl) {
@@ -794,6 +805,7 @@ namespace sneka {
 
 
 		void loop_end() noexcept override {
+			auto inputLock = std::unique_lock(inputManMutex);
 			inputMan.clear();
 		}
 
@@ -866,6 +878,7 @@ namespace sneka {
 			{ // Animate point objects
 				ske::ObjectStorage& pointsOs = rproc->getObjectStorage(OBJSTG_POINTS_IDX);
 				auto height = 0.1 * (1.0 - (glm::cos(3.0 * std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(std::chrono::steady_clock::now().time_since_epoch()).count() / 1000.0)));
+				auto esRdLock = engineStateMutex.acquireWriteLock();
 				for(auto&& pt : pointObjects) {
 					auto modObj = * pointsOs.modifyObject(pt.second.first);
 					modObj.position_xyz.y = height;
