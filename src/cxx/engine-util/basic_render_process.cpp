@@ -173,7 +173,7 @@ namespace SKENGINE_NAME_NS {
 		const auto& worldRpassId = depGraph.addRpass(worldRpDesc);
 		const auto& uiRpassId    = depGraph.addRpass(uiRpDesc   );
 		VkClearValue depthClr = { .depthStencil { .depth = 1.0f, .stencil = 0 } };
-		VkClearValue worldClr[4] = {
+		VkClearValue worldClr[2] = {
 			{ .color = { 0.035f, 0.062f, 0.094f, 1.0f } }, depthClr };
 		VkClearValue uiClr[2] = {
 			{ .color = { 0.0f,   0.0f,   0.0f,   0.0f } }, depthClr };

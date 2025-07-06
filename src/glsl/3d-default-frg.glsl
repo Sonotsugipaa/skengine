@@ -164,9 +164,7 @@ float aoa_fade(float value, float angle_of_attack, float threshold) {
 }
 
 float aoa_with_threshold(float value, float threshold) {
-	threshold = min(threshold, threshold_limit);
-	threshold = 1.0 / (1.0 - threshold);
-	return clamp(value * threshold, 0.0, 1.0);
+	return min(value * (threshold + 1.0), 1.0);
 }
 
 vec3 color_rgb_non_zero(vec4 v) {
