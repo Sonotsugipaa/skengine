@@ -70,6 +70,7 @@ layout(location = 8) in mat3 frg_view3;
 
 layout(location = 0) out vec4 out_col;
 
+const float zero_alpha_threshold = 1.0 / 256.0;
 const float normal_backface_bias = 0.1;
 const float threshold_limit      = 1.0 - (1.0 / 65536.0);
 const float pi                   = 3.14159265358;
@@ -328,6 +329,14 @@ void main() {
 	vec3 tex_nrm = texture(tex_nrmSampler, frg_tex).rgb;
 	vec4 tex_spc = texture(tex_spcSampler, frg_tex);
 	vec4 tex_emi = texture(tex_emiSampler, frg_tex);
+
+	if(
+		(tex_dfs.a < zero_alpha_threshold) && (
+			(tex_spc.a < zero_alpha_threshold) || (
+				(tex_spc.r < zero_alpha_threshold) &&
+				(tex_spc.g < zero_alpha_threshold) &&
+				(tex_spc.b < zero_alpha_threshold) ) )
+	) discard;
 
 	tex_nrm = unorm_correct(tex_nrm);
 	tex_nrm = normalize((tex_nrm * 2.0) - 1.0);

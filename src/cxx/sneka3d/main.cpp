@@ -348,6 +348,8 @@ namespace sneka {
 			world.addObjObstacleModel("crate-obstacle.fma");
 			world.addObjObstacleModel("chair-bundle.fma");
 			world.addObjWallModel("crate-wall.fma");
+			world.addObjWallModel("crate-wall-open.fma");
+			world.addObjWallModel("crate-wall-gold.fma");
 			world.addObjWallModel("prism-wall.fma");
 			world.toFile(worldFilename);
 		}
@@ -357,10 +359,6 @@ namespace sneka {
 			auto& wr = * rproc->worldRenderer();
 			auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
 
-			constexpr auto biasedAverage = [](float src, float target, float bias) -> float {
-				return (src + (target * bias)) / (1.0f + bias); };
-
-			constexpr float headRotBias = 8.0f;
 			constexpr float macrotickAnimRatio = 0.99f; // Used to encourage macrotick-tied animations to finish after the macrotick (ideally being interrupted)
 
 			auto& shState = *sharedState;
@@ -470,7 +468,7 @@ namespace sneka {
 							UNLIKELY_WHILE_(targetDir.x - curDir.x >= +PI, targetDir.x -= PI2);
 							UNLIKELY_WHILE_(targetDir.x - curDir.x <= -PI, targetDir.x += PI2);
 							#undef UNLIKELY_WHILE_
-							shState.steadyAnimSet.start<anim::inplace::VecSwingBack<typename ske::ConcurrentAnimation<glm::vec3>>>(
+							shState.steadyAnimSet.start<anim::inplace::VecSwingBack<typename ske::ConcurrentAnimation<glm::vec3, true>>>(
 								0.3, ske::AnimEndAction::eClampThenTerminate,
 								shState.playerHeadPosMisc,
 								glm::vec3 { },
@@ -498,7 +496,6 @@ namespace sneka {
 			(void) deltaAvg;
 
 			auto& shState = *sharedState;
-			auto& plrOs = rproc->getObjectStorage(OBJSTG_PLAYER_IDX);
 			const auto worldPos = *shState.playerHeadPos;
 
 			using dir_e = unsigned char;
@@ -516,7 +513,6 @@ namespace sneka {
 				else speed = 0;
 				inputLock.unlock();
 			}
-			bool dirLateral = (dir == dirLft) || (dir == dirRgt);
 			if(dir == dirFwd) speed = -speed;
 
 			{ // Player movement
@@ -654,6 +650,9 @@ namespace sneka {
 				bindKeyPressCb(SDLK_r, "general", [shStateCopy](auto&, auto) { shStateCopy->requestMapRegen = true; });
 				bindKeyPressCb(SDLK_f, "general", [shStateCopy](auto&, auto) { cycleLogic(*shStateCopy); });
 				cmdBoost = bindKeyHoldCb(SDLK_LSHIFT, "general", [shStateCopy](auto&, auto) { shStateCopy->requestSpeedBoost = true; });
+				inputMan.bindCommand(cmdBoost, ske::Binding {
+					ske::InputMapKey { ske::inputIdFromSdlKey(SDLK_SPACE), ske::InputState::eActive },
+					std::string("general") });
 			}
 
 			{ // Load models

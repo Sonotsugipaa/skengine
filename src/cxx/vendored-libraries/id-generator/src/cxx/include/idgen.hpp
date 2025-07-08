@@ -36,7 +36,6 @@ namespace idgen {
 
 	// invalidId < minId  ||  maxId < invalidId
 	// baseid <= generate() <= maxId
-	// INVALID < minId <= baseId <= generate() <= maxId < INVALID
 
 	template <SignedInt   T> constexpr T baseId()    noexcept { return 0; }
 	template <UnsignedInt T> constexpr T baseId()    noexcept { return 1; }
@@ -50,6 +49,18 @@ namespace idgen {
 	template <ScopedEnum T> constexpr T invalidId() noexcept { return T(invalidId<std::underlying_type_t<T>>()); }
 	template <ScopedEnum T> constexpr T minId()     noexcept { return T(minId<std::underlying_type_t<T>>()); }
 	template <ScopedEnum T> constexpr T maxId()     noexcept { return T(maxId<std::underlying_type_t<T>>()); }
+
+	template <SignedInt   T> constexpr bool isBaseId(T e)    noexcept { return e == baseId<T>(e); }
+	template <UnsignedInt T> constexpr bool isBaseId(T e)    noexcept { return e == baseId<T>(e); }
+	template <SignedInt   T> constexpr bool isInvalidId(T e) noexcept { return e == isInvalidId<T>(e); }
+	template <UnsignedInt T> constexpr bool isInvalidId(T e) noexcept { return e == isInvalidId<T>(e); }
+	template <SignedInt   T> constexpr bool isMinId(T e)     noexcept { return e == isMinId<T>(e); }
+	template <UnsignedInt T> constexpr bool isMinId(T e)     noexcept { return e == isMinId<T>(e); }
+	template <GenericInt  T> constexpr bool isMaxId(T e)     noexcept { return e == isMaxId<T>(e); }
+	template <ScopedEnum T> constexpr bool isBaseId(T e)    noexcept { return isBaseId<std::underlying_type_t<T>>(e); }
+	template <ScopedEnum T> constexpr bool isInvalidId(T e) noexcept { return isInvalidId<std::underlying_type_t<T>>(e); }
+	template <ScopedEnum T> constexpr bool isMinId(T e)     noexcept { return isMinId<std::underlying_type_t<T>>(e); }
+	template <ScopedEnum T> constexpr bool isMaxId(T e)     noexcept { return isMaxId<std::underlying_type_t<T>>(e); }
 
 	static_assert(invalidId<int8_t>() == -128);
 	static_assert(minId<int8_t>()     == -127);

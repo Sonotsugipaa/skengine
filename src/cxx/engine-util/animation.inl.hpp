@@ -97,7 +97,7 @@ namespace SKENGINE_NAME_NS {
 	};
 
 
-	template <ConcurrentAnimationValueType> class ConcurrentAnimation;
+	template <ConcurrentAnimationValueType, bool> class ConcurrentAnimation;
 
 	template <ConcurrentAnimationValueType T>
 	class ConcurrentAnimationVar {
@@ -116,14 +116,15 @@ namespace SKENGINE_NAME_NS {
 		auto& offset(this auto& self) noexcept { return self.bav_offset; }
 
 	protected:
-		friend ConcurrentAnimation<T>;
+		friend ConcurrentAnimation<T, false>;
+		friend ConcurrentAnimation<T, true>;
 		struct SharedState { Token tokenCtr = Token(0); std::map<Token, T> values; };
 		ValueType bav_offset;
 		std::shared_ptr<SharedState> bav_sharedState;
 	};
 
 
-	template <ConcurrentAnimationValueType value_type_tp>
+	template <ConcurrentAnimationValueType value_type_tp, bool persistent_change_tp = false>
 	class ConcurrentAnimation : public Animation {
 	public:
 		using VarType = ConcurrentAnimationVar<value_type_tp>;
@@ -146,7 +147,9 @@ namespace SKENGINE_NAME_NS {
 		}
 
 		virtual ~ConcurrentAnimation() {
-			if(Animation::getProgress() != anim_x_t(0.0)) ca_var.offset() = ca_var.offset() + value();
+			if constexpr (persistent_change_tp)
+			if(Animation::getProgress() != anim_x_t(0.0)) {
+				ca_var.offset() = ca_var.offset() + value(); }
 			ca_var.bav_sharedState->values.erase(ca_token);
 		}
 
