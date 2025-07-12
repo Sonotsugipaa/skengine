@@ -162,11 +162,11 @@ namespace sneka {
 
 	struct Rect {
 		scomp_t left;
-		scomp_t top;
-		scomp_t right;
 		scomp_t bottom;
+		scomp_t right;
+		scomp_t top;
 		ucomp_t width () const noexcept { return right - left + 1; }
-		ucomp_t height() const noexcept { return bottom - top + 1; }
+		ucomp_t height() const noexcept { return top - bottom + 1; }
 	};
 
 
@@ -182,21 +182,21 @@ namespace sneka {
 		auto findNeighbors = [&](const Pos& p) {
 			foundNeighbors.clear();
 			if(p.x > bounds.left)   [[likely]] foundNeighbors.emplace_back(p.x - 1, p.y);
-			if(p.y > bounds.top)    [[likely]] foundNeighbors.emplace_back(p.x, p.y - 1);
+			if(p.y > bounds.bottom) [[likely]] foundNeighbors.emplace_back(p.x, p.y - 1);
 			if(p.x < bounds.right)  [[likely]] foundNeighbors.emplace_back(p.x + 1, p.y);
-			if(p.y < bounds.bottom) [[likely]] foundNeighbors.emplace_back(p.x, p.y + 1);
+			if(p.y < bounds.top)    [[likely]] foundNeighbors.emplace_back(p.x, p.y + 1);
 			assert(foundNeighbors.size() >= 2);
 			std::shuffle(foundNeighbors.begin(), foundNeighbors.end(), rng);
 		};
-		for(scomp_t x = bounds.left; x <= bounds.right;  ++ x)
-		for(scomp_t y = bounds.top;  y <= bounds.bottom; ++ y) {
+		for(scomp_t x = bounds.left;   x <= bounds.right; ++ x)
+		for(scomp_t y = bounds.bottom; y <= bounds.top;   ++ y) {
 			unexplored.emplace(x, y);
 		}
 		while(! unexplored.empty()) {
 			std::set<Pos>::iterator p0iter; do {
 				p0iter = unexplored.lower_bound(Pos(
 					genInt(rng, bounds.left, bounds.right),
-					genInt(rng, bounds.top, bounds.bottom) ));
+					genInt(rng, bounds.bottom, bounds.top) ));
 			} while(p0iter == unexplored.end());
 			auto& p0 = *p0iter;
 			findNeighbors(p0);
@@ -208,8 +208,8 @@ namespace sneka {
 			}
 			unexplored.erase(p0iter);
 		}
-		for(scomp_t x = bounds.left; x <= bounds.right;  ++ x)
-		for(scomp_t y = bounds.top;  y <= bounds.bottom; ++ y) {
+		for(scomp_t x = bounds.left;   x <= bounds.right; ++ x)
+		for(scomp_t y = bounds.bottom; y <= bounds.top;   ++ y) {
 			Pos p = { x, y };
 			auto incidence = dst->countEdgesThrough(p);
 			if(incidence > 2) continue;
@@ -276,15 +276,15 @@ namespace sneka {
 	auto getZoneRect(const Pos& zonePos, const Vec2<ucomp_t>& avgZoneSize, const Rect& bounds) {
 		Pos tl = { zonePos.x * scomp_t(avgZoneSize.x), zonePos.y * scomp_t(avgZoneSize.y) };
 		assert(tl.x >= bounds.left);
-		assert(tl.y >= bounds.top);
+		assert(tl.y >= bounds.bottom);
 		assert(tl.x <= bounds.right);
-		assert(tl.y <= bounds.bottom);
+		assert(tl.y <= bounds.top);
 		auto r = Rect {
 			std::max<scomp_t>(tl.x, scomp_t(bounds.left)),
-			std::max<scomp_t>(tl.y, scomp_t(bounds.top)),
+			std::max<scomp_t>(tl.y, scomp_t(bounds.bottom)),
 			std::min<scomp_t>(tl.x + scomp_t(avgZoneSize.x), scomp_t(bounds.right)),
-			std::min<scomp_t>(tl.y + scomp_t(avgZoneSize.y), scomp_t(bounds.bottom)) };
-		assert(r.top <= r.bottom);
+			std::min<scomp_t>(tl.y + scomp_t(avgZoneSize.y), scomp_t(bounds.top)) };
+		assert(r.bottom <= r.top);
 		assert(r.left <= r.right);
 		return r;
 	};
@@ -300,12 +300,12 @@ namespace sneka {
 		scomp_t sideComp;
 		if(diffIsHoz) {
 			sideOffset = std::uniform_int_distribution<scomp_t>(
-				mzRect.top , mzRect.bottom )(zoneRng);
+				mzRect.bottom , mzRect.top )(zoneRng);
 			sideComp = (mzp.x < ozp.x)? mzRect.right : mzRect.left;
 		} else {
 			sideOffset = std::uniform_int_distribution<scomp_t>(
 				mzRect.left, mzRect.right  )(zoneRng);
-			sideComp = (mzp.y < ozp.y)? mzRect.bottom : mzRect.top;
+			sideComp = (mzp.y < ozp.y)? mzRect.top : mzRect.bottom;
 		}
 		auto r = diffIsHoz?
 			Pos(sideComp, sideOffset) :
@@ -333,7 +333,7 @@ namespace sneka {
 		auto zoneRng = mkRngFromPos(seed, zonePos);
 		auto mzRect = getZoneRect(zonePos, params.avgZoneSize, params.bounds);
 		auto xDist = std::uniform_int_distribution(mzRect.left, mzRect.right);
-		auto yDist = std::uniform_int_distribution(mzRect.top, mzRect.bottom);
+		auto yDist = std::uniform_int_distribution(mzRect.bottom, mzRect.top);
 		auto midPoint = Pos(xDist(zoneRng), yDist(zoneRng));
 		bool lastPathHadPoints = false;
 
@@ -363,7 +363,7 @@ namespace sneka {
 			};
 			auto move = [&]() {
 				assert(curPos.x <= params.bounds.right);
-				assert(curPos.y <= params.bounds.bottom);
+				assert(curPos.y <= params.bounds.top);
 				setTile(curPos.x, curPos.y);
 				*curComp += step;
 			};
@@ -434,8 +434,8 @@ namespace sneka {
 		Pos actualOrigin = origin.has_value()?
 			origin.value() :
 			Pos(
-				genInt(rng, zoneGridBounds.left,  zoneGridBounds.top),
-				genInt(rng, zoneGridBounds.right, zoneGridBounds.bottom) );
+				genInt(rng, zoneGridBounds.left,  zoneGridBounds.bottom),
+				genInt(rng, zoneGridBounds.right, zoneGridBounds.top) );
 		Dgraph zoneGraph; { // Select zones
 			randomGraphFromGrid(
 				&zoneGraph, rng,
@@ -464,7 +464,7 @@ namespace sneka {
 				auto zoneRng = mkRngFromPos(seed, originZone);
 				auto mzRect = getZoneRect(originZone, avgZoneSize, worldBounds);
 				auto xDist = std::uniform_int_distribution(mzRect.left, mzRect.right);
-				auto yDist = std::uniform_int_distribution(mzRect.top, mzRect.bottom);
+				auto yDist = std::uniform_int_distribution(mzRect.bottom, mzRect.top);
 				actualOrigin = Pos(xDist(zoneRng), yDist(zoneRng));
 			}
 			for(scomp_t x = 0; x < zoneCountHoz; ++x)

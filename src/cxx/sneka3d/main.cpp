@@ -310,13 +310,13 @@ namespace sneka {
 
 
 		auto gridToWorld(Vec2<int64_t> g, float height) {
-			return glm::vec3 { +g.x - worldOffset.x, height, +g.y + worldOffset.y };
+			return glm::vec3 { +g.x - worldOffset.x, height, +g.y - worldOffset.y };
 		}
 
 		auto worldToGrid(glm::vec3 w) {
 			w.x = std::floorf(+w.x + 0.5f);
 			w.z = std::floorf(+w.z + 0.5f);
-			return Vec2<int64_t> { int64_t(w.x) + worldOffset.x, int64_t(w.z) - worldOffset.y };
+			return Vec2<int64_t> { int64_t(w.x) + worldOffset.x, int64_t(w.z) + worldOffset.y };
 		}
 
 
