@@ -169,11 +169,12 @@ namespace SKENGINE_NAME_NS {
 			assert(wgf.osData.size() == objStorages.size());
 			for(size_t osIdx = 0; auto& os : objStorages) {
 				auto& gfOsData = wgf.osData[osIdx];
-				size_t objBytes   = os.getDrawCount()      * sizeof(dev::Object);
-				size_t objIdBytes = os.getDrawCount()      * sizeof(dev::ObjectId);
+				auto   drawCount  = os.getDrawCount();
+				size_t objBytes   = drawCount              * sizeof(dev::Object);
+				size_t objIdBytes = drawCount              * sizeof(dev::ObjectId);
 				size_t cmdBytes   = os.getDrawBatchCount() * sizeof(VkDrawIndexedIndirectCommand);
-				world::resize_obj_buffer     (vma, &gfOsData.objBfCopy,     os.getDrawCount());
-				world::resize_obj_id_buffer  (vma, &gfOsData.objIdBfCopy,   os.getDrawCount());
+				world::resize_obj_buffer     (vma, &gfOsData.objBfCopy,     drawCount);
+				world::resize_obj_id_buffer  (vma, &gfOsData.objIdBfCopy,   drawCount);
 				world::resize_draw_cmd_buffer(vma, &gfOsData.drawCmdBfCopy, os.getDrawBatchCount());
 				VkBufferMemoryBarrier2 bars[2] = { };
 				bars[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;

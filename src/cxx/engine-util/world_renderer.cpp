@@ -494,9 +494,10 @@ namespace SKENGINE_NAME_NS {
 			// Create the buffers for draw command copies
 			for(size_t i = 0; auto& os : *mState.objectStorages) {
 				wgf.osData.push_back({ });
+				auto  drawCount = os.getDrawCount();
 				auto& data = wgf.osData.back();
-				world::resize_obj_buffer     (vma, &data.objBfCopy,     os.getDrawCount());
-				world::resize_obj_id_buffer  (vma, &data.objIdBfCopy,   os.getDrawCount());
+				world::resize_obj_buffer     (vma, &data.objBfCopy,     drawCount);
+				world::resize_obj_id_buffer  (vma, &data.objIdBfCopy,   drawCount);
 				world::resize_draw_cmd_buffer(vma, &data.drawCmdBfCopy, os.getDrawBatchCount());
 				data.cullPassUbo = world::create_cull_pass_ubo(vma);
 				++ i;
@@ -572,13 +573,15 @@ namespace SKENGINE_NAME_NS {
 
 		VkDescriptorSet dsets[]  = { wgf.frameDset, { } };
 		auto draw = [&](uint32_t subpassIdx) {
-			for(size_t osIdx = 0; auto& objStorage: objStorages) {
+			for(size_t osIdx = 0; osIdx < objStorages.size(); ++ osIdx) {
 				assert(osIdx < wgf.osData.size());
-				auto  batches  = objStorage.getDrawBatches();
-				auto& gfOsData = wgf.osData[osIdx];
+				auto& objStorage = objStorages[osIdx];
+				auto  batches    = objStorage.getDrawBatches();
+				auto& gfOsData   = wgf.osData[osIdx];
 
-				if(gfOsData.objIdBfCopy.second < 1) continue;
-				if(batches.empty()) continue;
+				if(objStorage.getDrawCount() < 1) continue;
+				assert(! batches.empty());
+				assert(gfOsData.objIdBfCopy.second > 0);
 
 				ModelId    last_mdl = ModelId    (~ model_id_e    (batches.front().model_id));
 				MaterialId last_mat = MaterialId (~ material_id_e (batches.front().material_id));
@@ -608,7 +611,6 @@ namespace SKENGINE_NAME_NS {
 						sizeof(VkDrawIndexedIndirectCommand) );
 					++ batchIdx;
 				}
-				++ osIdx;
 			}
 		};
 
