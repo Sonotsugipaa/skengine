@@ -175,10 +175,11 @@ namespace SKENGINE_NAME_NS {
 
 	enum class AnimEndAction : anim_id_e {
 		eRepeat             = 1,
-		eTerminate          = 2,
-		eClampThenTerminate = 3,
-		ePause              = 4,
-		eClampThenPause     = 5
+		eClampThenRepeat    = 2,
+		eTerminate          = 3,
+		eClampThenTerminate = 4,
+		ePause              = 5,
+		eClampThenPause     = 6
 	};
 
 	enum class AnimState : anim_id_e {
@@ -231,8 +232,11 @@ namespace SKENGINE_NAME_NS {
 					case ePause: [[fallthrough]];
 					case eTerminate:
 						break;
-					case eClampThenPause: [[fallthrough]];
-					case eClampThenTerminate:
+					case eClampThenRepeat:
+						anim->second.anim->reset();
+						break;
+					case eClampThenTerminate: [[fallthrough]];
+					case eClampThenPause:
 						anim->second.anim->setProgress(anim_x_t(1));
 						break;
 				}
@@ -280,27 +284,27 @@ namespace SKENGINE_NAME_NS {
 			for(auto id : stopIds) {
 				auto anim = anim_set_activeAnims.find(id);
 				switch(anim->second.endAction) {
-					default: [[fallthrough]];
+					case eRepeat:
+						anim->second.anim->fwd(anim_x_t(-1) + xDelta - std::floor(xDelta));
+						break;
+					case eClampThenRepeat:
+						anim->second.anim->reset();
+						[[fallthrough]];
+					default:
+						break;
+					case eClampThenTerminate:
+						anim->second.anim->setProgress(anim_x_t(1));
+						[[fallthrough]];
 					case eTerminate:
 						anim_set_activeAnims.erase(anim);
 						anim_set_idGenerator.recycle(id);
 						break;
-					case eClampThenTerminate:
+					case eClampThenPause:
 						anim->second.anim->setProgress(anim_x_t(1));
-						anim_set_activeAnims.erase(anim);
-						anim_set_idGenerator.recycle(id);
-						break;
+						[[fallthrough]];
 					case ePause:
 						anim_set_pausedAnims.insert(std::move(*anim));
 						anim_set_activeAnims.erase(id);
-						break;
-					case eClampThenPause:
-						anim->second.anim->setProgress(anim_x_t(1));
-						anim_set_pausedAnims.insert(std::move(*anim));
-						anim_set_activeAnims.erase(id);
-						break;
-					case eRepeat:
-						anim->second.anim->reset();
 						break;
 				}
 			}
