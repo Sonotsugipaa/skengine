@@ -270,18 +270,20 @@ namespace SKENGINE_NAME_NS {
 				constexpr auto scale = [](glm::mat4* dst, const glm::vec3& scl) {
 					*dst = glm::scale(*dst, scl);
 				};
-				auto model_transf = identity;
-				translate (&model_transf, job.position.object);
-				translate (&model_transf, job.position.bone);
-				translate (&model_transf, job.position.bone_instance);
 				auto scale_mat = identity;
-				rotate    (&scale_mat, job.direction.object);
-				rotate    (&scale_mat, job.direction.bone);
-				rotate    (&scale_mat, job.direction.bone_instance);
 				scale     (&scale_mat, job.scale.object);
 				scale     (&scale_mat, job.scale.bone);
 				scale     (&scale_mat, job.scale.bone_instance);
-				model_transf = model_transf * scale_mat;
+				auto model_transf = identity;
+				translate (&model_transf, job.position.object);
+				rotate    (&model_transf, job.direction.object);
+				scale     (&model_transf, job.scale.object);
+				translate (&model_transf, job.position.bone);
+				rotate    (&model_transf, job.direction.bone);
+				scale     (&model_transf, job.scale.bone);
+				translate (&model_transf, job.position.bone_instance);
+				rotate    (&model_transf, job.direction.bone_instance);
+				scale     (&model_transf, job.scale.bone_instance);
 				auto cull_sphere = glm::vec4(glm::vec3(job.mesh.cull_sphere), 1.0);
 				auto scaled_cube = glm::vec3(glm::vec4(1.0, 1.0, 1.0, 1.0) * scale_mat);
 				cull_sphere = model_transf * cull_sphere;
